@@ -33,39 +33,48 @@ async function driveScenario(opts: FullFlowOptions = {}) {
   scenario.onConnect?.(rec)
   const cleanup = scenario.onStart?.(rec)
   scenario.onAction?.(rec, 'watchGame', {}, 1)
-  // dejar que el timeline (updateMs) emita algunos updates antes de leer
+  // let the timeline (updateMs) emit a few updates before reading
   await new Promise((r) => setTimeout(r, 25))
   cleanup?.()
   return { rec }
 }
 
-describe('schema del contrato (anti-deriva)', () => {
-  it('valida los envelopes del proxy', () => {
+const llmSeat = {
+  type: 'llmSeat', seq: 4, tableId: 't1', seat: 2, username: 'ChatGPT 2',
+  provider: 'chatgpt_subscription', model: 'gpt-6-luna', effort: 'low', status: 'starting',
+}
+
+describe('contract schema (drift guard)', () => {
+  it('accepts the proxy envelopes', () => {
     expect(validateMessage({ type: 'connected', message: 'hi' }).ok).toBe(true)
     expect(validateMessage({ type: 'result', action: 'connect', requestId: 1, ok: true }).ok).toBe(true)
     expect(validateMessage({ type: 'event', method: 'GAME_SELECT', messageId: 3, objectId: 'g1' }).ok).toBe(true)
     expect(validateMessage({ type: 'lobby', roomId: 'r', tables: [], users: {}, serverMessages: [] }).ok).toBe(true)
+    expect(validateMessage(llmSeat).ok).toBe(true)
+    expect(validateMessage({ ...llmSeat, status: 'failed', reason: 'gateway closed' }).ok).toBe(true)
   })
 
-  it('rechaza envelopes malformados (tampering de deriva)', () => {
+  it('rejects malformed envelopes (drift tampering)', () => {
     expect(validateMessage({ type: 'result', ok: 'yes' }).ok).toBe(false)
-    expect(validateMessage({ type: 'event', method: 'GAME_SELECT' }).ok).toBe(false) // falta messageId
+    expect(validateMessage({ type: 'event', method: 'GAME_SELECT' }).ok).toBe(false) // missing messageId
     expect(validateMessage({ type: 'lobby', tables: 'nope' }).ok).toBe(false)
     expect(validateMessage(null).ok).toBe(false)
     expect(validateMessage({ type: 'unknown', x: 1 }).ok).toBe(false)
+    expect(validateMessage({ ...llmSeat, status: 'thinking' }).ok).toBe(false)
+    expect(validateMessage({ ...llmSeat, seat: 0 }).ok).toBe(false)
   })
 
-  it('los eventos del FixtureServer pasan la validación', async () => {
+  it('FixtureServer events pass validation', async () => {
     const { rec } = await driveScenario({ updateMs: 5, maxUpdates: 5 })
     const events = rec.emitted.filter((e) => (e as { type?: string }).type === 'event')
     expect(events.length).toBeGreaterThan(0)
     for (const ev of events) {
       const parsed = eventSchema.safeParse(ev)
-      expect(parsed.success, `evento no válido: ${JSON.stringify(ev).slice(0, 140)}`).toBe(true)
+      expect(parsed.success, `invalid event: ${JSON.stringify(ev).slice(0, 140)}`).toBe(true)
     }
   })
 
-  it('los GameView del escenario pasan la validación de vista', async () => {
+  it('the scenario GameViews pass view validation', async () => {
     const { rec } = await driveScenario({ updateMs: 5, maxUpdates: 3 })
     const events = rec.emitted.filter((e) => (e as { type?: string }).type === 'event') as Array<{
       method: string
@@ -74,22 +83,22 @@ describe('schema del contrato (anti-deriva)', () => {
     for (const ev of events) {
       if (ev.method === 'GAME_INIT' || ev.method === 'GAME_UPDATE' || ev.method === 'GAME_UPDATE_AND_INFORM') {
         const res = gameViewFromAndValidate(ev.data)
-        expect(res.ok, `${ev.method} inválido: ${JSON.stringify(res.errors)}`).toBe(true)
+        expect(res.ok, `invalid ${ev.method}: ${JSON.stringify(res.errors)}`).toBe(true)
       }
     }
   })
 
-  it('rechaza un GameView sin turno (deriva de protocolo)', () => {
+  it('rejects a GameView without a turn (protocol drift)', () => {
     const res = gameViewFromAndValidate({ gameView: { phase: 'MAIN', step: 'PRECOMBAT_MAIN' } })
     expect(res.ok).toBe(false)
   })
 
-  it('el gameView real capturado (mutate) pasa la validación de vista', () => {
-    // Anti-deriva: el frame fue grabado por scripts/record-mutate.mjs contra un
-    // servidor XMage real. Si el proxy deja de reenviar mutateView (o cambia su
-    // forma), este test falla y avisa que el contrato se movió.
+  it('the captured real gameView (mutate) passes view validation', () => {
+    // Drift guard: the frame was recorded by scripts/record-mutate.mjs against a
+    // real XMage server. If the proxy stops forwarding mutateView (or changes its
+    // shape), this test fails and flags that the contract moved.
     const raw = JSON.parse(fs.readFileSync(RECORDED, 'utf8')) as { gameView: unknown }
     const res = gameViewFromAndValidate(raw.gameView)
-    expect(res.ok, `mutate.json inválido: ${JSON.stringify(res.errors)}`).toBe(true)
+    expect(res.ok, `invalid mutate.json: ${JSON.stringify(res.errors)}`).toBe(true)
   })
 })

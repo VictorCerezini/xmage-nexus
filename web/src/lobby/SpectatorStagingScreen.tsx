@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import IconButton from '../ui/IconButton'
 import { hideStaging, leaveStagingTable, removeStagingTable, returnToLobby, setMyDeck, startStagedMatch, useStore, clearError } from '../state/store'
 import { setState } from '../state/state'
@@ -26,6 +26,8 @@ import { tableFormatProfile, deckCoverCard, deckMainSize, type JoinDeck } from '
 import { useCardArtUrl } from '../decks/useCardArtUrl'
 import { colorIdentityFromCards } from '../decks/types'
 import { ManaPip } from '../decks/ArenaManaSymbols'
+import LlmSeatBadge from './LlmSeatBadge'
+import { llmSeatForSeat, llmSeatRequestsFor, llmSeatsForRecreate, loadLlmSeats, rememberLlmSeatRequests } from '../state/llmSeats'
 import './SpectatorStagingScreen.css'
 
 type Readiness = 'empty' | 'ready' | 'preparing'
@@ -108,6 +110,13 @@ export default function SpectatorStagingScreen({
     () => tableFormatProfile(activeTable?.deckType, activeTable?.gameType),
     [activeTable?.deckType, activeTable?.gameType],
   )
+
+  const llmInfos = useStore((s) => s.llmSeats)
+  const llmCatalog = useStore((s) => s.llmCatalog)
+  const stagedTableId = mode === 'player' && isOwner ? activeTable?.tableId : undefined
+  useEffect(() => {
+    if (stagedTableId) void loadLlmSeats(stagedTableId)
+  }, [stagedTableId])
 
   const [showChangeDeck, setShowChangeDeck] = useState(false)
   const [myReadyState, setMyReadyState] = useState(true)
@@ -225,6 +234,11 @@ export default function SpectatorStagingScreen({
   const filledSeats = seats.filter((s) => !!s.playerName).length
   const is1v1 = (activeTable?.seats.length ?? 0) <= 2 && !activeTable?.gameType?.toLowerCase().includes('commander')
   const hasEmptySeats = seats.some((s) => !s.playerName)
+  const llmAt = (idx: number) => llmSeatForSeat(llmInfos, activeTable?.tableId, seats, idx)
+  const renderLlm = (idx: number) => {
+    const info = llmAt(idx)
+    return info ? <LlmSeatBadge info={info} catalog={llmCatalog} testId={`staging-llm-${idx}`} /> : null
+  }
 
   const avatarFor = (seat?: SeatView): number | undefined => {
     if (!seat?.playerName) return undefined
@@ -244,7 +258,7 @@ export default function SpectatorStagingScreen({
     return 'ready'
   }
 
-  /** Rating (limited?limited:constructed, como el desktop) + historial + bandera por asiento. */
+  /** Rating (limited or constructed, like the desktop) + history + flag per seat. */
   const renderSeatMeta = (seat?: SeatView) => {
     if (!seat?.playerName) return null
     const rating = activeTable?.limited ? (seat.limitedRating ?? 0) : (seat.constructedRating ?? 0)
@@ -283,14 +297,23 @@ export default function SpectatorStagingScreen({
     const finalDeck = await requestDeckValidation(xmageDeck)
     if (!finalDeck) return
     if (isOwner) {
-      const otherHumans = seats.some((s) => s.playerName && s.playerName.toLowerCase() !== conn?.username?.toLowerCase() && (!s.playerType || s.playerType === 'HUMAN'))
+      const tableLlm = llmInfos.filter((s) => s.tableId === tTable.tableId)
+      const llmNames = new Set(tableLlm.map((s) => s.username.toLowerCase()))
+      const otherHumans = seats.some((s) => s.playerName && s.playerName.toLowerCase() !== conn?.username?.toLowerCase() && !llmNames.has(s.playerName.toLowerCase()) && (!s.playerType || s.playerType === 'HUMAN'))
       if (otherHumans) {
         const ok = await confirmDialog(t('lobby', 'staging_change_deck_host_warn'))
+        if (!ok) return
+      }
+      const llmRequests = llmSeatRequestsFor(tTable.tableId)
+      const liveLlm = tableLlm.some((s) => s.status !== 'stopped' && s.status !== 'failed' && s.status !== 'finished')
+      if (liveLlm && !llmRequests) {
+        const ok = await confirmDialog(t('lobby', 'staging_change_deck_llm_warn'))
         if (!ok) return
       }
       await cmds.removeTable(tTable.tableId)
       const simSeats = seats.filter((s) => s.playerType === 'SIM').length
       const playerTypes = seats.map((s) => s.playerType || 'HUMAN')
+      const llmSeats = llmSeatsForRecreate(llmRequests ?? [], tableLlm, seats, playerTypes)
       const createRes = await cmds.createTable({
         name: tTable.tableName,
         gameType: tTable.gameType,
@@ -302,6 +325,7 @@ export default function SpectatorStagingScreen({
         rated: tTable.rated,
         spectatorsAllowed: tTable.spectatorsAllowed,
         simDecks: simSeats > 0 ? Array.from({ length: simSeats }, () => finalDeck) : undefined,
+        ...(llmSeats.length > 0 ? { llmSeats } : {}),
       })
       if (!createRes.ok) {
         const code = (createRes as { errorCode?: string }).errorCode
@@ -312,6 +336,7 @@ export default function SpectatorStagingScreen({
       if (createRes.ok) {
         const newTableId = (createRes.data as { tableId?: string } | null)?.tableId
         if (newTableId) {
+          rememberLlmSeatRequests(newTableId, llmSeats)
           const jr = await cmds.joinTable({
             tableId: newTableId,
             playerName: conn?.username ?? 'player',
@@ -406,6 +431,7 @@ export default function SpectatorStagingScreen({
     const isMe = occupied && !!myUsername && seat.playerName.toLowerCase() === myUsername
     const isHost = occupied && !!hostName && seat.playerName.toLowerCase() === hostName.toLowerCase()
     const readiness = getSeatReadiness(seat)
+    const llm = llmAt(idx)
     return (
       <div
         key={idx}
@@ -417,19 +443,20 @@ export default function SpectatorStagingScreen({
         <SeatAvatar seat={seat} avatarId={avatarFor(seat)} readiness={readiness} />
         <div className="player-meta">
           <span className="player-card-name">
-            <span className="player-card-name-text">{occupied ? seat.playerName : emptyLabel}</span>
+            <span className="player-card-name-text">{occupied ? seat.playerName : (llm?.username ?? emptyLabel)}</span>
             {isHost && (
               <span className="player-crown" title={t('lobby', 'staging_host_crown')}><Icon name="crown" size={13} /></span>
             )}
             {renderSeatOrder(idx, occupied)}
           </span>
           {renderSeatMeta(seat)}
-          <span className={`player-status-tag ${readiness}`}>{statusLabel(readiness, emptyStatus)}</span>
+          {!(llm && !occupied) && <span className={`player-status-tag ${readiness}`}>{statusLabel(readiness, emptyStatus)}</span>}
+          {renderLlm(idx)}
         </div>
         {isMe && mode === 'player' && myDeck && (
           <SeatDeck deck={myDeck} onClick={() => setShowChangeDeck(true)} />
         )}
-        {!occupied && <span className="seat-empty-hint">{t('lobby', 'staging_empty_invite_hint')}</span>}
+        {!occupied && !llm && <span className="seat-empty-hint">{t('lobby', 'staging_empty_invite_hint')}</span>}
       </div>
     )
   }
@@ -528,7 +555,7 @@ export default function SpectatorStagingScreen({
                       >
                         <span className="ring-seat-index">{idx + 1}</span>
                         <span className="ring-empty-plus"><Icon name="plus" size={12} /></span>
-                        <span className="ring-empty-label">{t('lobby', 'staging_available')}</span>
+                        <span className="ring-empty-label">{renderLlm(idx) ?? t('lobby', 'staging_available')}</span>
                       </div>
                     )
                   }
@@ -550,6 +577,7 @@ export default function SpectatorStagingScreen({
                         {isHost && <span className="player-crown" title={t('lobby', 'staging_host_crown')}><Icon name="crown" size={11} /></span>}
                       </span>
                       {renderSeatMeta(s)}
+                      {renderLlm(idx)}
                       {readiness === 'preparing' && (
                         <span className="player-status-tag mini preparing">
                           {t('lobby', 'staging_status_preparing')}
@@ -573,7 +601,7 @@ export default function SpectatorStagingScreen({
                       >
                         <span className="seat-empty-plus"><Icon name="plus" size={13} /></span>
                         <span className="seat-empty-label">
-                          {t('lobby', 'staging_seat_number', { number: idx + 1 })} · {t('lobby', 'staging_available')}
+                          {t('lobby', 'staging_seat_number', { number: idx + 1 })} · {renderLlm(idx) ?? t('lobby', 'staging_available')}
                         </span>
                       </div>
                     )

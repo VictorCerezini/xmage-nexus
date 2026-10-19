@@ -60,4 +60,5 @@ export const TABLE = {
   cardInspector: 'card-inspector-test',
   learn: 'learn-test',
   cardOverlays: 'card-overlays-test',
+  llmSeats: 'llm-seats-test',
 } as const

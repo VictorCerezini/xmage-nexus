@@ -135,7 +135,7 @@ describe('commands', () => {
 
   it('without a gateway it fails with an explicit error', async () => {
     commands.setGateway(null)
-    expect(() => commands.getGateway()).toThrow('gateway no inicializado')
-    await expect(commands.validateDeck({ name: 'd', cards: [], sideboard: [] })).rejects.toThrow('gateway no inicializado')
+    expect(() => commands.getGateway()).toThrow('gateway not initialized')
+    await expect(commands.validateDeck({ name: 'd', cards: [], sideboard: [] })).rejects.toThrow('gateway not initialized')
   })
 })

@@ -23,6 +23,8 @@ import {
 } from './tableKind'
 import { isRandomPacksType } from './RandomPacksSelector'
 import type { CreateTableForm } from './types'
+import type { PlannedLlmSeat } from './llmSeats'
+import { rememberLlmSeatRequests } from '../../state/llmSeats'
 
 type Translation = ReturnType<typeof useTranslation>
 
@@ -42,6 +44,7 @@ export type SubmitTableForm = Pick<
   username: string
   tableResolution: TableKindResolution
   findDeck: (ref?: string) => Deck | undefined
+  llmSeats?: PlannedLlmSeat[]
 }
 
 /** How the flow reports back to the dialog. */
@@ -258,7 +261,7 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
     .filter((s) => isNativeAiSeatType(s.type))
 
   // pre-validation against the server card database (human and bot seats)
-  // Transformación invisible para Commander: XMage espera comandante en banquillo
+  // invisible Commander transform: XMage expects the commander in the sideboard
   let finalMyDeck: Deck | null = null
   if (humanSeat && myDeck) {
     const fixed = await requestDeckValidation(prepareDeckForXMage(myDeck, deckType, gameType))
@@ -287,8 +290,24 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
     }
   }
 
+  const llmSeats: cmds.LlmSeatRequest[] = []
+  for (const llm of f.llmSeats ?? []) {
+    const base = resolveSimDeck(f, seatConfigs[llm.idx]?.deckName)
+    if (!base) {
+      setError(t('lobby', 'create_err_no_deck'))
+      setBusy(false)
+      return
+    }
+    const fixed = await requestDeckValidation(prepareDeckForXMage(base, deckType, gameType))
+    if (!fixed) {
+      setBusy(false)
+      return
+    }
+    llmSeats.push({ seat: llm.seat, provider: llm.provider, model: llm.model, effort: llm.effort, deck: fixed })
+  }
+
   const seatSkills = effectiveSeatTypes.map((_, i) => seatConfigs[i]?.skill ?? 2)
-  const res = await cmds.createTable(buildCreateMatchArgs({
+  const matchArgs = buildCreateMatchArgs({
     name: f.name,
     username: f.username,
     gameType,
@@ -320,7 +339,8 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
     skipInitShuffling: f.skipInitShuffling,
     skipStartingPlayerChoice: f.skipStartingPlayerChoice,
     dev: import.meta.env.DEV,
-  }))
+  })
+  const res = await cmds.createTable(llmSeats.length > 0 ? { ...matchArgs, llmSeats } : matchArgs)
 
   setBusy(false)
   if (!res.ok) {
@@ -332,6 +352,7 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
 
   const tableId = (res.data as { tableId?: string } | null)?.tableId
   if (tableId) {
+    rememberLlmSeatRequests(tableId, llmSeats)
     let botCounter = 1
     for (const bot of nativeBotSeats) {
       const name = botName(botCounter, nativeBotSeats.length)

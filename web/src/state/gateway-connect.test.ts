@@ -118,7 +118,7 @@ describe('doConnect — intentos concurrentes', () => {
     await vi.advanceTimersByTimeAsync(6000)
     await failed
     expect(getState().phase).toBe('idle')
-    expect(getState().error).toMatch(/no se pudo conectar al proxy/)
+    expect(getState().error).toMatch(/failed to connect to proxy/)
 
     const retry = doConnect('localhost', 8787, 'localhost', 17171, 'u', 'p')
     expect(FakeWebSocket.instances).toHaveLength(2)

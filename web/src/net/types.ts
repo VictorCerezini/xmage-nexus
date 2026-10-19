@@ -1,7 +1,7 @@
 /**
- * Tipos TS del protocolo del proxy (Mage.Proxy).
+ * TS types of the proxy protocol (Mage.Proxy).
  *
- * Vue types (mage.view.*) are generated from schema/contract.schema.json.
+ * View types (mage.view.*) are generated from schema/contract.schema.json.
  * Run: node scripts/gen-types.mjs (or npm run gen-types).
  *
  * Proxy-specific types (envelopes, deck, events) stay here.
@@ -26,7 +26,7 @@ export type {
   TournamentView, TournamentPlayerView, TournamentGameView, RoundView,
 } from './types.generated'
 
-// ─── Proxy envelope types (proxy → cliente) ─────────────────────────────────
+// ─── Proxy envelope types (proxy → client) ──────────────────────────────────
 
 export type ProxyMessage =
   | { type: 'connected'; message?: string; seq?: number }
@@ -34,6 +34,7 @@ export type ProxyMessage =
   | { type: 'info'; message: string; seq?: number }
   | { type: 'error'; message: string; seq?: number }
   | ServerLinkEnvelope
+  | LlmSeatEnvelope
   | LobbyEnvelope
   | ResultEnvelope
   | EventEnvelope
@@ -49,7 +50,7 @@ export interface ServerLinkEnvelope {
   seq?: number
 }
 
-/** Broadcast del lobby, cada ~2 s. */
+/** Lobby broadcast, every ~2 s. */
 export interface LobbyEnvelope {
   type: 'lobby'
   roomId?: UUID
@@ -61,7 +62,7 @@ export interface LobbyEnvelope {
   serverMessages: string[]
 }
 
-/** Respuesta a una acción (una promesa por action+callId en el cliente). */
+/** Answer to an action (one promise per action+requestId in the client). */
 export interface ResultEnvelope {
   type: 'result'
   action: string
@@ -72,7 +73,7 @@ export interface ResultEnvelope {
   errorCode?: string
 }
 
-/** Callback del servidor XMage reexpuesto (method = nombre del método MageClient). */
+/** XMage server callback passed through (method = name of the MageClient method). */
 export interface EventEnvelope {
   type: 'event'
   /** Position in the proxy session's stream (absent on replays sent to one connection). */
@@ -83,6 +84,62 @@ export interface EventEnvelope {
   data?: unknown
 }
 
+// ─── Model seats (proxy `--llm`) ─────────────────────────────────────────────
+
+export type LlmSeatStatus =
+  | 'starting'
+  | 'joined'
+  | 'playing'
+  | 'waiting_for_next_game'
+  | 'finished'
+  | 'stopped'
+  | 'failed'
+
+/** One model seat of this session, as `getLlmSeats` lists it. `seat` is 1-based. */
+export interface LlmSeatInfo {
+  tableId: UUID
+  seat: number
+  username: string
+  provider: string
+  model: string
+  effort: string
+  status: LlmSeatStatus
+  reason?: string
+}
+
+/** A model seat changed status. */
+export interface LlmSeatEnvelope extends LlmSeatInfo {
+  type: 'llmSeat'
+  seq?: number
+}
+
+export interface LlmModel {
+  id: string
+  name: string
+  efforts: string[]
+  defaultEffort: string
+  isDefault: boolean
+  contextLength?: number
+  maxOutput?: number
+}
+
+export interface LlmProvider {
+  id: string
+  playerType: string
+  /** Base of the seat's login name (`ChatGPT` → `ChatGPT 2`). */
+  playerName: string
+  auth: string
+  freeRequestsToday?: { used?: number; limit?: number; remaining?: number }
+  models: LlmModel[]
+}
+
+/** `getLlmProviders`: `enabled` is false when the proxy runs without `--llm`. */
+export interface LlmCatalog {
+  enabled: boolean
+  providers?: LlmProvider[]
+  unavailable?: { id: string; reason?: string }[]
+}
+
 // ─── Chat ────────────────────────────────────────────────────────────────────
 
 export interface ChatMessageEvent {
@@ -91,17 +148,17 @@ export interface ChatMessageEvent {
   message: string
   messageType?: string
   soundToPlay?: string
-  /** epoch ms del servidor (puede faltar en mensajes locales/antiguos: usar hora de recepción) */
+  /** Server epoch ms (may be missing on local or old messages: use the receive time) */
   time?: number
 }
 
-// ─── Mazo JSON (proxy) ───────────────────────────────────────────────────────
+// ─── Deck JSON (proxy) ───────────────────────────────────────────────────────
 
 export interface DeckJson {
   name: string
   cards: DeckCardEntry[]
   sideboard: DeckCardEntry[]
-  /** Comandantes designados (1-2): el proxy los mueve al banquillo que XMage espera. */
+  /** Designated commanders (1-2): the proxy moves them to the sideboard XMage expects. */
   commanders?: DeckCardEntry[]
 }
 
@@ -112,15 +169,15 @@ export interface DeckCardEntry {
   amount: number
 }
 
-// ─── Validación de mazos (validateDeck del proxy) ────────────────────────────
+// ─── Deck validation (the proxy's validateDeck) ─────────────────────────────
 
-/** Informe de commanderEligibility (clases reales de XMage del proxy). ready=false => BD no disponible. */
+/** commanderEligibility report (the proxy's real XMage classes). ready=false => DB not available. */
 export interface CommanderEligibilityResult {
   ready: boolean
   results: { name: string; eligible: boolean }[]
 }
 
-/** Error crudo del DeckValidator oficial de XMage (texto oficial, en inglés). */
+/** Raw error of XMage's official DeckValidator (official text, in English). */
 export interface XmageFormatError {
   type: 'PRIMARY' | 'DECK_SIZE' | 'BANNED' | 'WRONG_SET' | 'OTHER' | string
   group?: string
@@ -129,9 +186,9 @@ export interface XmageFormatError {
 }
 
 /**
- * Informe de validateDeckFormat (DeckValidator oficial de XMage del proxy).
- * ready=false => BD de cartas no disponible; supported=false => sin validador
- * para ese formato (el cliente mantiene su validación local).
+ * validateDeckFormat report (the proxy's official XMage DeckValidator).
+ * ready=false => card DB not available; supported=false => no validator
+ * for that format (the client keeps its local validation).
  */
 export interface DeckFormatValidationResult {
   ready: boolean
@@ -141,32 +198,32 @@ export interface DeckFormatValidationResult {
   errors: XmageFormatError[]
 }
 
-/** Impresión que elige XMage para un nombre (resolvePrintings del proxy). */
+/** The printing XMage picks for a name (the proxy's resolvePrintings). */
 export interface XmagePrintingResolution {
   name: string
   found: boolean
-  /** Nombre canónico en XMage (p.ej. "Fire // Ice") */
+  /** Canonical name in XMage (e.g. "Fire // Ice") */
   cardName?: string
   setCode?: string
   cardNumber?: string
 }
 
-/** Informe de resolvePrintings. ready=false => BD de cartas del proxy no disponible. */
+/** resolvePrintings report. ready=false => the proxy's card DB is not available. */
 export interface ResolvePrintingsResult {
   ready: boolean
   results: XmagePrintingResolution[]
 }
 
-/** Informe de cardPrintings: impresiones implementadas en XMage (vacía => no implementada). */
+/** cardPrintings report: printings implemented in XMage (empty => not implemented). */
 export interface CardPrintingsResult {
   ready: boolean
   results: { name: string; printings: { setCode: string; cardNumber: string }[] }[]
 }
 
-/** Motivo por el que el servidor rechazaría una carta ("Card not found"). */
+/** Why the server would reject a card ("Card not found"). */
 export type DeckIssueReason = 'UNIMPLEMENTED' | 'OUTDATED_PRINTING'
 
-/** Impresión alternativa implementada en el servidor (reparación con un clic). */
+/** Alternative printing implemented on the server (one-click repair). */
 export interface DeckPrintingSuggestion {
   cardName: string
   setCode: string
@@ -179,32 +236,32 @@ export interface DeckPrintingSource {
   cardNumber: string
 }
 
-/** Carta que el servidor rechazará al unirse ("Card not found"). */
+/** Card the server will reject on join ("Card not found"). */
 export interface DeckMissingCard extends DeckCardEntry {
   reason: DeckIssueReason
   suggestions?: DeckPrintingSuggestion[]
   sources?: DeckPrintingSource[]
 }
 
-/** Carta aceptada pero que el servidor carga como OTRA carta (set/número de otra). */
+/** Card accepted but loaded by the server as ANOTHER card (set/number of another one). */
 export interface DeckMismatchCard extends DeckCardEntry {
   resolvedName: string
   suggestions?: DeckPrintingSuggestion[]
   sources?: DeckPrintingSource[]
 }
 
-/** Informe de validateDeck. ready=false => BD de cartas del proxy no disponible. */
+/** validateDeck report. ready=false => the proxy's card DB is not available. */
 export interface DeckValidationResult {
   ready: boolean
   missing: DeckMissingCard[]
   mismatches: DeckMismatchCard[]
-  /** mazo sin las cartas rechazadas (solo si missing > 0) */
+  /** the deck without the rejected cards (only when missing > 0) */
   fixedDeck?: DeckJson
 }
 
-// ─── Fin de partida / match (GameEndView del servidor) ───────────────────────
+// ─── Game / match end (the server's GameEndView) ─────────────────────────────
 
-/** Evento SIDEBOARD del servidor (match best-of-N entre partidas). */
+/** The server's SIDEBOARD event (best-of-N match between games). */
 export interface SideboardEvent {
   deck?: {
     name?: string
@@ -218,7 +275,7 @@ export interface SideboardEvent {
   flag?: boolean
 }
 
-// ─── Partidas Finalizadas (MatchView del servidor) ───────────────────────────
+// ─── Finished matches (the server's MatchView) ───────────────────────────────
 
 export interface MatchView {
   tableId: UUID
@@ -236,7 +293,7 @@ export interface MatchView {
   rated?: boolean
 }
 
-// ─── Métodos de evento del servidor (MageClient) más comunes ────────────────
+// ─── Most common server event methods (MageClient) ──────────────────────────
 
 export const EVENT_METHODS = {
   gameInit: 'GAME_INIT',

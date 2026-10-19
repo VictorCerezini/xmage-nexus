@@ -142,7 +142,7 @@ Deck
   })
 
   it('moxfield: si el proxy no está conectado, degrada a null en vez de lanzar', async () => {
-    mockedFetchOnlineDeckJson.mockRejectedValueOnce(new Error('gateway no inicializado'))
+    mockedFetchOnlineDeckJson.mockRejectedValueOnce(new Error('gateway not initialized'))
     const deck = await fetchMoxfieldDeck('https://moxfield.com/decks/abc')
     expect(deck).toBeNull()
   })

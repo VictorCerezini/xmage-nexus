@@ -1,8 +1,10 @@
 # LLM seats: play against ChatGPT, Claude, OpenRouter and GLM from the Nexus web client
 
-Date: 2026-10-19. Status: phases 0 to 3 done. With `--llm on` the proxy seats a
-model itself from `createTable`. The ChatGPT concede refusal found in the phase 3
-play proof is fixed (see "Risks and checks"). Next is phase 4, the web UI.
+Date: 2026-10-19. Status: phases 0 to 4 done. With `--llm on` the proxy seats a
+model itself from `createTable`, and the web client offers model seats when
+creating a table and shows their status in staging. The ChatGPT concede refusal
+found in the phase 3 play proof is fixed (see "Risks and checks"). Next is
+phase 5, docs and the live matrix.
 
 ## Goal
 
@@ -356,6 +358,33 @@ files and adds 2, about 1,070 lines.
    - Not done here: the web types and zod schemas (phase 4) and a `--llm`
      switch in `dev.mjs` and the launcher (phase 5).
 4. **Web UI.** Seat type, pickers, staging status, i18n, fixtures and tests.
+   - **Done:**
+     - `getLlmProviders`, `getLlmSeats`, `createTable`'s `llmSeats` and the
+       `llmSeat` event are typed in `net/types.ts` and `net/commands.ts`. The
+       event is validated in `fixtures/schema.ts`. Like `serverLink`, these
+       envelopes are hand-written, so nothing was regenerated.
+     - The create-table seats step lists each provider under "Language models"
+       in the seat-type picker, with model, reasoning and deck pickers, the
+       sign-in hint and OpenRouter's free requests left. Providers the proxy
+       could not offer are listed with the reason, and "Refresh models" reruns
+       the catalog.
+     - Tournaments and draft tables offer no model seats.
+     - A proxy without `--llm`, or an older one that answers
+       `UNKNOWN_ACTION`, shows no model seats and no error.
+     - Model seats are numbered after the owner's seat. Their decks are
+       validated like a bot's.
+     - Staging shows a badge on the model's seat: "ChatGPT 2 is joining…", then
+       the model and reasoning, or the failure with its reason. The owner's
+       staging screen reads `getLlmSeats` after a reload.
+     - "Change deck" recreates the table with its model seats. A model never
+       gets the first HUMAN seat, since the owner rejoins first and takes it.
+     - Strings are in all 9 locales.
+     - Tests: unit tests for the pickers' helpers, the store and the gateway
+       routing, the dialog submit and the staging badge, and three fake
+       Playwright tests (`e2e/llm-seats.spec.ts`, scenario
+       `fixtures/scenarios/llmSeats.ts`).
+   - Not done here: a live check of the web UI against `--llm on`, which is in
+     phase 5's matrix.
 5. **Docs and live matrix.**
    - Add the launcher wrapper and update the README, `ROADMAP.md` §4 and
      `docs/lessons.md`.

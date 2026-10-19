@@ -47,6 +47,17 @@ import {
 import type { CreateTableForm } from './types'
 import { useDeckChoices } from './useDeckChoices'
 import { submitCreateTable, runDemoTable as runDemoTableCommand } from './submitTable'
+import { loadLlmCatalog } from '../../state/llmSeats'
+import {
+  activeLlmChoices,
+  chooseLlmModel,
+  defaultLlmChoice,
+  llmProviderOf,
+  llmProviders,
+  planLlmSeats,
+  readSavedLlmChoices,
+  type LlmSeatChoice,
+} from './llmSeats'
 
 export type { CreateTableForm } from './types'
 
@@ -63,6 +74,7 @@ interface SavedForm {
   useDraftTournament?: boolean
   numPlayers?: number
   seatConfigs?: unknown
+  llmSeats?: unknown
   mySkill?: number
 }
 
@@ -307,6 +319,13 @@ export function useCreateTableForm(onClose: () => void): CreateTableForm {
     const t = normalizeSeatType(String(s.type ?? ''))
     return { type: t === SIM_SEAT ? HUMAN_SEAT : t, deckName: s.deckName, skill: typeof s.skill === 'number' ? s.skill : 2 }
   }) : [])
+  const [llmChoices, setLlmChoices] = useState<Record<number, LlmSeatChoice>>(() => readSavedLlmChoices(saved.llmSeats))
+  const llmCatalog = useStore((s) => s.llmCatalog)
+  const llmCatalogLoading = useStore((s) => s.llmCatalogLoading)
+  const llmCatalogError = useStore((s) => s.llmCatalogError)
+  useEffect(() => {
+    void loadLlmCatalog()
+  }, [])
   const recommendedMulligans = useMemo(
     () => recommendedFreeMulligans(gameType, numPlayers),
     [gameType, numPlayers],
@@ -434,6 +453,12 @@ export function useCreateTableForm(onClose: () => void): CreateTableForm {
     knownTournamentTypes: tournamentTypes,
   })
   const { isDraftLimited, isConstructedTournament, isTournament } = tableResolution
+  const llmSeatsAllowed = !isTournament && !isDraftLimited
+  const providers = useMemo(() => llmProviders(llmCatalog), [llmCatalog])
+  const activeLlm = useMemo(
+    () => activeLlmChoices({ catalog: llmCatalog, choices: llmChoices, seatConfigs, allowed: llmSeatsAllowed }),
+    [llmCatalog, llmChoices, seatConfigs, llmSeatsAllowed],
+  )
 
   const compatibilityError = useMemo(() => {
     if (isDraftLimited) return null
@@ -477,10 +502,10 @@ export function useCreateTableForm(onClose: () => void): CreateTableForm {
 
   useEffect(() => {
     try {
-      const payload = { tableCategory, tournamentCategory, useDraftTournament, name, gameType, deckType, wins, skillLevel, rated, numPlayers, seatConfigs, mySkill, bannedUsersRaw, numberRounds, freeMulligans, mulliganType, customStartLifeEnabled, customStartLife, customStartHandSizeEnabled, customStartHandSize, planeChase }
+      const payload = { tableCategory, tournamentCategory, useDraftTournament, name, gameType, deckType, wins, skillLevel, rated, numPlayers, seatConfigs, llmSeats: llmChoices, mySkill, bannedUsersRaw, numberRounds, freeMulligans, mulliganType, customStartLifeEnabled, customStartLife, customStartHandSizeEnabled, customStartHandSize, planeChase }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch {}
-  }, [tableCategory, tournamentCategory, useDraftTournament, name, gameType, deckType, wins, skillLevel, rated, numPlayers, seatConfigs, mySkill, bannedUsersRaw, numberRounds, freeMulligans, mulliganType, customStartLifeEnabled, customStartLife, customStartHandSizeEnabled, customStartHandSize, planeChase])
+  }, [tableCategory, tournamentCategory, useDraftTournament, name, gameType, deckType, wins, skillLevel, rated, numPlayers, seatConfigs, llmChoices, mySkill, bannedUsersRaw, numberRounds, freeMulligans, mulliganType, customStartLifeEnabled, customStartLife, customStartHandSizeEnabled, customStartHandSize, planeChase])
 
   useEffect(() => {
     const healed = healTournamentBranch({ tableCategory, tournamentCategory, useDraftTournament })
@@ -506,12 +531,40 @@ export function useCreateTableForm(onClose: () => void): CreateTableForm {
   }
   const applySeatTypeToAll = (pt: string) => {
     const n = normalizeSeatType(pt)
+    setLlmChoices({})
     setSeatConfigs((prev) => prev.map((s) => ({ ...s, type: n })))
   }
   const setSeatType = (idx: number, type: string) => {
+    const providerId = llmProviderOf(type)
+    if (providerId !== null) {
+      const provider = providers.find((p) => p.id === providerId)
+      const choice = provider ? defaultLlmChoice(provider) : null
+      if (!choice) return
+      setLlmChoices((prev) => ({ ...prev, [idx]: activeLlm[idx]?.provider === providerId ? activeLlm[idx] : choice }))
+      setSeatConfigs((prev) => prev.map((s, i) => (i === idx ? { ...s, type: HUMAN_SEAT } : s)))
+      return
+    }
     const n = normalizeSeatType(type)
+    setLlmChoices((prev) => {
+      if (!(idx in prev)) return prev
+      const next = { ...prev }
+      delete next[idx]
+      return next
+    })
     setSeatConfigs((prev) => prev.map((s, i) => (i === idx ? { ...s, type: n } : s)))
   }
+  const setLlmModel = (idx: number, modelId: string) => {
+    const current = activeLlm[idx]
+    const provider = current ? providers.find((p) => p.id === current.provider) : undefined
+    if (!current || !provider) return
+    setLlmChoices((prev) => ({ ...prev, [idx]: chooseLlmModel(provider, current, modelId) }))
+  }
+  const setLlmEffort = (idx: number, effort: string) => {
+    const current = activeLlm[idx]
+    if (!current) return
+    setLlmChoices((prev) => ({ ...prev, [idx]: { ...current, effort } }))
+  }
+  const refreshLlmCatalog = () => loadLlmCatalog({ refresh: true })
   const setSeatDeck = (idx: number, deckRefValue: string) => {
     setSeatConfigs((prev) => prev.map((s, i) => (i === idx ? { ...s, deckName: deckRefValue } : s)))
   }
@@ -531,6 +584,7 @@ export function useCreateTableForm(onClose: () => void): CreateTableForm {
     seatConfigs, humanSeat, myDeck, simDeck, playerTypesSel, mySkill,
     skipInitShuffling, skipStartingPlayerChoice, showRangeAttack, isDraftLimited,
     isTournament, compatibilityError,
+    llmSeats: planLlmSeats({ choices: activeLlm, humanSeat, numPlayers }),
     username, tableResolution, findDeck,
   }, { t, tError, setBusy, setError, onClose })
 
@@ -664,5 +718,14 @@ export function useCreateTableForm(onClose: () => void): CreateTableForm {
     validateStep,
     submit,
     runDemoTable,
+    llmSeatsAllowed,
+    llmProviders: providers,
+    llmUnavailable: llmCatalog?.enabled ? (llmCatalog.unavailable ?? []) : [],
+    llmCatalogLoading,
+    llmCatalogError,
+    llmChoices: activeLlm,
+    setLlmModel,
+    setLlmEffort,
+    refreshLlmCatalog,
   }
 }

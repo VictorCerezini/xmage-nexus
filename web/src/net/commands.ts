@@ -1,8 +1,8 @@
 import { Gateway } from './Gateway'
-import type { DeckJson } from './types'
+import type { DeckJson, LlmCatalog, LlmSeatInfo } from './types'
 import type { DraftReport } from '../system/report'
 
-/** Tipo de juego y tipo de jugador reales del servidor (getGameTypes/getPlayerTypes). */
+/** The server's real game type and player type (getGameTypes/getPlayerTypes). */
 export interface GameTypeInfo {
   name: string
   minPlayers: number
@@ -18,7 +18,7 @@ export function setGateway(g: Gateway | null) {
 }
 
 export function getGateway(): Gateway {
-  if (!gateway) throw new Error('gateway no inicializado')
+  if (!gateway) throw new Error('gateway not initialized')
   return gateway
 }
 
@@ -134,10 +134,21 @@ export interface CreateTableArgs {
   customStartHandSize?: number
   planeChase?: boolean
   bannedUsers?: string[]
-  /** skill 1-10 por plaza (desktop NewPlayerPanel.spnLevel, default 2) */
+  /** skill 1-10 per seat (desktop NewPlayerPanel.spnLevel, default 2) */
   seatSkills?: number[]
-  /** mazos de los asientos "SIM" (oponentes simulados que une el proxy) */
+  /** decks of the "SIM" seats (simulated opponents the proxy seats) */
   simDecks?: DeckJson[]
+  /** model seats the proxy starts once the table exists (needs `--llm`) */
+  llmSeats?: LlmSeatRequest[]
+}
+
+/** A model seat for `createTable`: `seat` is 1-based into `playerTypes` and must be a HUMAN seat. */
+export interface LlmSeatRequest {
+  seat: number
+  provider: string
+  model?: string
+  effort?: string
+  deck: DeckJson
 }
 
 export async function createTable(args: CreateTableArgs) {
@@ -176,7 +187,23 @@ export async function joinDraft(draftId: string) {
   return getGateway().send('joinDraft', { draftId })
 }
 
-/** Reordena dos asientos (solo dueño, mesa READY_TO_START) — paridad con Move Up/Down del desktop. */
+/**
+ * The proxy's model catalog. `enabled: false` without `--llm`, and also when the
+ * proxy predates model seats. The first call can take up to two minutes.
+ */
+export async function getLlmProviders(refresh = false): Promise<LlmCatalog & { error?: string }> {
+  const res = await getGateway().send<LlmCatalog>('getLlmProviders', refresh ? { refresh: true } : {})
+  if (!res.ok) return { enabled: false, ...(res.errorCode === 'FAILED' ? { error: res.error ?? 'FAILED' } : {}) }
+  return res.data?.enabled === true ? res.data : { enabled: false }
+}
+
+/** This session's model seats, all of them or one table's. */
+export async function getLlmSeats(tableId?: string): Promise<LlmSeatInfo[]> {
+  const res = await getGateway().send<LlmSeatInfo[]>('getLlmSeats', tableId ? { tableId } : {})
+  return res.ok && Array.isArray(res.data) ? res.data : []
+}
+
+/** Swaps two seats (owner only, table READY_TO_START), like the desktop's Move Up/Down. */
 export async function swapSeats(tableId: string, seatNum1: number, seatNum2: number) {
   return getGateway().send('swapSeats', { tableId, seatNum1, seatNum2 })
 }
@@ -214,9 +241,9 @@ export async function updateDeck(tableId: string, deck: DeckJson) {
 }
 
 /**
- * Pre-validación de un mazo contra la BD de cartas del proxy (misma release que
- * el servidor objetivo, semántica idéntica al servidor oficial: findCard estricto
- * por set+número). Advisory: si ready=false no bloquea el flujo.
+ * Pre-validates a deck against the proxy's card DB (same release as the target
+ * server, same semantics as the official server: strict findCard by
+ * set+number). Advisory: ready=false does not block the flow.
  */
 export async function validateDeck(deck: DeckJson): Promise<import('./types').DeckValidationResult | null> {
   const res = await getGateway().send<import('./types').DeckValidationResult>('validateDeck', { deck })
@@ -224,10 +251,10 @@ export async function validateDeck(deck: DeckJson): Promise<import('./types').De
 }
 
 /**
- * Elegibilidad de comandante según las clases reales de XMage del proxy (misma
- * release que el servidor objetivo; resuelve casos como Grist, que xmage marca
- * elegible aunque su línea de tipo sea Planeswalker). Advisory: null si no hay
- * conexión o la BD de cartas del proxy no está disponible.
+ * Commander eligibility from the proxy's real XMage classes (same release as
+ * the target server; settles cases like Grist, which xmage marks eligible
+ * although its type line says Planeswalker). Advisory: null without a
+ * connection or when the proxy's card DB is not available.
  */
 export async function commanderEligibility(names: string[]): Promise<import('./types').CommanderEligibilityResult | null> {
   const res = await getGateway().send<import('./types').CommanderEligibilityResult>('commanderEligibility', { names })
@@ -235,11 +262,11 @@ export async function commanderEligibility(names: string[]): Promise<import('./t
 }
 
 /**
- * Validación COMPLETA del mazo con el DeckValidator oficial de XMage (misma
- * release que el servidor objetivo): tamaños, bans, comandante/partner,
- * identidad de color. deckType es el nombre de tipo de mesa de config.xml
- * (p.ej. "Variant Magic - Commander"). Advisory: null si no hay conexión o el
- * formato no tiene validador.
+ * FULL deck validation with XMage's official DeckValidator (same release as
+ * the target server): sizes, bans, commander/partner, color identity.
+ * deckType is the config.xml table type name (e.g. "Variant Magic -
+ * Commander"). Advisory: null without a connection or when the format has no
+ * validator.
  */
 export async function validateDeckFormat(deck: DeckJson, deckType?: string | null, gameType?: string | null): Promise<import('./types').DeckFormatValidationResult | null> {
   const res = await getGateway().send<import('./types').DeckFormatValidationResult>('validateDeckFormat', { deck, deckType, gameType })
@@ -247,9 +274,9 @@ export async function validateDeckFormat(deck: DeckJson, deckType?: string | nul
 }
 
 /**
- * Impresión que elegirían los importadores de XMage para cada nombre
- * (`default`: findPreferredCoreExpansionCard; `oldest`: la más antigua no promo;
- * `set`: la de ese set si existe). Advisory: null sin conexión.
+ * The printing XMage's importers would pick for each name
+ * (`default`: findPreferredCoreExpansionCard; `oldest`: the oldest non-promo;
+ * `set`: the one from that set if it exists). Advisory: null without a connection.
  */
 export async function resolvePrintings(
   names: string[],
@@ -261,8 +288,8 @@ export async function resolvePrintings(
 }
 
 /**
- * Impresiones implementadas en la release de XMage del proxy (lista vacía =
- * carta no implementada). `limit` 1 basta para saber si existe. Advisory.
+ * Printings implemented in the proxy's XMage release (empty list = card not
+ * implemented). `limit` 1 is enough to know whether it exists. Advisory.
  */
 export async function cardPrintings(names: string[], limit = 0): Promise<import('./types').CardPrintingsResult | null> {
   const res = await getGateway().send<import('./types').CardPrintingsResult>('cardPrintings', { names, limit })
@@ -270,11 +297,11 @@ export async function cardPrintings(names: string[], limit = 0): Promise<import(
 }
 
 /**
- * Fetch de un mazo en Moxfield/Archidekt vía el proxy (Java, sin CORS) en vez
- * de `fetch()` en el navegador: esas APIs no envían cabeceras CORS que
- * permitan llamarlas desde el origen del cliente web, así que un fetch
- * directo siempre falla con "Failed to fetch". Devuelve el JSON crudo tal
- * cual lo sirve la API de origen (el parseo a DeckV2 sigue en el cliente).
+ * Fetches a Moxfield/Archidekt deck through the proxy (Java, no CORS) instead
+ * of `fetch()` in the browser: those APIs send no CORS headers that allow
+ * calls from the web client's origin, so a direct fetch always fails with
+ * "Failed to fetch". Returns the raw JSON as the source API serves it (the
+ * DeckV2 parsing stays in the client).
  */
 export async function fetchOnlineDeckJson(source: 'moxfield' | 'archidekt', urlOrId: string): Promise<unknown | null> {
   const res = await getGateway().send<unknown>('fetchOnlineDeck', { source, urlOrId })

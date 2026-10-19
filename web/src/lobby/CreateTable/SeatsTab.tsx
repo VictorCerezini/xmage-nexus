@@ -8,10 +8,13 @@ import type { CreateTableForm } from './useCreateTableForm'
 import Field from '../../ui/Field'
 import Button from '../../ui/Button'
 import StarterDecksOffer from '../../decks/StarterDecksOffer'
+import LlmSeatFields from './LlmSeatFields'
+import { llmSeatValue } from './llmSeats'
 
 export default function SeatsTab({ form, onEditDeck }: { form: CreateTableForm; onEditDeck?: (deckId: string) => void }) {
   const { t } = useTranslation()
-  const humansWaiting = form.seatConfigs.filter((s) => isHumanSeatType(s.type)).length
+  const humansWaiting = form.seatConfigs.filter((s, i) => isHumanSeatType(s.type) && !form.llmChoices[i]).length
+  const offerLlm = form.llmSeatsAllowed && (form.llmProviders.length > 0 || form.llmCatalogLoading)
   const bots = form.seatConfigs.length - humansWaiting
   return (
     <div className="create-tab-content">
@@ -97,15 +100,26 @@ export default function SeatsTab({ form, onEditDeck }: { form: CreateTableForm; 
             <div className="wizard-hint-box">{t('lobby','create_seats_no_extra')}</div>
           ) : (
             <div className="create-seats-section">
-              {form.seatConfigs.map((cfg, idx) => (
+              {form.seatConfigs.map((cfg, idx) => {
+                const llm = form.llmChoices[idx]
+                const llmProvider = llm ? form.llmProviders.find((p) => p.id === llm.provider) : undefined
+                return (
                 <div key={idx} className="create-seat-box create-seat-box--seat">
                   <div className="seat-box-header">
                     <span className="seat-title">{t('lobby','create_seat_number',{num:idx+2})} {form.humanSeat ? `→ ${idx + 2}` : `→ ${idx + 1}`}</span>
-                    <select data-testid={`seat-type-${idx}`} value={cfg.type} onChange={(e) => form.setSeatType(idx, e.target.value)} className="create-seat-select create-seat-select--type">
+                    <select data-testid={`seat-type-${idx}`} value={llm ? llmSeatValue(llm.provider) : cfg.type} onChange={(e) => form.setSeatType(idx, e.target.value)} className="create-seat-select create-seat-select--type">
                       <option value={HUMAN_SEAT}>{seatTypeLabel(HUMAN_SEAT, t)}</option>
                       {form.playerTypes.map((pt) => (
                         <option key={pt} value={pt}>{seatTypeLabel(pt, t)}</option>
                       ))}
+                      {offerLlm && (
+                        <optgroup label={t('lobby', 'create_seat_llm_group')}>
+                          {form.llmProviders.map((p) => (
+                            <option key={p.id} value={llmSeatValue(p.id)}>{p.playerName}</option>
+                          ))}
+                          {form.llmProviders.length === 0 && <option value="" disabled>{t('lobby', 'create_seat_llm_loading')}</option>}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                   {!isHumanSeatType(cfg.type) && (
@@ -117,8 +131,17 @@ export default function SeatsTab({ form, onEditDeck }: { form: CreateTableForm; 
                     </select>
                   </Field>
                   )}
-                  {isHumanSeatType(cfg.type) && <span className="wizard-hint-box"><Icon name="user" size={11} /> {t('lobby','create_seat_human_waiting')}</span>}
-                  {!isHumanSeatType(cfg.type) && !form.isDraftLimited && (() => {
+                  {isHumanSeatType(cfg.type) && !llm && <span className="wizard-hint-box"><Icon name="user" size={11} /> {t('lobby','create_seat_human_waiting')}</span>}
+                  {llm && llmProvider && (
+                    <LlmSeatFields
+                      idx={idx}
+                      provider={llmProvider}
+                      choice={llm}
+                      onModel={(m) => form.setLlmModel(idx, m)}
+                      onEffort={(e) => form.setLlmEffort(idx, e)}
+                    />
+                  )}
+                  {(!isHumanSeatType(cfg.type) || llm) && !form.isDraftLimited && (() => {
                     const deck = form.availableDecks.find((d) => deckRef(d) === cfg.deckName)
                       ?? form.availableDecks.find((d) => d.name === cfg.deckName)
                     const total = deck ? deck.cards.reduce((sum, c) => sum + c.amount, 0) : 0
@@ -143,8 +166,29 @@ export default function SeatsTab({ form, onEditDeck }: { form: CreateTableForm; 
                   })()}
                   {!isHumanSeatType(cfg.type) && <span className="wizard-hint-box">{t('lobby','create_seat_bot_internal',{type:seatTypeLabel(cfg.type, t)})}</span>}
                 </div>
-              ))}
+                )
+              })}
             </div>
+          )}
+          {form.llmSeatsAllowed && form.llmCatalogError && (
+            <Chip tone="warn" size="xs" pill icon="alert" data-testid="create-llm-error">{t('lobby', 'create_llm_catalog_failed', { error: form.llmCatalogError })}</Chip>
+          )}
+          {form.llmSeatsAllowed && form.llmUnavailable.length > 0 && (
+            <span className="wizard-hint-box" data-testid="create-llm-unavailable">
+              {t('lobby', 'create_llm_unavailable', { list: form.llmUnavailable.map((u) => (u.reason ? `${u.id} (${u.reason})` : u.id)).join(', ') })}
+            </span>
+          )}
+          {form.llmSeatsAllowed && (form.llmProviders.length > 0 || form.llmCatalogError) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="refresh"
+              data-testid="create-llm-refresh"
+              disabled={form.llmCatalogLoading}
+              onClick={() => { void form.refreshLlmCatalog() }}
+            >
+              {form.llmCatalogLoading ? t('lobby', 'create_seat_llm_loading') : t('lobby', 'create_llm_refresh')}
+            </Button>
           )}
           <div className="create-seats-shortcuts">
             <Field group label={t('lobby','create_seats_apply_all_shortcut')}>

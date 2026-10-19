@@ -2,6 +2,7 @@ import { Gateway } from '../net/Gateway'
 import * as cmds from '../net/commands'
 import { getState, setState, addLog, initialState } from './state'
 import { handleMessage } from './eventHandler'
+import { handleLlmSeat } from './llmSeats'
 import { clonePhaseStops } from '../game/phaseStops'
 import { saveConn, loadActiveGame, clearActiveGame, loadActiveDraft, clearActiveDraft, saveResumeToken, loadResumeToken, clearResumeToken, type ConnectionInfo } from './persistence'
 import { resetGameEventOrder } from './gameUtils'
@@ -80,7 +81,7 @@ async function relogin(g: Gateway, conn: ConnectionInfo, attempt: number): Promi
     setState({ link: 'ok', linkAttempt: 0 })
     if (!isAttached(res.data)) resetGameEventOrder()
     if (isResumed(res.data)) {
-      addLog('conexión', 'sesión reanudada sin pérdida de eventos')
+      addLog('conexión', 'session resumed without losing events')
       return
     }
     restoreLimited()
@@ -102,7 +103,7 @@ async function relogin(g: Gateway, conn: ConnectionInfo, attempt: number): Promi
     return
   }
   setState({ link: 'relogin-retry', linkAttempt: attempt + 1 })
-  addLog('conexión', `re-login fallido (${res.error ?? res.errorCode ?? '?'}): reintento ${attempt + 1}`)
+  addLog('conexión', `re-login failed (${res.error ?? res.errorCode ?? '?'}): retry ${attempt + 1}`)
   await new Promise((r) => setTimeout(r, Math.min(RELOGIN_BASE_DELAY_MS * 2 ** attempt, 15000)))
   if (gateway !== g || !g.isOpen) return
   const s = getState()
@@ -121,7 +122,7 @@ export function handleServerLink(msg: ServerLinkEnvelope): void {
       setState({ link: 'server-lost', linkAttempt: msg.attempt ?? 0 })
       break
     case 'restored':
-      addLog('conexión', 'enlace con el servidor restaurado')
+      addLog('conexión', 'link to the server restored')
       setState({ link: 'ok', linkAttempt: 0, error: null })
       restoreLimited()
       resumeActiveGame()
@@ -135,8 +136,12 @@ export function handleServerLink(msg: ServerLinkEnvelope): void {
   }
 }
 
+const CALLER_HANDLED_FAILURES = new Set(['getLlmProviders', 'getLlmSeats'])
+
 function dispatch(msg: ProxyMessage): void {
   if (msg.type === 'serverLink') handleServerLink(msg)
+  else if (msg.type === 'llmSeat') handleLlmSeat(msg)
+  else if (msg.type === 'result' && !msg.ok && CALLER_HANDLED_FAILURES.has(msg.action)) return
   else handleMessage(msg)
 }
 
@@ -145,12 +150,12 @@ function resumeActiveGame(): void {
   if (!active?.gameId) return
   const gameId = active.gameId
   if (active.role === 'watcher') {
-    addLog('conexión', 'Restaurando modo espectador…')
+    addLog('conexión', 'Restoring spectator mode…')
     void cmds.watchGame(gameId).then((r) => {
       if (!r?.ok) abandonResume(gameId, true)
     })
   } else {
-    addLog('conexión', 'Restaurando partida en curso…')
+    addLog('conexión', 'Restoring the game in progress…')
     setState({ resumingGameId: gameId })
     void cmds.joinGame(gameId).then((r) => {
       if (!r?.ok) abandonResume(gameId, false)
@@ -159,15 +164,15 @@ function resumeActiveGame(): void {
   void cmds.getGameChatId(gameId).then((cid) => setState({ gameChatId: cid ?? null }))
 }
 
-/** Re-une draft/torneo activos: primero el estado en memoria; tras recargar la
- *  página se re-pinta la última instantánea persistida (el server NO reenvía
- *  DRAFT_INIT a un `joinDraft` tardío: solo llegarán los próximos picks) y se
- *  re-une la sesión del draft para que el flujo siga. Si `joinDraft` falla
- *  (draft ya terminado), se descarta la instantánea para no reintentarla. */
+/** Rejoins the active draft/tournament: the in-memory state first; after a page
+ *  reload the last persisted snapshot is painted again (the server does NOT resend
+ *  DRAFT_INIT to a late `joinDraft`: only the next picks will arrive) and the
+ *  draft session is rejoined so the flow goes on. If `joinDraft` fails (the
+ *  draft is over), the snapshot is dropped so it is not retried. */
 function restoreLimited(): void {
   const persisted = loadActiveDraft()
   if (!getState().draft && persisted?.draft) {
-    addLog('conexión', 'Restaurando draft desde la última instantánea…')
+    addLog('conexión', 'Restoring the draft from the last snapshot…')
     setState({
       draft: persisted.draft,
       lastDraftEventAt: Date.now(),
@@ -177,7 +182,7 @@ function restoreLimited(): void {
   const draftId = getState().draft?.draftId ?? persisted?.draft?.draftId
   const tournamentId = getState().tournament?.tournamentId ?? persisted?.tournamentId ?? null
   if (draftId && draftId !== 'draft') {
-    addLog('conexión', 'Restaurando draft en curso…')
+    addLog('conexión', 'Restoring the draft in progress…')
     void (cmds.joinDraft(draftId) as Promise<{ ok?: boolean }>).then((r) => {
       if (!r?.ok) {
         clearActiveDraft()
@@ -186,7 +191,7 @@ function restoreLimited(): void {
     })
   }
   if (tournamentId) {
-    addLog('conexión', 'Restaurando torneo en curso…')
+    addLog('conexión', 'Restoring the tournament in progress…')
     void cmds.joinTournament(tournamentId)
   }
 }
@@ -198,7 +203,7 @@ export function attachGateway(g: Gateway) {
     const s = getState()
     setState({ connecting: false, wsAlive: true, error: null })
     if (s.conn && s.phase !== 'connecting') {
-      addLog('conexión', 'reconectado: re-logueando…')
+      addLog('conexión', 'reconnected: logging in again…')
       setState({ link: 'relogging', linkAttempt: 0 })
       await relogin(g, s.conn, 0)
     }
@@ -213,7 +218,7 @@ export function attachGateway(g: Gateway) {
     const s = getState()
     const inSession = !!s.conn && s.phase !== 'idle' && s.phase !== 'connecting'
     setState({ connecting: false, wsAlive: false, ...(inSession ? { link: 'ws-down' as const, linkAttempt: 0 } : null) })
-    addLog('conexión', `desconectado: ${reason}`)
+    addLog('conexión', `disconnected: ${reason}`)
   }
 }
 
@@ -242,9 +247,9 @@ export function doConnect(
   flagName?: string,
   avatarId?: number,
 ): Promise<void> {
-  // StrictMode monta App dos veces en dev: sin dedupe, el segundo intento
-  // desconecta el WS del primero, que a los 5 s rechaza y pisa el estado del
-  // login que sí funcionó (vuelta al login con "no se pudo conectar").
+  // StrictMode mounts App twice in dev: without dedupe the second attempt
+  // disconnects the first one's WS, which rejects after 5 s and overwrites the
+  // state of the login that did work (back to the login with "could not connect").
   const key = `${wsHost}|${proxyPort}|${serverHost}|${port}|${username}`
   if (inFlight?.key === key) return inFlight.promise
   const attempt = ++activeAttempt
@@ -268,8 +273,8 @@ async function runConnect(
   avatarId?: number,
   alreadyConnectedRetries = 0,
 ): Promise<void> {
-  // Un intento anterior (p.ej. auto-connect lento) no puede volver a 'idle' ni
-  // escribir un error encima del intento vigente que ya logueó.
+  // An earlier attempt (e.g. a slow auto-connect) may not go back to 'idle' nor
+  // write an error over the current attempt, which already logged in.
   const stale = () => attempt !== activeAttempt
   const conn: ConnectionInfo = { wsHost, proxyPort, serverHost, port, username, password, flagName, avatarId }
   setState({ phase: 'connecting', conn, connecting: true, error: null, link: 'ok', linkAttempt: 0, loginRetry: null })
@@ -283,7 +288,7 @@ async function runConnect(
     await g.connect(url)
   } catch (e) {
     if (stale()) return
-    setState({ phase: 'idle', connecting: false, error: `no se pudo conectar al proxy en ${url}: ${(e as Error).message}` })
+    setState({ phase: 'idle', connecting: false, error: `failed to connect to proxy at ${url}: ${(e as Error).message}` })
     return
   }
   if (stale()) return
@@ -295,7 +300,7 @@ async function runConnect(
   if (stale()) return
   if (!res.ok && /already connected|already logged in/i.test(res.error ?? '') && alreadyConnectedRetries < ALREADY_CONNECTED_RETRIES) {
     const waitMs = ALREADY_CONNECTED_BASE_DELAY_MS * 2 ** alreadyConnectedRetries
-    addLog('conexión', `la sesión anterior sigue viva en el servidor: reintento ${alreadyConnectedRetries + 1}/${ALREADY_CONNECTED_RETRIES} en ${Math.round(waitMs / 1000)} s`)
+    addLog('conexión', `the previous session is still alive on the server: retry ${alreadyConnectedRetries + 1}/${ALREADY_CONNECTED_RETRIES} in ${Math.round(waitMs / 1000)} s`)
     setState({ loginRetry: { attempt: alreadyConnectedRetries + 1, max: ALREADY_CONNECTED_RETRIES, until: Date.now() + waitMs } })
     await cmds.disconnect()
     await new Promise((r) => setTimeout(r, waitMs))
@@ -306,7 +311,7 @@ async function runConnect(
     if (!isAttached(res.data)) resetGameEventOrder()
     setState({ phase: 'lobby', connecting: false, error: null, conn })
     saveConn(conn)
-    if (isResumed(res.data)) addLog('conexión', 'recarga: eventos perdidos reproducidos desde el proxy')
+    if (isResumed(res.data)) addLog('conexión', 'reload: lost events replayed from the proxy')
     // the replay carries what happened meanwhile, but this page has no board: rejoin for the state + prompt
     restoreLimited()
     resumeActiveGame()
@@ -320,7 +325,7 @@ async function runConnect(
     // the other tab/device). The raw server detail stays in the log for bug reports.
     const sessionInUse = /already connected|already logged in/i.test(res.error ?? '')
     const mismatch = versionMismatchOf(res)
-    if ((sessionInUse || mismatch) && res.error) addLog('conexión', `login rechazado: ${res.error}`)
+    if ((sessionInUse || mismatch) && res.error) addLog('conexión', `login refused: ${res.error}`)
     setState({
       phase: 'idle', connecting: false, loginRetry: null,
       error: mismatch ? versionMismatchMessage(mismatch) : sessionInUse ? t('errors', 'session_in_use') : (res.error ?? 'login fallido'),

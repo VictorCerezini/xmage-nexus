@@ -5,11 +5,13 @@ import type { CreateTableForm } from './useCreateTableForm'
 
 export default function SummaryStrip({ form }: { form: CreateTableForm }) {
   const { t } = useTranslation()
-  const humansWaiting = form.seatConfigs.filter((s) => isHumanSeatType(s.type)).length
+  const modelSeats = Object.keys(form.llmChoices).length
+  const humansWaiting = form.seatConfigs.filter((s, i) => isHumanSeatType(s.type) && !form.llmChoices[i]).length
   return (
     <div className="create-table-summary-strip">
       <Chip size="xs">{form.gameType} · {form.numPlayers}p</Chip>
       {humansWaiting > 0 && <Chip size="xs" icon="user">{t('lobby','create_summary_waiting',{count:humansWaiting})}</Chip>}
+      {modelSeats > 0 && <Chip size="xs" icon="bot">{t('lobby','create_summary_llm',{count:modelSeats})}</Chip>}
       <Chip size="xs">{form.deckType}</Chip>
       <Chip size="xs">Bo{form.wins === 1 ? '1' : form.wins === 2 ? '3' : form.wins === 3 ? '5' : form.wins === 4 ? '7' : '9'} ({form.wins})</Chip>
       <Chip size="xs">{form.timeLimit === 'NONE' ? t('lobby','create_summary_no_clock') : t('lobby', 'create_time_min_short', { min: form.timeLimit.replace('MIN__', '') })}</Chip>

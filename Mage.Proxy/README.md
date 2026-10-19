@@ -246,7 +246,9 @@ variable, never a command line, manifest or log.
 **Seat order:** the server gives a joining `HUMAN` the first free `HUMAN` seat,
 and a model seat joins only once its own seat is the first free `HUMAN` seat.
 Put the seats people take (the owner usually joins right after `createTable`)
-before the model seats.
+before the model seats. The web client does this: it offers model seats in the
+create-table seats step when `getLlmProviders` reports `enabled`, numbers them
+after the owner's seat, and shows each `llmSeat` status on the staging screen.
 
 **Lifecycle:** each change is an `llmSeat` event on the session's numbered
 stream: `{type: "llmSeat", seq, tableId, seat, username, provider, model,

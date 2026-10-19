@@ -1,7 +1,9 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { GameTypeInfo } from '../../net/commands'
+import type { LlmProvider } from '../../net/types'
 import type { Deck } from '../decks'
 import type { CreateTab, DraftTiming, SeatConfig, TableCategory, TournamentCategory, WizardStep } from './constants'
+import type { LlmSeatChoice } from './llmSeats'
 
 /** Everything the Create Table wizard tabs read and change (see `useCreateTableForm`). */
 export interface CreateTableForm {
@@ -134,4 +136,16 @@ export interface CreateTableForm {
   validateStep: (tab: CreateTab) => string | null
   submit: () => Promise<void>
   runDemoTable: () => Promise<void>
+  /** model seats fit this table (a match, not a tournament or draft) */
+  llmSeatsAllowed: boolean
+  /** providers the proxy can seat; empty without `--llm` */
+  llmProviders: LlmProvider[]
+  llmUnavailable: { id: string; reason?: string }[]
+  llmCatalogLoading: boolean
+  llmCatalogError: string | null
+  /** model seat per `seatConfigs` index; such a seat is HUMAN on the server */
+  llmChoices: Record<number, LlmSeatChoice>
+  setLlmModel: (idx: number, modelId: string) => void
+  setLlmEffort: (idx: number, effort: string) => void
+  refreshLlmCatalog: () => Promise<void>
 }

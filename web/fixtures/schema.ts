@@ -1,9 +1,9 @@
 /**
- * Schema runtime del contrato del proxy (espejo validable de src/net/types.ts).
- * Es la red anti-deriva: cualquier frame (real o del FixtureServer) que no
- * cumpla el schema rompe el test en vez de propagarse silenciosamente.
- * Fuente única de verdad de los TIPOS: types.ts (typecheck). Este archivo solo
- * añade la validación RUNTIME de los campos que el cliente realmente consume.
+ * Runtime schema of the proxy contract (a validatable mirror of src/net/types.ts).
+ * It is the anti-drift net: any frame (real or from the FixtureServer) that
+ * does not match the schema breaks the test instead of spreading silently.
+ * Single source of truth for the TYPES: types.ts (typecheck). This file only
+ * adds RUNTIME validation of the fields the client actually reads.
  */
 
 import { z } from 'zod'
@@ -56,8 +56,21 @@ export const serverLinkSchema = z.object({
   seq: z.number().optional(),
 })
 
-/** Evento de partida: el payload debe traer el gameView (directo o en data).
- *  (gameViewSchema se genera desde el contrato en ./schema.generated.ts.) */
+export const llmSeatSchema = z.object({
+  type: z.literal('llmSeat'),
+  seq: z.number().optional(),
+  tableId: z.string(),
+  seat: z.number().int().min(1),
+  username: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  effort: z.string(),
+  status: z.enum(['starting', 'joined', 'playing', 'waiting_for_next_game', 'finished', 'stopped', 'failed']),
+  reason: z.string().optional(),
+})
+
+/** Game event: the payload must carry the gameView (directly or in data).
+ *  (gameViewSchema is generated from the contract in ./schema.generated.ts.) */
 export const gameEventSchema = z.object({
   method: z.string().startsWith('GAME_'),
   objectId: z.union([z.string(), z.null()]).optional(),
@@ -71,6 +84,7 @@ export type ParsedMessage =
   | z.infer<typeof connectedSchema>
   | z.infer<typeof infoSchema>
   | z.infer<typeof serverLinkSchema>
+  | z.infer<typeof llmSeatSchema>
 
 const baseSchemas: Record<string, z.ZodTypeAny> = {
   result: resultSchema,
@@ -79,16 +93,17 @@ const baseSchemas: Record<string, z.ZodTypeAny> = {
   connected: connectedSchema,
   info: infoSchema,
   serverLink: serverLinkSchema,
+  llmSeat: llmSeatSchema,
 }
 
-/** Valida un mensaje entrante y devuelve true si es conforme. */
+/** Validates an incoming message; ok is true when it conforms. */
 export function validateMessage(raw: unknown): { ok: boolean; errors?: string[] } {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    return { ok: false, errors: ['no es un objeto'] }
+    return { ok: false, errors: ['not an object'] }
   }
   const type = (raw as { type?: unknown }).type
   if (typeof type !== 'string' || !(type in baseSchemas)) {
-    return { ok: false, errors: [`type desconocido: ${String(type)}`] }
+    return { ok: false, errors: [`unknown type: ${String(type)}`] }
   }
   const parsed = baseSchemas[type].safeParse(raw)
   if (!parsed.success) {
@@ -97,7 +112,7 @@ export function validateMessage(raw: unknown): { ok: boolean; errors?: string[] 
   return { ok: true }
 }
 
-/** Valida un GameView extraído de un evento de partida. */
+/** Validates a GameView taken from a game event. */
 export function validateGameView(view: unknown): { ok: boolean; errors?: string[] } {
   const parsed = gameViewSchema.safeParse(view)
   if (!parsed.success) {
@@ -106,15 +121,15 @@ export function validateGameView(view: unknown): { ok: boolean; errors?: string[
   return { ok: true }
 }
 
-/** Extrae el GameView de un payload de evento (data.gameView o data directo),
- *  igual que store.gameViewFrom, y lo valida. */
+/** Takes the GameView out of an event payload (data.gameView or data itself),
+ *  like store.gameViewFrom, and validates it. */
 export function gameViewFromAndValidate(data: unknown): { ok: boolean; errors?: string[] } {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { ok: false, errors: ['data no es un objeto'] }
+    return { ok: false, errors: ['data is not an object'] }
   }
   const record = data as Record<string, unknown>
   const embedded = record.gameView
   const view = embedded && typeof embedded === 'object' && !Array.isArray(embedded) ? embedded : 'myHand' in record && 'phase' in record ? record : null
-  if (!view) return { ok: false, errors: ['no hay gameView en el payload'] }
+  if (!view) return { ok: false, errors: ['no gameView in the payload'] }
   return validateGameView(view)
 }

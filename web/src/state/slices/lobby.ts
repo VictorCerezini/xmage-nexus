@@ -1,4 +1,4 @@
-import type { ChatMessageEvent, LobbyEnvelope, TableView } from '../../net/types'
+import type { ChatMessageEvent, LlmCatalog, LlmSeatInfo, LobbyEnvelope, TableView } from '../../net/types'
 import type { DeepLink } from '../../lobby/deepLink'
 
 export type LogChannel = 'game' | 'chat' | 'system'
@@ -16,27 +16,34 @@ export interface LogEntry {
 export interface LobbySlice {
   lobby: LobbyEnvelope | null
   roomChatId: string | null
-  /** chat de la mesa en staging (U4-11); null fuera de la sala de espera */
+  /** chat of the staging table (U4-11); null outside the waiting room */
   tableChatId: string | null
-  /** mesa a la que pertenece tableChatId (evita re-joins y cruces al cambiar de mesa) */
+  /** table tableChatId belongs to (avoids re-joins and mix-ups when the table changes) */
   tableChatTableId: string | null
-  /** chat del torneo en el panel de partida (T4, paridad con el chatPanel del TournamentPanel) */
+  /** tournament chat in the game panel (T4, like the TournamentPanel's chatPanel) */
   tournamentChatId: string | null
-  /** torneo al que pertenece tournamentChatId (evita re-joins y cruces) */
+  /** tournament tournamentChatId belongs to (avoids re-joins and mix-ups) */
   tournamentChatTournamentId: string | null
   chatMessages: ChatMessageEvent[]
   watchingTable: TableView | null
-  /** Resolución tableId→tournamentId del watch de torneo (callback SHOW_TOURNAMENT):
-   *  el lobby la usa para abrir el cuadro de un torneo ajeno o en vivo (el server
-   *  no acepta el id de mesa en getTournament). */
+  /** tableId→tournamentId of a tournament watch (SHOW_TOURNAMENT callback):
+   *  the lobby uses it to open the bracket of someone else's or a live tournament
+   *  (the server does not take the table id in getTournament). */
   spectateTournament: { tournamentId: string; tableId: string } | null
   stagingTableId: string | null
-  /** flag isTournament del JOINED_TABLE (el lobby puede ir desfasado al entrar) */
+  /** isTournament flag of JOINED_TABLE (the lobby may lag behind on entry) */
   stagingIsTournament: boolean
-  /** invitación pendiente vía deep link (#join= / #watch=); la consume el lobby */
+  /** pending invitation from a deep link (#join= / #watch=); the lobby consumes it */
   pendingDeepLink: DeepLink | null
-  /** partida que estamos re-uniendo (joinGame) y cuyo replay aún no ha llegado */
+  /** game being rejoined (joinGame) whose replay has not arrived yet */
   resumingGameId: string | null
+  /** the proxy's model catalog (`getLlmProviders`); null until asked */
+  llmCatalog: LlmCatalog | null
+  llmCatalogLoading: boolean
+  /** why the last catalog refresh failed */
+  llmCatalogError: string | null
+  /** latest status of each model seat this session started, one entry per table and seat */
+  llmSeats: LlmSeatInfo[]
   log: LogEntry[]
   events: { method: string; time: number }[]
 }
@@ -55,6 +62,10 @@ export const initialLobby: LobbySlice = {
   stagingIsTournament: false,
   pendingDeepLink: null,
   resumingGameId: null,
+  llmCatalog: null,
+  llmCatalogLoading: false,
+  llmCatalogError: null,
+  llmSeats: [],
   log: [],
   events: [],
 }

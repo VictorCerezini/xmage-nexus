@@ -15,7 +15,7 @@ If (2) and (3) disagree, fix (3) by regeneration, then fix the code. Never hand-
 ## Message shapes
 
 - Client → proxy: `{"requestId", "action", "args"}`. Lobby + game + chat + `validateDeck` + `sendPlayer{Action,UUID,Boolean,Integer,String,ManaType}` (+ `HOLD_PRIORITY`/`UNHOLD_PRIORITY`).
-- Proxy → client: `{type: "event", method, messageId, objectId, data}` for server callbacks; lobby broadcasts; result envelopes for request/response.
+- Proxy → client: `{type: "event", method, messageId, objectId, data}` for server callbacks; lobby broadcasts; result envelopes for request/response. The proxy's own envelopes (`serverLink`, and `llmSeat` with `--llm`) are hand-written in `web/src/net/types.ts` and `web/fixtures/schema.ts`, not generated.
 - `JsonUtil` rules: UUID/Enum → string, Date → epoch millis, `Optional` unwrapped, null/static/transient/logger/`Class`/`Throwable` skipped, cycles → null.
 
 ## Key semantics (do not re-derive, verified against the live server)
