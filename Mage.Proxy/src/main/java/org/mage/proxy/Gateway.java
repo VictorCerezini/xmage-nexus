@@ -28,21 +28,21 @@ import com.google.gson.JsonParser;
 /**
  * WebSocket server: transport between the web client and the proxy logic.
  * <p>
- * Seguridad local-first (todo aplicado en el transporte):
- * - bind a 127.0.0.1 por defecto (configurable con --bind)
- * - rechazo de orígenes WebSocket que no sean localhost (o --allowedOrigins)
- * - límite de tamaño de mensaje y de frecuencia por conexión
+ * Local-first security, all enforced in the transport:
+ * - binds to 127.0.0.1 by default (configurable with --bind)
+ * - refuses WebSocket origins other than localhost (or --allowedOrigins)
+ * - limits message size and rate per connection
  */
 public class Gateway extends WebSocketServer {
 
     private static final Logger logger = Logger.getLogger(Gateway.class.getName());
     private final Config config;
-    /** conn -> su ProxyClient (sesión propia o compartida por cuenta). */
+    /** conn -> its ProxyClient (its own session, or one shared by the account). */
     private final Map<WebSocket, ProxyClient> byConn = Collections.synchronizedMap(new IdentityHashMap<WebSocket, ProxyClient>());
-    /** host|username -> ProxyClient conectado (para re-adjuntar ventanas de la misma cuenta). */
+    /** host|username -> the connected ProxyClient (to reattach windows of the same account). */
     private final Map<String, ProxyClient> byAccount = new ConcurrentHashMap<>();
 
-    /** recuento de mensajes por conexión (ventana deslizante de 1 s) */
+    /** each connection's remote IP */
     private final Map<WebSocket, String> connIp = Collections.synchronizedMap(new IdentityHashMap<WebSocket, String>());
 
     /** WebSocket transport errors, only to throttle the log: one stack, then one line per minute. */
@@ -76,10 +76,22 @@ public class Gateway extends WebSocketServer {
         super(new InetSocketAddress(config.getBindAddress(), port), drafts());
         this.config = config;
         this.simRoster = SimRoster.fromConfig(config);
+        this.llmRuntime = LlmRuntime.fromConfig(config);
+        this.llmCatalog = llmRuntime == null ? null : new LlmCatalog(llmRuntime);
         setReuseAddr(true);
     }
 
     private final SimRoster simRoster;
+    private final LlmRuntime llmRuntime;
+    private final LlmCatalog llmCatalog;
+
+    LlmRuntime llmRuntime() {
+        return llmRuntime;
+    }
+
+    LlmCatalog llmCatalog() {
+        return llmCatalog;
+    }
     private final java.util.concurrent.ScheduledExecutorService rosterTimer =
             java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "sim-roster");
@@ -221,8 +233,8 @@ public class Gateway extends WebSocketServer {
         connIp.put(conn, ip);
         conn.setAttachment(new Object());
         Activity.wsOpen(ip, origin);
-        // Lazy: la sesión se crea en handleConnect (al recibir `connect`), para poder
-        // re-adjuntar la conexión a una sesión existente de la misma cuenta.
+        // Lazy: the session is created in handleConnect (on `connect`), so the
+        // connection can be reattached to an existing session of the same account.
         sendReady(conn);
     }
 
@@ -277,7 +289,7 @@ public class Gateway extends WebSocketServer {
         if (pc != null) {
             byConn.remove(conn, pc);
         }
-        // Pre-auth: solo se acepta `connect` (y `ping`, keep-alive público).
+        // Pre-auth: only `connect` is accepted (and `ping`, the public keep-alive).
         String action = "";
         String requestId = "";
         try {
@@ -348,7 +360,7 @@ public class Gateway extends WebSocketServer {
 
     private final Object fallbackSendLock = new Object();
 
-    /** Intercepta `connect` para decidir create-vs-attach antes de crear la sesión. */
+    /** Intercepts `connect` to decide create-vs-attach before the session is created. */
     private void handleConnect(WebSocket conn, String message) {
         String requestId = "";
         String host;
@@ -455,16 +467,16 @@ public class Gateway extends WebSocketServer {
     }
 
     /**
-     * Permite conexiones sin Origin (node/self-test) y orígenes de localhost.
-     * Si --allowedOrigins está definido, solo se aceptan esos valores exactos.
+     * Allows connections without an Origin (node/self-test) and localhost origins.
+     * When --allowedOrigins is set, only those exact values are accepted.
      * <p>
-     * El launcher de escritorio (Tauri) cuenta como "localhost" aunque su
-     * Origin no lo sea literalmente: en macOS/Linux usa el esquema custom
-     * {@code tauri://localhost} (host ya "localhost"), pero en Windows
-     * WebView2 no soporta esquemas custom y Tauri sirve la app vía un
-     * "virtual host" {@code http://tauri.localhost} — mismo proceso local,
-     * pero con host distinto — por eso se acepta explícitamente además del
-     * propio "localhost".
+     * The desktop launcher (Tauri) counts as "localhost" although its Origin is
+     * not literally that: on macOS/Linux it uses the custom scheme
+     * {@code tauri://localhost} (host already "localhost"), but on Windows
+     * WebView2 does not support custom schemes and Tauri serves the app through
+     * a "virtual host" {@code http://tauri.localhost}, the same local process
+     * with a different host, so it is accepted explicitly besides "localhost"
+     * itself.
      */
     boolean originAllowed(String origin) {
         if (origin == null || origin.isEmpty()) {
@@ -474,6 +486,10 @@ public class Gateway extends WebSocketServer {
         if (!allowed.isEmpty()) {
             return allowed.contains(origin);
         }
+        return isLocalOrigin(origin);
+    }
+
+    static boolean isLocalOrigin(String origin) {
         try {
             String host = new URI(origin).getHost();
             if (host == null) {

@@ -60,6 +60,7 @@ All run from the repository root with `llm/.venv/Scripts/python`.
     "reasoning": "low",
     "catalog": ".run/llm/catalog.json",
     "table_id": "<table UUID>",
+    "table_password": "",
     "seat": 2,
     "username": "ChatGPT 2",
     "server_port": 17171,
@@ -76,7 +77,10 @@ All run from the repository root with `llm/.venv/Scripts/python`.
   The seat stops when the `owner_pid` process exits or when a
   `cancel.requested` file appears in the run folder. It exits 0 for a finished
   or cancelled seat and 1 for a failure. The server username limit is 14
-  characters.
+  characters. `table_password` is optional; it reaches only the bridge, in its
+  `XMAGE_BRIDGE_TABLE_PASSWORD` environment variable, and is never written to
+  the manifest, a log or a command line. Mage.Proxy starts these seats for
+  `createTable` with `llmSeats` when run with `--llm on`.
 - `-m llm.sign_in openrouter|zai`: runs OpenCode's own key prompt with its home
   redirected to the isolated OpenCode home.
 - `-m llm.subscription_client`, `-m llm.claude_client`: one-shot connection
@@ -106,6 +110,9 @@ The bridge's lazily loaded card database is shared by all seats in
 - Each CLI runs from an empty folder (`.run/llm/player-sandbox` unless
   configured), with built-in tools, project instructions and user settings off.
   Credential overrides are removed from its environment.
+- Codex pre-approves only `concede`, which the gateway marks destructive, and
+  only through that run's `-c` overrides; the user's Codex config is not read
+  or changed.
 - A seat stops after 2,000 tool calls, after two hours per game, or on any
   non-game tool use.
 

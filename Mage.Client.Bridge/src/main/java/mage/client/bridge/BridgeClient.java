@@ -310,7 +310,7 @@ public class BridgeClient {
                                 if (seat.getPlayerType() == PlayerType.HUMAN &&
                                     (seat.getPlayerId() == null || seat.getPlayerName().isEmpty())) {
                                     logger.info("Found table with open seat: " + table.getTableId() + " (" + table.getTableName() + ")");
-                                    if (session.joinTable(roomId, table.getTableId(), username, PlayerType.HUMAN, 1, deck, "")) {
+                                    if (session.joinTable(roomId, table.getTableId(), username, PlayerType.HUMAN, 1, deck, tablePassword())) {
                                         logger.info("Successfully joined table " + table.getTableId());
                                         return table.getTableId();
                                     } else {
@@ -333,6 +333,11 @@ public class BridgeClient {
         }
 
         return null;
+    }
+
+    static String tablePassword() {
+        String password = System.getenv("XMAGE_BRIDGE_TABLE_PASSWORD");
+        return password == null ? "" : password;
     }
 
     public static DeckCardLists loadDeck(String deckPath) {

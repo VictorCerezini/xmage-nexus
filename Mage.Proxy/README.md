@@ -202,6 +202,70 @@ per-connection lock (`Gateway.send`).
 | `joinGame` | `{gameId}` | Join a game (as player) |
 | `quitMatch` | `{tableId}` | Quit the match |
 
+### Model seats (`--llm`)
+
+Off by default. With `--llm on` a table's owner can seat a language model in a
+`HUMAN` seat; the proxy runs one `python -m llm.seat` process per model seat
+(see [`llm/README.md`](../llm/README.md)). Flags:
+
+- `--llm off|on|<catalog path>`: `on` keeps the catalog in `.run/llm/catalog.json`
+  under the root.
+- `--llmRoot <dir>`: the folder that holds `llm/seat.py`; by default the working
+  directory or its parent.
+- `--llmPython <exe>`: by default `llm/.venv/Scripts/python.exe` (Windows) or
+  `llm/.venv/bin/python`; it must exist.
+- `--llmMaxSeats <n>`: model seats alive at once across the proxy, default 4.
+
+Model seats play on this machine's subscription sign-ins and keys, so with
+`--llm` the proxy refuses to start (exit code 2) unless it is bound to loopback
+and every `--allowedOrigins` entry is a local origin. A session whose XMage
+server is not on this machine cannot seat models either.
+
+| Action | Args | Description |
+|---|---|---|
+| `getLlmProviders` | `{refresh?}` | The model catalog: `{enabled: true, providers, unavailable}`, or just `{enabled: false}` without `--llm`. The first call, or `refresh: true`, runs `python -m llm.catalog` (up to 2 minutes); later calls read the saved catalog. A provider is `{id, playerType, playerName, auth, freeRequestsToday?, models: [{id, name, efforts, defaultEffort, isDefault, contextLength?, maxOutput?}]}`; `unavailable` is `[{id, reason}]`. A failed refresh answers `FAILED` with the cause |
+| `getLlmSeats` | `{tableId?}` | This session's model seats, all of them or one table's, each shaped like the `llmSeat` event without `type` and `seq` |
+
+`createTable` takes `llmSeats: [{seat, provider, model?, effort?, deck}]`:
+
+- `seat` is 1-based into `playerTypes`, must be a `HUMAN` seat and may appear
+  only once.
+- `model` defaults to the provider's default model and `effort` to that model's
+  default reasoning level.
+- `deck` is the deck JSON `joinTable` takes; cards the server lacks are dropped
+  and a deck left empty is refused.
+- `winsNeeded` must be 1 to 10, and the seats must fit under `--llmMaxSeats`.
+
+Any of these problems answers `INVALID_ARGUMENT` and creates no table. Once the
+table exists, each seat logs in as `<playerName> <n>` (for example `ChatGPT 2`:
+`n` is the seat number when that name is free, otherwise the first free one from
+1 to 99, and never the owner's name) and joins with the table's password. The
+password reaches the seat on its stdin and the bridge in an environment
+variable, never a command line, manifest or log.
+
+**Seat order:** the server gives a joining `HUMAN` the first free `HUMAN` seat,
+and a model seat joins only once its own seat is the first free `HUMAN` seat.
+Put the seats people take (the owner usually joins right after `createTable`)
+before the model seats.
+
+**Lifecycle:** each change is an `llmSeat` event on the session's numbered
+stream: `{type: "llmSeat", seq, tableId, seat, username, provider, model,
+effort, status, reason?}`. `status` goes `starting` → `joined` (seated, waiting
+for the start) → `playing`, with `waiting_for_next_game` between the games of a
+match, and ends in `finished` (the match is over), `stopped` (the owner or the
+proxy stopped it) or `failed` (with a `reason`). A failure also sends a
+non-fatal `error` such as `ChatGPT 2 (seat 2) failed: …`.
+
+**Stopping:** the owner's `removeTable`, a `leaveTable` of a table with model
+seats (the proxy then removes that table too), `disconnect`, a login as another
+user, the end of the session's grace period and proxy shutdown all stop the
+session's model seats. A stop asks the seat to leave (a `cancel.requested` file
+in its run folder) and kills its process tree after 20 s; a seat also stops on
+its own when the proxy process exits. A restarted proxy does not bring model
+seats back. A finished seat's name is free again at once; a stopped or failed
+seat's name waits 10 minutes, so a new seat never logs in as a player the server
+may still hold in a game. Each seat writes to `.run/llm/<tableId>-seat-<n>/`.
+
 ### Deck Management
 
 | Action | Args | Description |
@@ -358,6 +422,7 @@ empty.
 | `lobby` | Lobby state (tables, users) — broadcast every ~2s |
 | `result` | Response to an action (`ok: true/false`) |
 | `event` | Server callback (game events, chat, etc.) |
+| `llmSeat` | A model seat's status changed (`--llm` only; see [Model seats](#model-seats---llm)) |
 
 ### Game Events (forwarded from XMage server)
 

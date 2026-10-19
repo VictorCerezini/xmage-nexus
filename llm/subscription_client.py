@@ -96,6 +96,7 @@ def command(mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_secon
                 "mcp_servers.mage.tool_timeout_sec": tool_timeout_seconds,
                 "mcp_servers.mage.startup_timeout_sec": 30,
                 "mcp_servers.mage.default_tools_approval_mode": "auto",
+                "mcp_servers.mage.tools.concede.approval_mode": "approve",
             }
         )
     for key, value in configs.items():

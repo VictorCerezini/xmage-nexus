@@ -25,14 +25,21 @@ public class Main {
     public static void main(String[] args) throws Exception {
         Config config = Config.parse(args);
 
-        Gateway gateway = new Gateway(config);
+        Gateway gateway;
+        try {
+            gateway = new Gateway(config);
+        } catch (IllegalStateException ex) {
+            System.err.println("[proxy] " + ex.getMessage());
+            System.exit(2);
+            return;
+        }
         gateway.start();
 
-        // construcción perezosa de la BD de cartas del proxy (validación de mazos)
+        // lazy build of the proxy's card DB (deck validation)
         DeckValidation.ensureCardDatabaseAsync();
 
-        // restore ids en disco: un re-login tras un deploy (o un cambio de IP del host) recupera
-        // la sesión que el servidor aún mantiene en vez de ser rechazado con "already connected"
+        // restore ids on disk: a re-login after a deploy (or a host IP change) takes back the
+        // session the server still holds instead of being refused with "already connected"
         RestoreIds.configure(config);
 
         System.out.println("[proxy] XMage proxy started");
@@ -40,6 +47,10 @@ public class Main {
         System.out.println("[proxy]   test page         : http://" + config.getBindAddress() + ":" + config.getHttpPort() + "/index.html");
         System.out.println("[proxy]   protocol version  : " + Config.PROTOCOL_VERSION);
         System.out.println("[proxy]   multi-tenant     : each WebSocket connection = its own XMage session");
+        if (gateway.llmRuntime() != null) {
+            System.out.println("[proxy]   model seats       : on, catalog " + gateway.llmRuntime().catalog()
+                    + ", at most " + gateway.llmRuntime().maxSeats() + " at once");
+        }
 
         startHttpServer(config, gateway);
 
@@ -106,9 +117,9 @@ public class Main {
     }
 
     /**
-     * Resuelve un path de petición HTTP a un fichero dentro de webDir.
-     * Devuelve null si la ruta canónica escapa de webDir (path traversal),
-     * no existe, o webDir no es un directorio.
+     * Resolves an HTTP request path to a file inside webDir.
+     * Returns null when the canonical path escapes webDir (path traversal),
+     * does not exist, or webDir is not a directory.
      */
     static File resolveWebFile(String webDir, String path) throws IOException {
         File base = new File(webDir).getCanonicalFile();
@@ -125,7 +136,7 @@ public class Main {
         return file.isFile() ? file : null;
     }
 
-    /** true si el path decodificado intenta subir de nivel (guarda para el fallback de recursos). */
+    /** True when the decoded path tries to climb a level (guard for the resource fallback). */
     static boolean hasTraversalSegments(String path) {
         if (path == null) {
             return false;
@@ -188,7 +199,7 @@ public class Main {
             if (path == null || path.equals("/")) {
                 path = "/index.html";
             }
-            // prevent path traversal: solo ficheros dentro de webDir
+            // prevent path traversal: only files inside webDir
             File file = resolveWebFile(webDir, path);
             if (file != null) {
                 byte[] content = Files.readAllBytes(file.toPath());

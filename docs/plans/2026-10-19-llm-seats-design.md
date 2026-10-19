@@ -1,7 +1,8 @@
 # LLM seats: play against ChatGPT, Claude, OpenRouter and GLM from the Nexus web client
 
-Date: 2026-10-19. Status: phases 0 to 2 done. A model seat plays full games on
-Nexus's patched server through `llm/`. Next is phase 3, the proxy's `LlmSeats`.
+Date: 2026-10-19. Status: phases 0 to 3 done. With `--llm on` the proxy seats a
+model itself from `createTable`. The ChatGPT concede refusal found in the phase 3
+play proof is fixed (see "Risks and checks"). Next is phase 4, the web UI.
 
 ## Goal
 
@@ -224,8 +225,8 @@ files and adds 2, about 1,070 lines.
   - It spawns `python -m llm.seat` with the same request JSON the Swing client
     sends, plus the table password, which lifts the empty-password rule.
 - **Seat status** (starting, joined, playing, waiting for next game, finished,
-  failed with reason) goes out as events. Failures reuse the proxy's existing
-  non-fatal `error` broadcast.
+  stopped, failed with reason) goes out as events. Failures reuse the proxy's
+  existing non-fatal `error` broadcast.
 - **Stopping:** seats stop on `removeTable` or `leaveTable` by the owner, when
   the owner's session expires, and when the proxy exits. The supervisor already
   stops when its owner PID dies, and the owner becomes the proxy.
@@ -312,8 +313,48 @@ files and adds 2, about 1,070 lines.
      - The manifest says `completed` and `game_over`, and cleanup finished.
        The bridge's game ID matches the server's `GAME started` line.
      - `llm.catalog` listed all four providers from the existing sign-ins.
-3. **Proxy `LlmSeats`.** Flag, catalog action, `createTable` hook, process
-   lifecycle, events and Java tests.
+3. **Proxy `LlmSeats`. Done.** `Mage.Proxy/README.md` ("Model seats") covers
+   the protocol.
+   - `--llm off|on|<catalog>`, plus `--llmRoot`, `--llmPython` and
+     `--llmMaxSeats` (default 4). With `--llm`, a non-loopback `--bind` or a
+     non-local `--allowedOrigins` stops the proxy at startup with exit code 2,
+     and a session whose XMage server is not loopback cannot seat models.
+   - `getLlmProviders {refresh?}` runs `python -m llm.catalog` and returns only
+     whitelisted fields. `getLlmSeats {tableId?}` lists the session's seats.
+   - `createTable` validates `llmSeats` before the table exists: HUMAN seat,
+     one model per seat, provider, model and effort from the catalog, a deck
+     the server knows, 1 to 10 wins, and the seat cap. Then each seat gets a
+     run folder with its `.dck` and one `python -m llm.seat` process, with the
+     proxy's PID as `owner_pid`.
+   - Seats are per `ProxyClient`, so only the session that created the table
+     can stop them. They stop on `removeTable`, `leaveTable` (which also
+     removes the owned table), `disconnect`, a user switch, grace expiry and
+     shutdown. A stop writes `cancel.requested` and kills the process tree
+     after 20 s.
+   - Names are `<playerName> <n>`, unique across the proxy. A stopped or failed
+     seat's name waits 10 minutes before reuse, for the reattach risk below.
+   - The table password goes to `llm.seat` on stdin and to the bridge in
+     `XMAGE_BRIDGE_TABLE_PASSWORD`, never argv, the manifest or a log.
+   - Tests: 26 new Java tests, run against a fake seat process (265 in the
+     proxy), plus new `llm` tests for the password and the concede approval
+     (170). The bridge's 113
+     tests still pass.
+   - **Stop proof:** `removeTable` on a password table with a ChatGPT seat.
+     The seat joined 12 s after `createTable`, and the `stopped` event came
+     1 s after `removeTable`. The manifest says `cancelled` with cleanup
+     finished, and no process was left. The password is in none of the run
+     files or proxy logs.
+   - **Play proof:** ChatGPT `gpt-6-luna` at low reasoning against Mad, Mirror
+     Bears. The seat joined in 11 s and logged in as `ChatGPT 1`, because the
+     stop proof's `ChatGPT 2` was still cooling down. The events went
+     `starting`, `joined`, `playing`. On turn 10, after 28 tool calls (none
+     failed), the losing model tried to concede. Codex refused the call, the
+     model ended its turn, and the seat reported `failed` with the non-fatal
+     `error`. No game result was confirmed through the proxy. The per-run
+     overrides now pre-approve `concede` and nothing else; a direct Codex run
+     against a stub gateway then called `concede` and the call completed.
+   - Not done here: the web types and zod schemas (phase 4) and a `--llm`
+     switch in `dev.mjs` and the launcher (phase 5).
 4. **Web UI.** Seat type, pickers, staging status, i18n, fixtures and tests.
 5. **Docs and live matrix.**
    - Add the launcher wrapper and update the README, `ROADMAP.md` §4 and
@@ -345,7 +386,16 @@ files and adds 2, about 1,070 lines.
   the same user was reattached to that old game, played it, and ignored the
   new table's game. `LlmSeats` must concede or leave and remove the table when
   it stops a seat. The bridge should also prefer the game of the table it was
-  asked to join.
+  asked to join. Phase 3 removes the owner's table and keeps a stopped seat's
+  name out of use for 10 minutes; the bridge preference is still open.
+- **ChatGPT could not concede (fixed).** The gateway marks `concede` as
+  destructive. Codex's `default_tools_approval_mode = "auto"` still asks
+  approval for destructive tools, and with `-a never` the call failed, so the
+  model ended its turn and the seat failed. The per-run `-c` overrides now set
+  `mcp_servers.mage.tools.concede.approval_mode = "approve"`. No other tool is
+  pre-approved, and the user's own Codex config is untouched because the
+  player runs with `--ignore-user-config --ephemeral`. A supervisor that
+  resumes a model which stops mid-game would still help for other early stops.
 - **Server username limit is 14.** `ChatGPT 2`, `OpenRouter 10` and similar
   fit. Names with a space are fine: the server checks its invalid-name pattern
   only when registering an account, not on login.

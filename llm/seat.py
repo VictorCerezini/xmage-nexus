@@ -25,6 +25,7 @@ MAX_SECONDS = 7200
 MAX_WINS = 10
 NEXT_GAME_SECONDS = 600
 REPORT_GRACE_SECONDS = 120
+TABLE_PASSWORD_ENV = "XMAGE_BRIDGE_TABLE_PASSWORD"  # noqa: S105 - an environment variable name, not a password
 PROMPT = (
     "You are {username}, playing a live Magic: The Gathering game with a human and possibly other players in XMage. "
     "Play the entire game to win, using only the mage MCP tools. This is a game, not a coding task. "
@@ -329,7 +330,10 @@ def run_player(request, *, start_player=None, runtime=None):
         if wins > 1:
             # The bridge stays for the match's later games and keeps the deck unchanged between them.
             arguments.append("-Dxmage.bridge.continueMatch=true")
-        bridge = local.launch_bridge(arguments, env, log("bridge.log"))
+        bridge_env = dict(env)
+        if request.get("table_password"):
+            bridge_env[TABLE_PASSWORD_ENV] = request["table_password"]
+        bridge = local.launch_bridge(arguments, bridge_env, log("bridge.log"))
         processes.append(bridge)
         save_status("joining")
         url = f"http://127.0.0.1:{mcp_port}/mcp"

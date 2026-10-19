@@ -7,10 +7,11 @@ import mage.players.PlayerType;
 import mage.view.TableView;
 import org.java_websocket.WebSocket;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
-/** Comandos de mesa/partida: crear, unirse, salir, arrancar, mirar. */
+/** Table and match commands: create, join, leave, start, watch. */
 final class TableCommands {
 
     private TableCommands() {
@@ -24,6 +25,13 @@ final class TableCommands {
                     ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, false, ProxyProtocol.ERR_INVALID_ARGUMENT, "SIM seats are disabled on this proxy (dev only, start it with --sim on)"));
                     return true;
                 }
+                List<LlmSeats.Plan> llmSeats;
+                try {
+                    llmSeats = ctx.llmSeats().prepare(args);
+                } catch (IllegalArgumentException ex) {
+                    ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, false, ProxyProtocol.ERR_INVALID_ARGUMENT, ex.getMessage()));
+                    return true;
+                }
                 MatchOptions options = MatchOptionsParser.parseMatchOptions(args);
                 UUID roomId = JsonArgs.uuid(args, "roomId", ctx.session().getMainRoomId());
                 Object result = ctx.session().createTable(roomId, options);
@@ -34,6 +42,7 @@ final class TableCommands {
                     ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, true, null, result));
                     if (result instanceof TableView) {
                         ctx.startSims(args, roomId, ((TableView) result).getTableId());
+                        ctx.llmSeats().start(llmSeats, args, ((TableView) result).getTableId());
                     }
                 }
                 return true;
@@ -59,13 +68,18 @@ final class TableCommands {
             case "leaveTable": {
                 UUID roomId = JsonArgs.uuid(args, "roomId", ctx.session().getMainRoomId());
                 UUID tableId = JsonArgs.uuid(args, "tableId", null);
-                ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, ctx.session().leaveTable(roomId, tableId), null, null));
+                boolean hadModelSeats = tableId != null && ctx.llmSeats().stopTable(tableId);
+                boolean left = ctx.session().leaveTable(roomId, tableId);
+                if (hadModelSeats) {
+                    LlmSeats.removeOwnedTables(ctx.session(), java.util.Collections.singleton(tableId));
+                }
+                ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, left, null, null));
                 return true;
             }
             case "removeTable": {
-                // siempre la variante con roomId: removeTable(tableId) es la
-                // variante de admin (adminTableRemove) y falla con "Wrong admin
-                // access" para usuarios normales, dejando mesas huérfanas
+                // always the roomId variant: removeTable(tableId) is the admin one
+                // (adminTableRemove) and fails with "Wrong admin access" for normal
+                // users, leaving orphaned tables
                 UUID roomId = JsonArgs.uuid(args, "roomId", ctx.session().getMainRoomId());
                 UUID tableId = JsonArgs.uuid(args, "tableId", null);
                 if (tableId == null) {
@@ -73,6 +87,7 @@ final class TableCommands {
                     return true;
                 }
                 if (!ctx.session().getTable(roomId, tableId).isPresent()) {
+                    ctx.llmSeats().stopTable(tableId);
                     ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, true, null, null));
                     return true;
                 }
@@ -80,6 +95,7 @@ final class TableCommands {
                     ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, false, ProxyProtocol.ERR_NOT_AUTHORIZED, "Only the table owner can delete this table"));
                     return true;
                 }
+                ctx.llmSeats().stopTable(tableId);
                 ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, ctx.session().removeTable(roomId, tableId), null, null));
                 return true;
             }

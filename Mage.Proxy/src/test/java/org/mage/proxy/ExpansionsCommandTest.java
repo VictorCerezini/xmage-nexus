@@ -13,7 +13,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Comando T5: getExpansionsWithBoosters responde ok con un array (vacío si la BD aún no está lista). */
+/** T5 command: getExpansionsWithBoosters answers ok with an array (empty while the card DB is not ready). */
 class ExpansionsCommandTest {
 
     static final class StubSession extends SessionImpl {
@@ -87,6 +87,13 @@ class ExpansionsCommandTest {
         @Override
         public boolean simEnabled() {
             return true;
+        }
+
+        LlmSeats llmSeats = LlmSeats.disabled();
+
+        @Override
+        public LlmSeats llmSeats() {
+            return llmSeats;
         }
     }
 

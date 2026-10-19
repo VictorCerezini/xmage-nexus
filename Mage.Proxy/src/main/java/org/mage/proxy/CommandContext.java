@@ -6,7 +6,7 @@ import org.java_websocket.WebSocket;
 
 import java.util.UUID;
 
-/** Superficie de ProxyClient que necesitan los handlers de comandos por dominio. */
+/** The part of ProxyClient that the per-domain command handlers need. */
 interface CommandContext {
 
     SessionImpl session();
@@ -38,4 +38,6 @@ interface CommandContext {
 
     /** Whether the dev-only proxy SIM bots are enabled ({@code --sim on}). */
     boolean simEnabled();
+
+    LlmSeats llmSeats();
 }

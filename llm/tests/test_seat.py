@@ -365,6 +365,26 @@ def test_table_cancellation_stops_player_even_when_window_remains_open(harness):
     start.assert_not_called()
 
 
+def test_table_password_reaches_only_the_bridge(harness):
+    request, runtime, _, _ = harness
+    request["table_password"] = "table-secret"
+    run = Path(request["run"])
+    run.mkdir()
+    (run / "cancel.requested").write_text("")
+    launched = {}
+
+    def launch_bridge(arguments, env, _log):
+        launched.update(arguments=arguments, env=env)
+        return SimpleNamespace(poll=lambda: None)
+
+    runtime.launch_bridge = launch_bridge
+    assert seat.run_player(request, runtime=runtime, start_player=Mock()) == 0
+    assert launched["env"][seat.TABLE_PASSWORD_ENV] == "table-secret"
+    assert not any("table-secret" in argument for argument in launched["arguments"])
+    assert seat.TABLE_PASSWORD_ENV not in os.environ
+    assert "table-secret" not in (run / "manifest.json").read_text()
+
+
 def test_table_cancellation_during_a_blocked_player_wait_still_cleans_both_processes(harness, monkeypatch):
     request, runtime, stopped, _ = harness
     monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))

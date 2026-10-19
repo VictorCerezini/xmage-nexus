@@ -26,6 +26,24 @@ def test_subscription_command_forces_chatgpt_and_restricts_tools(monkeypatch):
     assert "--ephemeral" in command
 
 
+def test_only_concede_is_pre_approved_and_only_for_this_run(monkeypatch):
+    monkeypatch.setattr(paths, "settings", lambda: {"codex_executable": "C:/Tools/codex.exe"})
+    command = subscription_client.command("http://127.0.0.1:12345/mcp")
+    configs = {
+        command[index + 1].split("=", 1)[0]: json.loads(command[index + 1].split("=", 1)[1])
+        for index, value in enumerate(command)
+        if value == "-c"
+    }
+    approvals = {key: value for key, value in configs.items() if key.endswith("approval_mode")}
+    assert approvals == {
+        "mcp_servers.mage.default_tools_approval_mode": "auto",
+        "mcp_servers.mage.tools.concede.approval_mode": "approve",
+    }
+    assert command[1:3] == ["-a", "never"]
+    assert "--ignore-user-config" in command
+    assert not any(part.startswith("mcp_servers.") for part in subscription_client.command())
+
+
 def test_game_tools_are_called_directly_with_a_trimmed_prompt(monkeypatch):
     monkeypatch.setattr(paths, "settings", lambda: {"codex_executable": "C:/Tools/codex.exe"})
     command = subscription_client.command("http://127.0.0.1:12345/mcp")

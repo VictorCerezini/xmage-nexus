@@ -27,8 +27,8 @@ public class Config {
     public static final int DEFAULT_GRACE_SECS = 180;
 
     /**
-     * Protocolo JSON del gateway. Se incrementa con cada cambio incompatible del
-     * contrato (campos obligatorios, formas de error, etc.).
+     * The gateway's JSON protocol version. It goes up with every incompatible
+     * contract change (required fields, error shapes, etc.).
      */
     public static final String PROTOCOL_VERSION = "1";
 
@@ -100,16 +100,16 @@ public class Config {
     }
 
     /**
-     * Dirección de bind de ws/http. Por defecto solo loopback (127.0.0.1):
-     * local-first seguro. Para exponer el proxy hay que pasarlo explícitamente.
+     * The ws/http bind address. Loopback only (127.0.0.1) by default, the safe
+     * local-first choice; exposing the proxy takes an explicit value.
      */
     public String getBindAddress() {
         return get("bind", DEFAULT_BIND_ADDRESS);
     }
 
     /**
-     * Orígenes WebSocket exactos permitidos (separados por coma).
-     * Vacío = política por defecto local-first: solo orígenes de localhost.
+     * The exact WebSocket origins allowed (comma-separated).
+     * Empty means the default local-first policy: localhost origins only.
      */
     public Set<String> getAllowedOrigins() {
         String raw = get("allowedOrigins", "");
@@ -213,6 +213,31 @@ public class Config {
      */
     public boolean isSimEnabled() {
         return "on".equalsIgnoreCase(get("sim", "off"));
+    }
+
+    public static final String DEFAULT_LLM_CATALOG = ".run/llm/catalog.json";
+    public static final int DEFAULT_LLM_MAX_SEATS = 4;
+
+    public boolean isLlmEnabled() {
+        String raw = get("llm", "off").trim();
+        return !raw.isEmpty() && !"off".equalsIgnoreCase(raw) && !"none".equalsIgnoreCase(raw);
+    }
+
+    public String getLlmCatalog() {
+        String raw = get("llm", "off").trim();
+        return "on".equalsIgnoreCase(raw) ? DEFAULT_LLM_CATALOG : raw;
+    }
+
+    public String getLlmRoot() {
+        return get("llmRoot", "");
+    }
+
+    public String getLlmPython() {
+        return get("llmPython", "");
+    }
+
+    public int getLlmMaxSeats() {
+        return Math.max(1, getInt("llmMaxSeats", DEFAULT_LLM_MAX_SEATS));
     }
 
     /** File that keeps the playing SIM seats across proxy restarts ("none" disables it). */

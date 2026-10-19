@@ -42,11 +42,11 @@ import java.util.logging.Logger;
  * state/prompt per game ({@link ReplayCache}). What stays here is the session lifecycle: login,
  * attach, relink, grace period and release, all under this object's monitor.
  * <p>
- * Seguridad del protocolo (local-first):
- * - cada conexión WebSocket debe hacer connect antes de cualquier otro comando
- *   (auth por conexión: los comandos ajenos se rechazan con NOT_AUTHORIZED)
- * - respuestas con requestId (echo del comando) y errorCode uniforme
- * - las acciones de partida exigen gameId (GAME_ID_REQUIRED si falta)
+ * Protocol security (local-first):
+ * - every WebSocket connection must connect before any other command
+ *   (per-connection auth: other commands are refused with NOT_AUTHORIZED)
+ * - responses echo the command's requestId and carry a uniform errorCode
+ * - game actions require a gameId (GAME_ID_REQUIRED when it is missing)
  */
 public class ProxyClient implements MageClient, CommandContext {
 
@@ -57,7 +57,7 @@ public class ProxyClient implements MageClient, CommandContext {
     private final MageVersion version = new MageVersion(ProxyClient.class);
     private final SessionImpl session;
 
-    /** conexiones WebSocket autorizadas (han hecho connect con éxito) */
+    /** authorized WebSocket connections (those that connected successfully) */
     private final AuthorizedConnections connections;
 
     // all commands from web clients are processed in order on one thread
@@ -104,6 +104,7 @@ public class ProxyClient implements MageClient, CommandContext {
     static final long SUPERSEDED_WINDOW_MS = 120_000;
 
     private final SimManager simManager;
+    private final LlmSeats llmSeats;
     private String accountKey = null;
     private volatile String activityUser = null;
 
@@ -127,8 +128,8 @@ public class ProxyClient implements MageClient, CommandContext {
             CallbackSequencer.GAP_TIMEOUT_MS);
 
     /**
-     * Normaliza el host del servidor para que la clave de sesión
-     * (Gateway.handleConnect) y el accountKey coincidan. Ver detalle en connect().
+     * Normalizes the server host so the session key (Gateway.handleConnect)
+     * and the accountKey match. See connect() for the details.
      */
     static String normalizeHost(String host) {
         if ("localhost".equalsIgnoreCase(host)) {
@@ -145,6 +146,8 @@ public class ProxyClient implements MageClient, CommandContext {
         this.connections = new AuthorizedConnections(gateway);
         this.lobby = new LobbyPublisher(connections::broadcastUnnumbered);
         this.simManager = new SimManager(config, this::broadcastError, gateway.simRoster());
+        this.llmSeats = gateway.llmRuntime() == null ? LlmSeats.disabled()
+                : new LlmSeats(gateway.llmRuntime(), gateway.llmCatalog(), this::broadcastAuthorized, this::broadcastError);
         gateway.clientCreated();
         lobbyTimer.scheduleWithFixedDelay(this::publishLobby, 2, 2, TimeUnit.SECONDS);
         // keep the server session alive (the original client pings from its UI; we have no UI)
@@ -232,6 +235,7 @@ public class ProxyClient implements MageClient, CommandContext {
      */
     public synchronized void dispose() {
         released = true;
+        llmSeats.stopAll();
         // once per client, not once per call: shutdown() routes through here, and expireGrace()
         // sets released itself, so "already released" is not a usable guard
         if (!disposeCounted) {
@@ -289,6 +293,7 @@ public class ProxyClient implements MageClient, CommandContext {
         out.addProperty("lastLoginWasRelink", lastLoginWasRelink);
         out.addProperty("lastLoginAt", lastLoginAt);
         out.addProperty("simsAlive", simManager.aliveCount());
+        out.addProperty("llmSeatsAlive", llmSeats.aliveCount());
         return out;
     }
 
@@ -325,6 +330,7 @@ public class ProxyClient implements MageClient, CommandContext {
         logger.info("Grace period expired without client reconnect. Cleaning up XMage session (server link "
                 + (session.isConnected() ? "up" : "DOWN") + ", games " + games.describeInProgress() + ").");
         simManager.stopSims();
+        stopLlmSeats();
         stopSession(false);
         connected = false;
         releaseLocalOnly();
@@ -397,7 +403,7 @@ public class ProxyClient implements MageClient, CommandContext {
         return graceDisconnectTimer == null ? -1 : graceDisconnectTimer.getDelay(TimeUnit.SECONDS);
     }
 
-    /** Reenvía estado solo a conexiones que han autenticado su sesión local. */
+    /** Forwards state only to connections that authenticated their local session. */
     private void broadcastAuthorized(String json) {
         connections.broadcast(json, null);
     }
@@ -656,7 +662,7 @@ public class ProxyClient implements MageClient, CommandContext {
         broadcastAuthorized(ev.toString());
     }
 
-    /** Respuesta ok:false con el detalle real del servidor (y su errorCode clasificado). */
+    /** An ok:false reply with the server's real detail (and its classified errorCode). */
     @Override
     public void sendFailure(WebSocket conn, String action, String requestId, long start) {
         String detail = serverMessages.await(start, 1600);
@@ -674,6 +680,15 @@ public class ProxyClient implements MageClient, CommandContext {
     @Override
     public boolean simEnabled() {
         return config.isSimEnabled();
+    }
+
+    @Override
+    public LlmSeats llmSeats() {
+        return llmSeats;
+    }
+
+    private void stopLlmSeats() {
+        LlmSeats.removeOwnedTables(session, llmSeats.stopAll());
     }
 
     /** Aviso no fatal a la web (p.ej. un asiento SIM no pudo unirse). */
@@ -828,7 +843,7 @@ public class ProxyClient implements MageClient, CommandContext {
         }
     }
 
-    /** Reenvía a una conexión recién adjuntada el último estado y prompt pendiente de esa partida. */
+    /** Sends a newly attached connection the latest state and the pending prompt of that game. */
     @Override
     public void replayGameState(WebSocket conn, UUID gameId) {
         for (String json : replay.replay(gameId)) {
@@ -869,7 +884,7 @@ public class ProxyClient implements MageClient, CommandContext {
             args = cmd.get("args").getAsJsonObject();
         }
 
-        // auth por conexión: connect/ping son públicos; el resto exige sesión autorizada
+        // per-connection auth: connect/ping are public; everything else needs an authorized session
         boolean isPublic = "connect".equals(action) || "ping".equals(action);
         if (!isPublic && !connections.contains(conn)) {
             gateway.send(conn, ProxyProtocol.resultJson(action, requestId, false, ProxyProtocol.ERR_NOT_AUTHORIZED, "not connected: send connect first"));
@@ -881,7 +896,7 @@ public class ProxyClient implements MageClient, CommandContext {
             trackGameCommand(action, args);
         }
 
-        // gameId obligatorio para todas las acciones de partida
+        // every game action requires a gameId
         if (requiresGameId(action) && JsonArgs.uuid(args, "gameId", null) == null) {
             gateway.send(conn, ProxyProtocol.resultJson(action, requestId, false, ProxyProtocol.ERR_GAME_ID_REQUIRED, "gameId is required"));
             return;
@@ -903,6 +918,7 @@ public class ProxyClient implements MageClient, CommandContext {
                 case "disconnect": {
                     cancelGraceTimer();
                     simManager.stopSims();
+                    stopLlmSeats();
                     Connection logged = lastConnection;
                     lastConnection = null;
                     if (logged != null) {
@@ -933,7 +949,8 @@ public class ProxyClient implements MageClient, CommandContext {
                             || TableCommands.handle(action, conn, requestId, args, this)
                             || TournamentCommands.handle(action, conn, requestId, args, this)
                             || GameCommands.handle(action, conn, requestId, args, this)
-                            || OnlineDeckCommands.handle(action, conn, requestId, args, this);
+                            || OnlineDeckCommands.handle(action, conn, requestId, args, this)
+                            || LlmCommands.handle(action, conn, requestId, args, this);
                     if (!handled) {
                         gateway.send(conn, ProxyProtocol.resultJson(action, requestId, false, ProxyProtocol.ERR_UNKNOWN_ACTION, "Unknown action: " + action));
                     }
@@ -955,9 +972,9 @@ public class ProxyClient implements MageClient, CommandContext {
             String raw = ex.getMessage() != null ? ex.getMessage() : ex.toString();
             String detail = ErrorClassifier.stripServerErrorPrefix(raw);
             if (detail != null && detail.startsWith("Command failed: ")) detail = detail.substring("Command failed: ".length());
-            // si la excepción ya trae "Card not found - ...", no prefijar para no enterrar el pattern
+            // when the exception already says "Card not found - ...", no prefix, so the pattern stays visible
             String payload = detail != null && !detail.isEmpty() ? detail : raw;
-            // para errores de cubierta, intentar pescar también el callback que el servidor ya encoló
+            // for deck errors, also try to catch the callback the server already queued
             String polled = serverMessages.await(System.currentTimeMillis() - 2000, 900);
             if (polled != null && polled.length() > payload.length()) payload = polled;
             String code = ErrorClassifier.classifyErrorCode(payload);
@@ -1086,13 +1103,13 @@ public class ProxyClient implements MageClient, CommandContext {
 
     private synchronized void connect(WebSocket conn, String requestId, String host, int port, String username, String password,
                                       String flagName, int avatarId, String resumeStreamId, long resumeSeq) {
-        // mage.remote.Connection.getURI() sustituye "localhost" por la primera IP
-        // no-loopback que encuentra enumerando interfaces (Connection.getLocalAddress).
-        // Con interfaces bridge/túnel de VMs activas (p.ej. 192.168.97.0) construye un
-        // locator bisocket inalcanzable y el login muere en "client lease". El literal
-        // 127.0.0.1 se usa tal cual y siempre es correcto en el host del proxy.
-        // (La misma normalización se aplica en Gateway.handleConnect para que la
-        // clave host|username coincida con el accountKey registrado aquí.)
+        // mage.remote.Connection.getURI() replaces "localhost" with the first
+        // non-loopback IP it finds enumerating interfaces (Connection.getLocalAddress).
+        // With VM bridge/tunnel interfaces up (e.g. 192.168.97.0) it builds an
+        // unreachable bisocket locator and the login dies on "client lease". The literal
+        // 127.0.0.1 is used as is and is always right on the proxy's host.
+        // (Gateway.handleConnect applies the same normalization, so the host|username
+        // key matches the accountKey registered here.)
         host = normalizeHost(host);
         cancelGraceTimer();
         // idempotent connect: same user + same server already connected (e.g. several browser
@@ -1115,6 +1132,7 @@ public class ProxyClient implements MageClient, CommandContext {
                 accountKey = null;
             }
             simManager.stopSims();
+            stopLlmSeats();
             connections.deauthorize(null);
             stopSession(false);
             connected = false;
@@ -1137,13 +1155,14 @@ public class ProxyClient implements MageClient, CommandContext {
         UserData userData = UserData.getDefaultUserDataView();
         userData.setFlagName(cleanFlag);
         userData.setAvatarId(avatar);
-        // Paridad con el desktop (PreferencesDialog KEY_GAME_ALLOW_REQUEST_SHOW_HAND_CARDS = "true"):
-        // sin esto el servidor rechaza de oficio cualquier REQUEST_PERMISSION_TO_SEE_HAND_CARDS.
+        // Parity with the desktop (PreferencesDialog KEY_GAME_ALLOW_REQUEST_SHOW_HAND_CARDS = "true"):
+        // without it the server refuses every REQUEST_PERMISSION_TO_SEE_HAND_CARDS outright.
         userData.setAllowRequestShowHandCards(true);
         connection.setUserData(userData);
         connection.setProxyType(Connection.ProxyType.NONE);
 
         simManager.setServer(host, port);
+        llmSeats.setServer(host, port);
 
         // a fresh ProxyClient (the previous one was disposed after a failed login, or the proxy
         // restarted) has no lastSessionId of its own, so the id the account last used is read
@@ -1181,12 +1200,13 @@ public class ProxyClient implements MageClient, CommandContext {
             Activity.login(username, gateway.ipOf(conn), host, port, true, null, false);
             connections.finishLogin(conn, ProxyProtocol.resultJson("connect", requestId, true, null, connections.connectData(false, false)));
             simManager.setOwner(accountKey);
+            llmSeats.setOwnerName(username);
             simManager.restoreSims();
         } else {
             connections.abandonLogin();
-            // el servidor manda el detalle del fallo por un callback SHOW_USERMESSAGE
-            // (llega ~3s después, tras su sleep anti-bruteforce): sondearlo para no
-            // responder con un error vacío
+            // the server sends the failure detail in a SHOW_USERMESSAGE callback
+            // (about 3 s later, after its anti-bruteforce sleep): poll for it so the
+            // reply is not an empty error
             long start = System.currentTimeMillis();
             String detail = serverMessages.await(start, 4500);
             if (detail == null) detail = ErrorClassifier.stripServerErrorPrefix(session.getLastError());

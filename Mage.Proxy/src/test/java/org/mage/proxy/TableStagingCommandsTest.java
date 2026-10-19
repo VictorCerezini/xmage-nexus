@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Cableado de las acciones de staging U4 (swapSeats/startTournament/panel-join) y del replay al re-join. */
+/** Wiring of the U4 staging actions (swapSeats/startTournament/panel-join) and of the replay on re-join. */
 class TableStagingCommandsTest {
 
     private static final UUID ROOM = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -132,6 +132,21 @@ class TableStagingCommandsTest {
             return true;
         }
 
+        int tablesCreated = 0;
+        UUID leftTable;
+
+        @Override
+        public mage.view.TableView createTable(UUID roomId, mage.game.match.MatchOptions options) {
+            tablesCreated++;
+            return null;
+        }
+
+        @Override
+        public boolean leaveTable(UUID roomId, UUID tableId) {
+            leftTable = tableId;
+            return true;
+        }
+
         @Override
         public java.util.Optional<UUID> getTableChatId(UUID tableId) {
             return TABLE.equals(tableId) ? java.util.Optional.of(CHAT) : java.util.Optional.empty();
@@ -210,6 +225,13 @@ class TableStagingCommandsTest {
         @Override
         public boolean simEnabled() {
             return true;
+        }
+
+        LlmSeats llmSeats = LlmSeats.disabled();
+
+        @Override
+        public LlmSeats llmSeats() {
+            return llmSeats;
         }
     }
 
