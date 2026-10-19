@@ -61,7 +61,7 @@
 .opp-pill.is-targetable {
   border-color: var(--ok);
   box-shadow: 0 0 14px rgb(var(--ok-rgb) / 0.7);
-  animation: targetPulse 1.2s infinite ease-in-out;
+  animation: oppPillTargetPulse 1.2s infinite ease-in-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -70,7 +70,7 @@
   }
 }
 
-@keyframes targetPulse {
+@keyframes oppPillTargetPulse {
   0%, 100% { transform: scale(1); border-color: var(--ok); }
   50% { transform: scale(1.03); border-color: var(--gold-300); }
 }

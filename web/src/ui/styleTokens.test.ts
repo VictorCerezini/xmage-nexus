@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -49,7 +49,7 @@ function count(source: string): Counts {
 function measure(): Record<string, Counts> {
   const result: Record<string, Counts> = {}
   for (const file of cssFiles(SRC).sort()) {
-    const rel = relative(SRC, file)
+    const rel = relative(SRC, file).split(sep).join('/')
     if (rel === TOKENS) continue
     const c = count(readFileSync(file, 'utf8'))
     if (c.colors || c.radii || c.fontSizes || c.spacing) result[rel] = c

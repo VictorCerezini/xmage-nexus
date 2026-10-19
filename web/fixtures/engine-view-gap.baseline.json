@@ -89,8 +89,6 @@
       "isGameUnderControl",
       "isTestMode",
       "justActivatedType",
-      "landsPerTurn",
-      "landsPlayed",
       "left",
       "library",
       "loseByZeroOrLessLife",

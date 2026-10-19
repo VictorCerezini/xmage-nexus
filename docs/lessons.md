@@ -73,6 +73,7 @@ ops), `docs/testing.md`, `web/AGENTS.md`, `Mage.Proxy/README.md`.
 - Order views of the same game by the server `messageId` (monotonic per XMage session, `mage.server.Session`), not by turn/step: extra combats and main phases move the step backwards within a turn, and the turn/step guard froze the board for the rest of the turn (it also ranked `FIRST_COMBAT_DAMAGE`/`COMBAT_DAMAGE` below `DECLARE_BLOCKERS`). Only an earlier **turn** stays stale unless a rollback is armed. The order resets on every `connected` (a new session restarts the ids), and the first view after it is accepted (`gameEventOrder` in `state/gameUtils.ts`).
 - Keyword badges on permanents come from keyword-ability lines only (`extractOwnedKeywords`): "can't be blocked except by creatures with flying or reach" or "create a token with vigilance" mention a keyword the object does not have. The same applies to `hasVigilance`, which decides whether an attacker is drawn tapped.
 - The tap rotation lives in `transform`, so any hover/animation that also writes `transform` replaces it and the card straightens: board effects must use the independent `translate`/`scale` properties, which compose with it (guard: `web/e2e/tapped-rotation.spec.ts`).
+- `@keyframes` names are global across every stylesheet in the bundle, and the last one loaded wins. `OpponentSwitcherBar.css` defined its own `targetPulse` with `transform: scale(1.03)` and replaced `CardSlot.css`'s glow-only `targetPulse`, so every targetable card pulsed in size (and a tapped one lost its rotation mid-pulse). A card that never holds still also fails Playwright's "element is stable" check, which is why `graveyard-target.spec.ts` timed out on its click about two runs in three. Give each component's keyframes a prefixed name (`oppPillTargetPulse`).
 - A mouse-clicked `<button>` keeps focus, so a global shortcut guarded by "ignore keys on native controls" dies after any toolbar click (Space stopped passing priority after clicking the log toggle): release mouse-focused game controls on Space instead (`mouseFocusedGameControl`), keep the guard only for keyboard focus, text entry, dialogs and menus (guard: `web/e2e/control.spec.ts`).
 - Decorative duplicates of visible text (e.g. the cinematic end title) go in a `data-*` attribute rendered with `::before { content: attr(...) }`: a second text node with the same string makes `getByText` find multiple elements and breaks existing tests.
 - Fixed-size layout boxes that crop content must use `overflow: clip`, not `hidden`: a `hidden` box is still a scroll container, so focusing a child that peeks past its edge (a clicked hand card) scrolls the whole board by up to ~100px and it never scrolls back (guard: `e2e/board-scroll.spec.ts`).
@@ -187,3 +188,18 @@ ops), `docs/testing.md`, `web/AGENTS.md`, `Mage.Proxy/README.md`.
   (`getPlayerTypes` over the proxy returns `HUMAN, COMPUTER_DRAFT_BOT, COMPUTER_MAD`). Run real-mode
   specs against the local stack with `E2E_BACKEND=real E2E_SERVER_HOST=localhost`; dump the select's
   options before suspecting the product.
+
+- **On Windows, a path built with `path.join`/`relative` uses backslashes.** Code that keys files by a
+  `/` path silently matches nothing there: the style-token ratchet flagged every stylesheet, the engine-view
+  oracle found no class (an empty gap that looked like an engine change), and the server-state generator
+  found no game-type class either, so every type fell back to 2 players (Freeform Unlimited Commander's
+  real limit is 10) and its `configPath` came out as `Mage.Server\config\config.xml`. A regenerated
+  fixture that disagrees with the engine is a generator bug until proven otherwise. Normalize with
+  `.split(sep).join('/')` or compare `basename`.
+
+- **Node 25 defines its own global `localStorage`, without the Storage methods, and it shadows jsdom's in
+  vitest** (`localStorage?.removeItem is not a function`). `web/src/test-setup.ts` puts jsdom's storage back.
+
+- **Without `JAVA_HOME` the stack's `java` is Oracle's `javapath` shim, which drops the redirected output of a
+  detached spawn**, so `.run/*.log` stop growing and the self-test's log check fails although the stack works.
+  Start the stack with `JAVA_HOME` set (`javaBin()` prefers it).

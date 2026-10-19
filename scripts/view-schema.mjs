@@ -15,7 +15,7 @@
  * web client actually models, surfacing any server state the client ignores.
  */
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
-import { dirname, resolve, join, relative } from 'node:path'
+import { basename, dirname, resolve, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { forkDir, forkPath } from './lib.mjs'
 
@@ -47,7 +47,7 @@ function walk(dir, cb) {
 function findClassFile(name) {
   for (const root of ROOTS) {
     let found = null
-    walk(root, (f) => { if (!found && f.endsWith('/' + name + '.java')) found = f })
+    walk(root, (f) => { if (!found && basename(f) === name + '.java') found = f })
     if (found) return found
   }
   return null

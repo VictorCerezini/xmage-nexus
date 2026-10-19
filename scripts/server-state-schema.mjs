@@ -17,7 +17,7 @@
  * No Java/server needed: purely file-based, deterministic.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
-import { dirname, resolve, join, relative } from 'node:path'
+import { basename, dirname, resolve, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { forkDir, forkPath } from './lib.mjs'
 
@@ -51,11 +51,11 @@ function buildTypeFileCache() {
   if (typeFileCache) return typeFileCache
   typeFileCache = new Map()
   walk(PLUGINS_ROOT, (f) => {
-    const base = f.split('/').pop().replace('.java', '')
+    const base = basename(f, '.java')
     if (!typeFileCache.has(base)) typeFileCache.set(base, f)
   })
   walk(resolve(here, '../Mage/src/main/java'), (f) => {
-    const base = f.split('/').pop().replace('.java', '')
+    const base = basename(f, '.java')
     if (!typeFileCache.has(base)) typeFileCache.set(base, f)
   })
   return typeFileCache
@@ -161,7 +161,7 @@ function main() {
     meta: {
       generatedAt: new Date().toISOString(),
       note: 'Exhaustive ServerState enumerations for the current fork version. Derived from Mage.Server/config/config.xml (canonical for this release) + MatchType Java limits. Oracle for serverStateCoverage.test.ts.',
-      configPath: relative(forkDir(), configPath),
+      configPath: relative(forkDir(), configPath).split(sep).join('/'),
       version: '1.4.62-V1',
     },
     gameTypes,
