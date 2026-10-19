@@ -17,6 +17,7 @@ import { useTranslation } from '../i18n'
 import { t as tStatic } from '../i18n'
 import Modal from '../ui/Modal'
 import './SideboardScreen.css'
+import './PoolHoverPreview.css'
 import Button from '../ui/Button'
 
 function deckCardKey(c: DeckCard): string {
@@ -378,16 +379,16 @@ export default function SideboardScreen() {
 
   const hoverPreviewNode = hoverPreview && (
     <div
-      className={`arena-floating-preview ${hoverPreview.backUrl ? 'has-back-face' : ''}`}
+      className={`pool-floating-preview ${hoverPreview.backUrl ? 'has-back-face' : ''}`}
       style={{ left: `${hoverPreview.x}px`, top: `${hoverPreview.y}px` }}
     >
-      <div className="preview-face-card">
-        {hoverPreview.backUrl && <span className="preview-face-label">{t('wiki', 'face_front')}</span>}
+      <div className="pool-preview-face-card">
+        {hoverPreview.backUrl && <span className="pool-preview-face-label">{t('wiki', 'face_front')}</span>}
         <img src={hoverPreview.url} alt={hoverPreview.name ?? t('wiki', 'face_front')} />
       </div>
       {hoverPreview.backUrl && (
-        <div className="preview-face-card">
-          <span className="preview-face-label">{t('wiki', 'face_back')}</span>
+        <div className="pool-preview-face-card">
+          <span className="pool-preview-face-label">{t('wiki', 'face_back')}</span>
           <img src={hoverPreview.backUrl} alt={`${hoverPreview.name ?? 'Carta'} (${t('wiki', 'face_back')})`} />
         </div>
       )}

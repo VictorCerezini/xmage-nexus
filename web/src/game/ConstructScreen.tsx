@@ -21,6 +21,7 @@ import { t as tStatic } from '../i18n'
 import { isUuidLikeCardName } from '../cards/cardLocalization'
 import Modal from '../ui/Modal'
 import './ConstructScreen.css'
+import './PoolHoverPreview.css'
 import Button from '../ui/Button'
 import { POOL_SORTS, sortPool, type PoolSort } from './poolSort'
 
@@ -540,16 +541,16 @@ export default function ConstructScreen() {
         </div>
       {hoverPreview && (
         <div
-          className={`arena-floating-preview ${hoverPreview.backUrl ? 'has-back-face' : ''}`}
+          className={`pool-floating-preview ${hoverPreview.backUrl ? 'has-back-face' : ''}`}
           style={{ left: `${hoverPreview.x}px`, top: `${hoverPreview.y}px` }}
         >
-          <div className="preview-face-card">
-            {hoverPreview.backUrl && <span className="preview-face-label">{t('wiki', 'face_front')}</span>}
+          <div className="pool-preview-face-card">
+            {hoverPreview.backUrl && <span className="pool-preview-face-label">{t('wiki', 'face_front')}</span>}
             <img src={hoverPreview.url} alt={hoverPreview.name ?? t('wiki', 'face_front')} />
           </div>
           {hoverPreview.backUrl && (
-            <div className="preview-face-card">
-              <span className="preview-face-label">{t('wiki', 'face_back')}</span>
+            <div className="pool-preview-face-card">
+              <span className="pool-preview-face-label">{t('wiki', 'face_back')}</span>
               <img src={hoverPreview.backUrl} alt={`${hoverPreview.name ?? t('wiki', 'face_front')} (${t('wiki', 'face_back')})`} />
             </div>
           )}
