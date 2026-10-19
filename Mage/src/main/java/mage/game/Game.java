@@ -844,4 +844,14 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
     UUID getTableId();
 
     void setTableId(UUID tableId);
+
+    // LLM seats (ported from mage-bench): game sequence counter and short IDs for headless clients
+    int nextGameSeq();
+
+    int getGameSeq();
+
+    mage.util.ShortIdRegistry getShortIdRegistry();
+
+    // LLM seats: structured action events delivered with game callbacks
+    java.util.List<BridgeLogEntry> getBridgeEventsSince(int cursor, java.util.UUID playerId);
 }

@@ -1,5 +1,6 @@
 package mage.server.game;
 
+import mage.game.BridgeLogEntry;
 import mage.game.Game;
 import mage.game.Table;
 import mage.interfaces.callback.ClientCallback;
@@ -14,6 +15,7 @@ import mage.view.GameView;
 import mage.view.SimpleCardsView;
 import org.apache.log4j.Logger;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,6 +33,8 @@ public class GameSessionWatcher {
     protected final boolean isPlayer;
 
     protected GameView lastGameView = null; // cached game view for non-game threads
+
+    private int bridgeEventCursor = 0; // LLM seats: next bridge event to deliver to this session
 
     public GameSessionWatcher(UserManager userManager, UUID userId, Game game, boolean isPlayer) {
         this.userManager = userManager;
@@ -73,7 +77,8 @@ public class GameSessionWatcher {
 
     public void update() {
         if (!killed) {
-            userManager.getUser(userId).ifPresent(user -> user.fireCallback(new ClientCallback(ClientCallbackMethod.GAME_UPDATE, game.getId(), getGameView())));
+            userManager.getUser(userId).ifPresent(user -> user.fireCallback(
+                    gameCallbackWithBridgeEvents(ClientCallbackMethod.GAME_UPDATE, getGameView())));
         }
 
     }
@@ -89,7 +94,7 @@ public class GameSessionWatcher {
     public void inform(final String message, boolean sendNow) {
         if (!killed) {
             userManager.getUser(userId).ifPresent(user -> {
-                ClientCallback call = new ClientCallback(ClientCallbackMethod.GAME_UPDATE_AND_INFORM, game.getId(), new GameClientMessage(getGameView(), null, message));
+                ClientCallback call = gameCallbackWithBridgeEvents(ClientCallbackMethod.GAME_UPDATE_AND_INFORM, new GameClientMessage(getGameView(), null, message));
                 if (sendNow) {
                     user.fireCallback(call);
                 } else {
@@ -157,6 +162,7 @@ public class GameSessionWatcher {
         // short processing for the watcher
         GameView gameView = new GameView(game.getState(), game, null, userId);
         processWatchedHands(game, userId, gameView);
+        gameView.assignShortIdsToHands();
 
         if (GameView.ENABLE_GAME_VIEW_CACHE) {
             this.lastGameView = gameView;
@@ -186,6 +192,31 @@ public class GameSessionWatcher {
 
     public boolean isPlayer() {
         return isPlayer;
+    }
+
+    /**
+     * LLM seats (ported from mage-bench): a game callback carrying the bridge events
+     * recorded since this session's previous one.
+     */
+    protected ClientCallback gameCallbackWithBridgeEvents(ClientCallbackMethod method, Object data) {
+        ClientCallback callback = new ClientCallback(method, game.getId(), data);
+        callback.setBridgeEvents(fetchAndAdvanceBridgeEvents());
+        return callback;
+    }
+
+    private List<BridgeLogEntry> fetchAndAdvanceBridgeEvents() {
+        List<BridgeLogEntry> events = game.getBridgeEventsSince(bridgeEventCursor, getPlayerIdForBridgeEvents());
+        if (!events.isEmpty()) {
+            bridgeEventCursor = events.get(events.size() - 1).index() + 1;
+        }
+        return events;
+    }
+
+    /**
+     * @return the player whose private events (e.g. card draws) this session may see, null for watchers
+     */
+    protected UUID getPlayerIdForBridgeEvents() {
+        return null;
     }
 
 }

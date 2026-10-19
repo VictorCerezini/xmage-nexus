@@ -10,6 +10,7 @@ import com.j256.ormlite.stmt.Where;
 import com.j256.ormlite.support.ConnectionSource;
 import com.j256.ormlite.support.DatabaseConnection;
 import com.j256.ormlite.table.TableUtils;
+import mage.cards.*;
 import mage.constants.CardType;
 import mage.constants.SetType;
 import mage.constants.SuperType;
@@ -355,6 +356,27 @@ public enum CardRepository {
     }
 
     public CardInfo findCard(String setCode, String cardNumber, boolean ignoreNightCards) {
+        CardInfo found = findCardInDb(setCode, cardNumber, ignoreNightCards);
+        if (found != null) {
+            return found;
+        }
+
+        // Card not in DB — try to lazily scan just this one card from the
+        // expansion set definition, avoiding the bulk CardScanner.scan() that
+        // loads all ~30K card classes at startup. Skip during bulk scan to
+        // preserve its batched insert path.
+        if (!CardScanner.scanning && setCode != null && cardNumber != null) {
+            lazyLoadCard(setCode, cardNumber);
+            found = findCardInDb(setCode, cardNumber, ignoreNightCards);
+            if (found != null) {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    private CardInfo findCardInDb(String setCode, String cardNumber, boolean ignoreNightCards) {
         try {
             QueryBuilder<CardInfo, Object> queryBuilder = cardsDao.queryBuilder();
             if (ignoreNightCards) {
@@ -380,6 +402,89 @@ public enum CardRepository {
             processMemoryErrors(e);
         }
         return null;
+    }
+
+    /**
+     * Lazily load a single card into the DB from its ExpansionSet definition.
+     * Only loads the one card class, not the entire set or card pool.
+     * Also ensures the expansion metadata is in ExpansionRepository so that
+     * findPreferredOrLatestCard (used by deck importers) can resolve set info.
+     */
+    private void lazyLoadCard(String setCode, String cardNumber) {
+        ExpansionSet set = Sets.getInstance().get(setCode);
+        if (set == null) {
+            return;
+        }
+
+        // Ensure the expansion exists in ExpansionRepository — deck importers
+        // use findPreferredOrLatestCard which needs ExpansionInfo to pick the
+        // best printing.
+        if (ExpansionRepository.instance.getSetByCode(setCode) == null) {
+            List<ExpansionInfo> setsToAdd = new ArrayList<>();
+            setsToAdd.add(new ExpansionInfo(set));
+            ExpansionRepository.instance.saveSets(setsToAdd, null, ExpansionRepository.instance.getContentVersionConstant());
+        }
+
+        List<CardInfo> cardsToAdd = new ArrayList<>();
+        for (ExpansionSet.SetCardInfo setInfo : set.getSetCardInfo()) {
+            if (setInfo.getCardNumber().equals(cardNumber)) {
+                Card card = CardImpl.createCard(
+                        setInfo.getCardClass(),
+                        new CardSetInfo(setInfo.getName(), set.getCode(),
+                                setInfo.getCardNumber(), setInfo.getRarity(),
+                                setInfo.getGraphicInfo()),
+                        null);
+                if (card != null) {
+                    cardsToAdd.add(new CardInfo(card));
+                    if (card instanceof SplitCard) {
+                        SplitCard splitCard = (SplitCard) card;
+                        cardsToAdd.add(new CardInfo(splitCard.getLeftHalfCard()));
+                        cardsToAdd.add(new CardInfo(splitCard.getRightHalfCard()));
+                    }
+                }
+                break;
+            }
+        }
+        if (!cardsToAdd.isEmpty()) {
+            saveCards(cardsToAdd, getContentVersionConstant());
+        }
+    }
+
+    /**
+     * Lazily load a card by name, searching all expansion set definitions.
+     * Loads only the first matching card class (one printing).
+     */
+    private void lazyLoadCardByName(String name) {
+        lazyLoadCardByName(name, null);
+    }
+
+    /**
+     * Lazily load a card by name, preferring a specific set when provided.
+     * Falls back to the first matching set if the preferred set doesn't
+     * contain the card.
+     */
+    private void lazyLoadCardByName(String name, String preferredSetCode) {
+        // Try preferred set first so findPreferredOrLatestCard can honor it.
+        if (preferredSetCode != null && !preferredSetCode.isEmpty()) {
+            ExpansionSet preferredSet = Sets.getInstance().get(preferredSetCode);
+            if (preferredSet != null) {
+                for (ExpansionSet.SetCardInfo setInfo : preferredSet.getSetCardInfo()) {
+                    if (setInfo.getName().equals(name)) {
+                        lazyLoadCard(preferredSet.getCode(), setInfo.getCardNumber());
+                        return;
+                    }
+                }
+            }
+        }
+        // Fall back to any set.
+        for (ExpansionSet set : Sets.getInstance().values()) {
+            for (ExpansionSet.SetCardInfo setInfo : set.getSetCardInfo()) {
+                if (setInfo.getName().equals(name)) {
+                    lazyLoadCard(set.getCode(), setInfo.getCardNumber());
+                    return;
+                }
+            }
+        }
     }
 
     public List<String> getClassNames() {
@@ -422,6 +527,10 @@ public enum CardRepository {
      */
     public CardInfo findCard(String name, boolean returnAnySet) {
         List<CardInfo> cards = returnAnySet ? findCards(name, 1) : findCards(name);
+        if (cards.isEmpty() && !CardScanner.scanning && name != null && !name.isEmpty()) {
+            lazyLoadCardByName(name);
+            cards = returnAnySet ? findCards(name, 1) : findCards(name);
+        }
         if (!cards.isEmpty()) {
             return cards.get(RandomUtil.nextInt(cards.size()));
         }
@@ -433,9 +542,11 @@ public enum CardRepository {
     }
 
     public CardInfo findPreferredCoreExpansionCard(String name, String preferredSetCode) {
-        List<CardInfo> cards;
-        cards = findCards(name);
-
+        List<CardInfo> cards = findCards(name);
+        if (cards.isEmpty() && !CardScanner.scanning && name != null && !name.isEmpty()) {
+            lazyLoadCardByName(name, preferredSetCode);
+            cards = findCards(name);
+        }
         return findPreferredOrLatestCard(cards, preferredSetCode);
     }
 

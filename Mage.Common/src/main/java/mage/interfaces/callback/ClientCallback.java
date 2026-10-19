@@ -1,10 +1,12 @@
 package mage.interfaces.callback;
 
+import mage.game.BridgeLogEntry;
 import mage.remote.traffic.ZippedObject;
 import mage.utils.CompressUtil;
 import mage.util.ThreadUtils;
 
 import java.io.Serializable;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -15,6 +17,10 @@ import java.util.UUID;
  * @author BetaSteward_at_googlemail.com
  */
 public class ClientCallback implements Serializable {
+
+    // LLM seats: pinned to the value computed for stock 1.4.62, so stock clients still
+    // deserialize callbacks after the bridgeEvents field was added
+    private static final long serialVersionUID = 7535595468072591350L;
 
     // for debug only: simulate bad connection on client side, use launcher's client param like -Dxmage.badConnection
     private static final String SIMULATE_BAD_CONNECTION_PROP = "xmage.badConnection";
@@ -28,6 +34,7 @@ public class ClientCallback implements Serializable {
     private Object data;
     private ClientCallbackMethod method;
     private int messageId;
+    private List<BridgeLogEntry> bridgeEvents; // LLM seats: game events since the session's last callback
 
     public ClientCallback(ClientCallbackMethod method, UUID objectId) {
         this(method, objectId, null);
@@ -99,6 +106,14 @@ public class ClientCallback implements Serializable {
 
     public int getMessageId() {
         return messageId;
+    }
+
+    public List<BridgeLogEntry> getBridgeEvents() {
+        return bridgeEvents;
+    }
+
+    public void setBridgeEvents(List<BridgeLogEntry> bridgeEvents) {
+        this.bridgeEvents = bridgeEvents;
     }
 
     public String getInfo() {

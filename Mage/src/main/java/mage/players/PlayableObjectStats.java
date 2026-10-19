@@ -20,11 +20,19 @@ import java.util.stream.Collectors;
  */
 public class PlayableObjectStats implements Serializable, Copyable<PlayableObjectStats> {
 
+    // LLM seats: pinned to the value computed for stock 1.4.62, so stock clients still
+    // deserialize views after the allManaAbilities field was added
+    private static final long serialVersionUID = 1069098853864265007L;
+
     // map: ability.id -> ability.rules
     List<PlayableObjectRecord> basicManaAbilities = new ArrayList<>();
     List<PlayableObjectRecord> basicPlayAbilities = new ArrayList<>();
     List<PlayableObjectRecord> basicCastAbilities = new ArrayList<>();
     List<PlayableObjectRecord> other = new ArrayList<>();
+
+    // All mana abilities (tap and non-tap) — uses isManaAbility() which covers
+    // BasicManaAbility, SimpleManaAbility, DynamicManaAbility, ConditionalManaAbility, etc.
+    List<PlayableObjectRecord> allManaAbilities = new ArrayList<>();
 
     public PlayableObjectStats() {
     }
@@ -38,6 +46,7 @@ public class PlayableObjectStats implements Serializable, Copyable<PlayableObjec
         this.basicPlayAbilities.clear();
         this.basicCastAbilities.clear();
         this.other.clear();
+        this.allManaAbilities.clear();
 
         // split abilities to types (it allows to enable or disable playable icon)
         for (ActivatedAbility ability : activatedAbilities) {
@@ -61,6 +70,11 @@ public class PlayableObjectStats implements Serializable, Copyable<PlayableObjec
                 shortInfo = shortInfo.substring(0, 50 - 1) + "...";
             }
             dest.add(new PlayableObjectRecord(ability.getId(), shortInfo));
+
+            // Track all mana abilities (tap and non-tap) for headless client mana selection
+            if (ability.isManaAbility()) {
+                this.allManaAbilities.add(new PlayableObjectRecord(ability.getId(), shortInfo));
+            }
         }
     }
 
@@ -76,6 +90,9 @@ public class PlayableObjectStats implements Serializable, Copyable<PlayableObjec
         }
         for (PlayableObjectRecord rec : source.other) {
             this.other.add(rec.copy());
+        }
+        for (PlayableObjectRecord rec : source.allManaAbilities) {
+            this.allManaAbilities.add(rec.copy());
         }
     }
 
@@ -112,6 +129,13 @@ public class PlayableObjectStats implements Serializable, Copyable<PlayableObjec
     public int getPlayableImportantAmount() {
         // return only important abilities (e.g. show it as card icons)
         return this.other.size();
+    }
+
+    public List<String> getAllManaAbilityNames() {
+        return this.allManaAbilities.stream()
+                .map(PlayableObjectRecord::getValue)
+                .sorted()
+                .collect(Collectors.toList());
     }
 }
 
