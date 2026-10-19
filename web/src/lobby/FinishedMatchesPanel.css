@@ -91,12 +91,6 @@
   }
 }
 
-@keyframes spin {
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
 /* Match Cards List */
 .finished-matches-list {
   display: flex;

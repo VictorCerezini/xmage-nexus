@@ -308,8 +308,6 @@
   }
 }
 
-@keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
-
 /* CJK legibility: minimum readable sizes via boost already handles root scaling; enforce floors */
 html:lang(ja) .sidebar-btn-label,
 html:lang(zh) .sidebar-btn-label,
