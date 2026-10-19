@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// Cadena de build completa del Mage.Proxy (Windows/macOS/Linux/WSL).
-// Uso: node scripts/build.mjs [proxy]
-//   (sin argumentos: compila servidor + plugins y empaqueta el proxy)
-//   (arg "proxy": solo empaqueta el proxy, asumiendo el resto ya compilado)
+// Full Mage.Proxy build chain (Windows/macOS/Linux/WSL).
+// Usage: node scripts/build.mjs [proxy|bridge]
+//   (no argument: compile server + plugins and package the proxy)
+//   (arg "proxy": only package the proxy, assuming the rest is already compiled)
+//   (arg "bridge": only package Mage.Client.Bridge, the client behind model seats
+//    (llm/); it needs engine artifacts built from the llm-seats-engine patch)
 
 import { copyPluginJars, ensureMageArtifacts, stampMageArtifacts, forkDir, log, logError, mvn, PLUGIN_MODULES, stopPid } from './lib.mjs'
 
 function fail(step, res) {
-  logError(`FALLÓ en: ${step}`)
+  logError(`FAILED at: ${step}`)
   if (res.stderr) logError(res.stderr.split('\n').filter((l) => /ERROR/.test(l)).slice(0, 8).join('\n'))
   process.exit(1)
 }
@@ -15,34 +17,45 @@ function fail(step, res) {
 async function main() {
   const onlyProxy = process.argv[2] === 'proxy'
 
+  if (process.argv[2] === 'bridge') {
+    log('== package Mage.Client.Bridge (clean package) ==')
+    ensureMageArtifacts()
+    // without clean, shade wraps the previous shaded jar again; a running model seat holds the jar
+    // open, which makes the clean fail on Windows, so stop seats first
+    const res = mvn(['-q', '-f', 'Mage.Client.Bridge/pom.xml', 'clean', 'package', '-DskipTests'])
+    if (res.code !== 0) fail('bridge packaging', res)
+    log('  OK')
+    return
+  }
+
   if (!onlyProxy) {
-    log('== paso 1/4: compilar módulos base (Mage.Common, Mage, Mage.Sets, Mage.Server) ==')
+    log('== step 1/4: compile base modules (Mage.Common, Mage, Mage.Sets, Mage.Server) ==')
     let res = mvn(['-q', '-pl', 'Mage.Common,Mage,Mage.Sets,Mage.Server', '-am', 'install', '-DskipTests'], { cwd: forkDir() })
-    if (res.code !== 0) fail('compilación de módulos base', res)
+    if (res.code !== 0) fail('base module compilation', res)
     stampMageArtifacts()
     log('  OK')
 
-    log('== paso 2/4: compilar módulos plugin ==')
+    log('== step 2/4: compile plugin modules ==')
     res = mvn(['-q', '-pl', PLUGIN_MODULES.join(','), 'install', '-DskipTests'], { cwd: forkDir() })
-    if (res.code !== 0) fail('compilación de plugins', res)
+    if (res.code !== 0) fail('plugin compilation', res)
     log('  OK')
 
-    log('== paso 3/4: copiar plugins a local-server/plugins/ ==')
+    log('== step 3/4: copy plugins to local-server/plugins/ ==')
     copyPluginJars()
   } else {
-    log('== modo proxy: saltando compilación de servidor/plugins ==')
+    log('== proxy mode: skipping server/plugin compilation ==')
   }
 
-  log('== paso final: empaquetar Mage.Proxy (clean package) ==')
+  log('== final step: package Mage.Proxy (clean package) ==')
   ensureMageArtifacts()
-  // el jar abierto por el proxy en marcha bloquea el clean en Windows
+  // the jar held open by the running proxy blocks the clean on Windows
   stopPid('proxy')
   await new Promise((r) => setTimeout(r, 1000))
   const res = mvn(['-q', '-f', 'Mage.Proxy/pom.xml', 'clean', 'package', '-DskipTests'])
-  if (res.code !== 0) fail('empaquetado del proxy', res)
+  if (res.code !== 0) fail('proxy packaging', res)
 
   log('')
-  log('Build completado. Arranca todo con: node scripts/dev.mjs start')
+  log('Build complete. Start everything with: node scripts/dev.mjs start')
 }
 
 await main()

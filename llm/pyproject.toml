@@ -1,0 +1,55 @@
+[project]
+name = "xmage-nexus-llm"
+version = "0.1.0"
+description = "Model seats for Nexus: the supervisor that seats a language model at an XMage table through Mage.Client.Bridge"
+requires-python = ">=3.11"
+dependencies = [
+    "psutil>=5.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.11",
+]
+
+[tool.uv]
+# Run from the repository root as python -m llm.<module>; nothing is built or installed.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The repository root, so tests import the llm package the way python -m llm.seat does.
+pythonpath = [".."]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+# The rule set the supervisor was written against in mage-bench-windows.
+select = [
+    "E", "W", "F", "I", "UP", "B", "SIM", "RUF", "PLC0415", "T10", "ISC", "PIE", "LOG", "TID", "RET", "PERF",
+    "BLE001", "DTZ005", "DTZ007", "A002", "ANN401", "C4", "ERA", "N", "PT", "S", "ARG", "FBT",
+]
+ignore = [
+    "SIM105",  # try/except/pass is fine
+    "SIM115",  # a context manager for open is not always appropriate
+    "PERF203", # try/except in a loop is intentional
+    "PT018",   # composite assertions
+    "S101",    # assert
+    "S603",    # every subprocess call is intentional
+    "S607",    # java and the CLIs may come from PATH
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["llm"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S105", "S106", "S108", "S310",  # fake credentials, temp paths, loopback URLs
+    "ERA001",                        # comments that look like code
+    "N815",                          # inputSchema, an MCP field name
+    "ARG001",                        # side-effect fixtures and fakes with the real call signature
+]

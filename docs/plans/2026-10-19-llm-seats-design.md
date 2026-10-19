@@ -1,7 +1,7 @@
 # LLM seats: play against ChatGPT, Claude, OpenRouter and GLM from the Nexus web client
 
-Date: 2026-10-19. Status: phases 0 and 1 done. A model seat played and won a
-game on Nexus's patched server. Phase 2 is in progress.
+Date: 2026-10-19. Status: phases 0 to 2 done. A model seat plays full games on
+Nexus's patched server through `llm/`. Next is phase 3, the proxy's `LlmSeats`.
 
 ## Goal
 
@@ -204,9 +204,9 @@ files and adds 2, about 1,070 lines.
 
 | mage-bench-windows piece | Nexus home | Work |
 |---|---|---|
-| `Mage.Client.Bridge` (and its 113 tests) | New top-level `Mage.Client.Bridge/`. It builds standalone like `Mage.Proxy`, against the `org.mage:1.4.62` artifacts in `~/.m2`, as a shaded jar run with `java -jar` instead of `mvn exec:java`. It is added to `scripts/build.mjs` so it is rebuilt with every XMage bump. It needs the engine patch from "Decision: A". | Medium |
+| `Mage.Client.Bridge` (and its 113 tests) | New top-level `Mage.Client.Bridge/`. It builds standalone like `Mage.Proxy`, against the `org.mage:1.4.62` artifacts in `~/.m2`, as a shaded jar run with `java -jar` instead of `mvn exec:java`. `node scripts/build.mjs bridge` packages it. The full build leaves it out, because it compiles only against the patched engine. It needs the engine patch from "Decision: A". | Medium |
 | `windows/` supervisor:<br>• `gui_player`, `game_tool_gateway`, `player_view`<br>• the provider clients<br>• `model_catalog`, `providers`, `mcp_client`, `jsonl`, `paths` | New `llm/` Python package. It needs Python 3.11+ and `psutil`, managed with uv. The request JSON is unchanged; only the bridge launch and paths change. The 153 tests move with it. | Medium |
-| Setup and sign-in scripts | `llm/` scripts. A gitignored local config points at the existing isolated CLI homes in mage-bench-windows, so nothing has to be signed in again and no credential is copied. | Low |
+| Setup and sign-in scripts | `llm/` modules (`llm.configure`, `llm.sign_in`). A gitignored local config can point at the existing isolated CLI homes in mage-bench-windows, so nothing has to be signed in again and no credential is copied. | Low |
 | Swing UI:<br>• `NewTableDialog` and `TablePlayerPanel` (seat type, model, effort, deck)<br>• `SubscriptionSupport` (validate, start, watch, error dialog, stop)<br>• `SubscriptionPlayerRegistry` | **Proxy**, new `LlmSeats` modelled on `SimManager`, opt-in with `--llm <catalog>`. **Web**, a model seat type in `SeatsTab`. Details below. | Medium to high (the main new work) |
 | Swing launch pieces:<br>• `HumanGui`, `MatchGui`, `IsolatedPreferencesFactory`<br>• `gui_session`<br>• the Swing half of `subscription_runner` | Not needed: the human plays in the browser. | None |
 | `Play-vs-LLM.cmd` | A wrapper that starts server, proxy (with `--llm`) and web, then opens the browser. | Low |
@@ -282,8 +282,36 @@ files and adds 2, about 1,070 lines.
      - The seat's own draws name the card. Mad's draws only say "drew a
        card", so private events are redacted.
    - The web UI wasn't used. Phases 3 and 4 add model seats to it.
-2. **Supervisor in `llm/`.** Move the Python, launch with `java -jar` and get
-   the tests green.
+2. **Supervisor in `llm/`. Done.**
+   - `llm/` is a uv project (Python 3.11+, `psutil`) run from the repository
+     root as `python -m llm.<module>`. `llm/README.md` covers setup, the seat
+     request and the run folder.
+   - `gui_player` became `llm.seat`, which reads the seat request from stdin.
+     The gateway, player view and provider clients moved over with only import,
+     path and setup-message changes. The model-facing prompt and tool texts are
+     unchanged.
+   - `llm.runtime` launches the bridge as `java -jar` on the shaded jar. Java
+     comes from `java_home`, then `JAVA_HOME`, then `PATH`. The isolated Java
+     preferences jar is gone: nothing on the bridge's classpath uses
+     `java.util.prefs`.
+   - New modules: `llm.catalog` (providers and models, no model turn),
+     `llm.configure` (writes the ignored `llm/settings.local.json`; with
+     `--from-mage-bench` it reuses mage-bench's executables and isolated
+     OpenCode home) and `llm.sign_in` (OpenRouter and Z.ai keys into that
+     home).
+   - `node scripts/build.mjs bridge` packages the bridge with `clean package`.
+     Without the clean, shade wrapped the previous shaded jar again.
+   - Tests: the 153 ported tests and 15 new ones pass (168), and ruff is clean.
+   - **Proof game through `llm.seat`:**
+     - Request JSON on stdin, Nexus proxy table, ChatGPT `gpt-6-luna` at low
+       reasoning against Mad, Mirror Bears.
+     - Mad won on turn 24. The model played lands, cast creatures and
+       attacked.
+     - It took 90 s, 72 tool calls with none failed, and 34 auto-passes. It
+       used about 2.6M input tokens (2.46M cached) and 1,519 output tokens.
+     - The manifest says `completed` and `game_over`, and cleanup finished.
+       The bridge's game ID matches the server's `GAME started` line.
+     - `llm.catalog` listed all four providers from the existing sign-ins.
 3. **Proxy `LlmSeats`.** Flag, catalog action, `createTable` hook, process
    lifecycle, events and Java tests.
 4. **Web UI.** Seat type, pickers, staging status, i18n, fixtures and tests.

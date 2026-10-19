@@ -86,6 +86,11 @@ node_modules/.vite
 # runtime state (dev scripts)
 /.run
 
+# model seats (llm/): machine-local settings and the Python environment
+/llm/settings.local.json
+/llm/.venv
+/llm/.ruff_cache
+
 # web client (web) build artifacts
 /web/vite.log
 /web/*.tsbuildinfo
