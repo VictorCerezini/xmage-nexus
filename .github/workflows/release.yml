@@ -37,6 +37,11 @@ on:
         required: false
         default: ''
         type: string
+      title:
+        description: 'Release title; empty = the tag'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag }}
@@ -238,7 +243,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
+          TITLE: ${{ inputs.title }}
         run: |
           head -14 release-body.md
-          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TAG" --notes-file release-body.md || true
+          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "${TITLE:-$TAG}" --notes-file release-body.md || true
           find release-assets -maxdepth 1 -type f -print0 | xargs -0 gh release upload "$TAG" --clobber

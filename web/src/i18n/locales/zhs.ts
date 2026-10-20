@@ -1856,6 +1856,7 @@ export const zhs: TranslationSchema = {
     app_version: '版本',
     app_tagline: '现代化的 XMage 网页客户端',
     nexus_link: 'GitHub 上的 XMage Nexus',
+    nexus_original_link: '原版 XMage Nexus (Adamychen)',
     xmage_link: 'GitHub 上的官方 XMage',
     news_nexus: 'XMage Nexus',
     news_xmage: '官方 XMage',

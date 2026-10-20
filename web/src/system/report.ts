@@ -185,7 +185,7 @@ export function reportToMarkdown(draft: DraftReport): string {
   ].join('\n')
 }
 
-const ISSUES_URL = 'https://github.com/Adamychen/xmage-nexus/issues/new'
+const ISSUES_URL = 'https://github.com/VictorCerezini/xmage-nexus/issues/new'
 const MAX_ISSUE_BODY_CHARS = 5500
 
 export function isLocalProxy(wsUrl: string | null | undefined): boolean {

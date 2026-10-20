@@ -129,7 +129,7 @@ describe('ReportDialog', () => {
 
     await waitFor(() => expect(status().textContent).toContain('Nobody has received it'))
     const link = screen.getByTestId('report-github') as HTMLAnchorElement
-    expect(link.href).toContain('github.com/Adamychen/xmage-nexus/issues/new')
+    expect(link.href).toContain('github.com/VictorCerezini/xmage-nexus/issues/new')
   })
 
   it('keeps the GitHub route out of the way when the host received the report', async () => {

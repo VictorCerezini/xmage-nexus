@@ -1856,6 +1856,7 @@ export const ja: TranslationSchema = {
     app_version: 'バージョン',
     app_tagline: 'XMage のモダンな Web クライアント',
     nexus_link: 'GitHub の XMage Nexus',
+    nexus_original_link: 'オリジナルの XMage Nexus (Adamychen)',
     xmage_link: 'GitHub の公式 XMage',
     news_nexus: 'XMage Nexus',
     news_xmage: '公式 XMage',

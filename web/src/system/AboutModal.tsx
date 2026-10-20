@@ -112,11 +112,18 @@ export default function AboutModal({ onClose, initialTab = 'about' }: AboutModal
           <div className="about-pane">
             <div className="about-links">
               <a
-                href="https://github.com/Adamychen/xmage-nexus"
+                href="https://github.com/VictorCerezini/xmage-nexus"
                 target="_blank"
                 rel="noreferrer"
               >
                 <Icon name="bookOpen" size={13} /> {t('system', 'nexus_link')}
+              </a>
+              <a
+                href="https://github.com/Adamychen/xmage-nexus"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Icon name="bookOpen" size={13} /> {t('system', 'nexus_original_link')}
               </a>
               <a href="https://github.com/magefree/mage" target="_blank" rel="noreferrer">
                 <Icon name="bookOpen" size={13} /> {t('system', 'xmage_link')}

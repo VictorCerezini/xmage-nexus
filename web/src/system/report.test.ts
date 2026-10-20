@@ -151,7 +151,7 @@ describe('desktop reports', () => {
     const { githubIssueUrl, buildReport } = await import('./report')
     const draft = buildReport('bug', `First line of the bug\n${'x'.repeat(20000)}`)
     const url = new URL(githubIssueUrl(draft))
-    expect(url.origin + url.pathname).toBe('https://github.com/Adamychen/xmage-nexus/issues/new')
+    expect(url.origin + url.pathname).toBe('https://github.com/VictorCerezini/xmage-nexus/issues/new')
     expect(url.searchParams.get('template')).toBe('bug_report.md')
     expect(url.searchParams.get('title')).toBe('First line of the bug')
     expect(url.searchParams.get('body')?.length ?? 0).toBeLessThanOrEqual(5510)

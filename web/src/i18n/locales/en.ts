@@ -1849,6 +1849,7 @@ export const en = {
     app_version: 'Version',
     app_tagline: 'A modern web client for XMage',
     nexus_link: 'XMage Nexus on GitHub',
+    nexus_original_link: 'Original XMage Nexus (Adamychen)',
     xmage_link: 'Official XMage on GitHub',
     news_nexus: 'XMage Nexus',
     news_xmage: 'Official XMage',

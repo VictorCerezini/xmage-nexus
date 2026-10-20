@@ -1851,6 +1851,7 @@ export const de: TranslationSchema = {
     app_version: 'Version',
     app_tagline: 'Ein moderner Web-Client für XMage',
     nexus_link: 'XMage Nexus auf GitHub',
+    nexus_original_link: 'Original-XMage-Nexus (Adamychen)',
     xmage_link: 'Offizielles XMage auf GitHub',
     news_nexus: 'XMage Nexus',
     news_xmage: 'Offizielles XMage',
