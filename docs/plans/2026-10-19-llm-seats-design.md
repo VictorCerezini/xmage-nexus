@@ -470,9 +470,10 @@ files and adds 2, about 1,070 lines.
      - The machine's global Codex 0.153 offered only `gpt-6-astra`; the
        pinned 0.163 the checkout uses also offers `gpt-6-luna` and
        `gpt-6.1-sol`. A `settings.local.json` in the data folder overrides it.
-     - Still open: CI builds the engine from the fork's `nexus` branch, which
-       needs `llm-seats-engine` merged; the Tauri shell was not built with the
-       change; keys are stored from PowerShell, not from the client.
+     - The fork's `nexus` branch carries `llm-seats-engine` (`5a8f9f71`)
+       since 2026-10-20, so `modules.yml` builds the patched engine.
+     - Still open: the Tauri shell was not built with the change, and keys
+       are stored from PowerShell, not from the client.
    - Tournaments and draft. `mcp/` already speaks that protocol; the bridge
      does not.
    - **The A/B test against `mcp/` (run 2026-10-20).** A dev-only
