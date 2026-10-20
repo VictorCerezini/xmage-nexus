@@ -1,39 +1,39 @@
 name: Release (Tauri + components)
 
-# Despliegue del Nexus Launcher en las 3 plataformas.
-# Disparo MANUAL con tag (p. ej. v0.2.1): el tag debe coincidir con la versión
-# de launcher/src-tauri/tauri.conf.json, Cargo.toml y web/package.json (lo
-# verifica el job check-version). Los instaladores son ligeros: JRE+server+proxy
-# se descargan en el primer arranque desde este mismo release
-# (components-manifest.json).
+# Ships the Nexus Launcher on the 3 platforms.
+# Started BY HAND with a tag (for example v0.2.1): the tag must match the
+# version in launcher/src-tauri/tauri.conf.json, Cargo.toml and web/package.json
+# (the check-version job verifies it). The installers are light: the components
+# (jre, server, proxy, and llm on Windows) are downloaded on first start from
+# this same release (components-manifest.json).
 #
-# Componentes DESACOPLADOS de la versión de la app: `components_tag` decide de
-# qué release salen jre+server+proxy.
-#   - vacío o igual al tag  -> modules.yml compila el motor (~1 h) y se publican
-#                              los tarballs en este release.
-#   - un tag anterior       -> NO se compila nada; se descargan los tarballs de
-#                              ese release y el manifest apunta allí. Así un fix
-#                              del launcher no obliga a re-descargar ~200 MB.
-# Se usa `components_tag` también como `release` del manifest (el launcher
-# compara contra `components/<release>/.installed` para no re-descargar).
-# Secret necesario: TAURI_SIGNING_PRIVATE_KEY (+ TAURI_SIGNING_PRIVATE_KEY_PASSWORD).
-# Sin firmar: Windows/Linux instalan con aviso; macOS exige clic derecho → Abrir.
-# El updater funciona firmado al 100%; en mac sin notarizar es best-effort.
+# Components are DECOUPLED from the app version: `components_tag` picks the
+# release the components come from.
+#   - empty or equal to the tag -> modules.yml builds the engine (~1 h) and the
+#                                  tarballs are published in this release.
+#   - an earlier tag            -> NOTHING is built; that release's tarballs are
+#                                  downloaded and the manifest points there, so a
+#                                  launcher fix does not force a ~200 MB download.
+# `components_tag` is also the manifest's `release` (the launcher checks
+# `components/<release>/.installed` so it does not download again).
+# Required secret: TAURI_SIGNING_PRIVATE_KEY (+ TAURI_SIGNING_PRIVATE_KEY_PASSWORD).
+# Unsigned: Windows and Linux install with a warning; macOS needs right click → Open.
+# The updater works fully when signed; on an unnotarized mac it is best-effort.
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag del release de la APP (v0.2.1, debe coincidir con launcher/src-tauri/tauri.conf.json, Cargo.toml y web/package.json)'
+        description: 'App release tag (v0.2.1; must match launcher/src-tauri/tauri.conf.json, Cargo.toml and web/package.json)'
         required: true
         type: string
       components_tag:
-        description: 'Tag del release del que reutilizar componentes (jre+server+proxy); vacío = mismo tag (compila el motor)'
+        description: 'Release tag to reuse the components from; empty = same tag (builds the engine)'
         required: false
         default: ''
         type: string
       notes:
-        description: 'Notas del release'
+        description: 'Release notes'
         required: false
         default: ''
         type: string
@@ -83,7 +83,7 @@ jobs:
           COMP="$COMPONENTS_TAG"
           [ -n "$COMP" ] || COMP="$RELEASE_TAG"
           echo "tag=$COMP" >> "$GITHUB_OUTPUT"
-          echo "componentes desde $COMP (modules: ${{ needs.modules.result }})"
+          echo "components from $COMP (modules: ${{ needs.modules.result }})"
       - uses: actions/download-artifact@v4
         if: needs.modules.result == 'success'
         with:
@@ -217,7 +217,7 @@ jobs:
               fs.rmSync('release-assets/' + f);
             }
             const keys = Object.keys(platforms).sort();
-            if (keys.length !== 3) { console.error('fragmentos updater: ' + keys.join(',')); process.exit(1); }
+            if (keys.length !== 3) { console.error('updater fragments: ' + keys.join(',')); process.exit(1); }
             fs.writeFileSync('release-assets/latest.json', JSON.stringify({
               version: process.env.TAG.replace(/^v/, ''),
               notes: process.env.NOTES || '',
@@ -240,5 +240,5 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           head -14 release-body.md
-          gh release create "$TAG" --draft --title "$TAG" --notes-file release-body.md || true
+          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TAG" --notes-file release-body.md || true
           find release-assets -maxdepth 1 -type f -print0 | xargs -0 gh release upload "$TAG" --clobber

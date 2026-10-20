@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::UpdaterExt;
 
 const DEFAULT_MANIFEST_URL: &str =
-    "https://github.com/Adamychen/xmage-nexus/releases/latest/download/components-manifest.json";
+    "https://github.com/VictorCerezini/xmage-nexus/releases/latest/download/components-manifest.json";
 
 #[derive(Clone, Serialize)]
 struct StateEvent {
