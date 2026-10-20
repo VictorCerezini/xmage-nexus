@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Control del stack SIN bloquear el shell: lanza node scripts/dev.mjs <args>
 // como proceso detached y vuelve al instante. Salida en .run/ctl.out.log.
-// Uso: node scripts/ctl.mjs start|stop|restart|status [server|proxy|vite|all]
-// Ej:  node scripts/ctl.mjs restart proxy
+// Usage: node scripts/ctl.mjs start|stop|restart|status [server|proxy|vite|all] [--llm]
+// E.g.:  node scripts/ctl.mjs restart proxy --llm
 
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -13,7 +13,7 @@ import { log, runDir } from './lib.mjs'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
 if (!args.length) {
-  console.error('uso: node scripts/ctl.mjs start|stop|restart|status [server|proxy|vite|all]')
+  console.error('usage: node scripts/ctl.mjs start|stop|restart|status [server|proxy|vite|all] [--llm]')
   process.exit(1)
 }
 

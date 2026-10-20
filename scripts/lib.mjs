@@ -212,6 +212,7 @@ export function javaBin() {
   for (const candidate of candidates) {
     if (candidate && fs.existsSync(candidate)) return candidate
   }
+  if (process.platform === 'win32') return 'java'
   const probe = spawnSync('sh', ['-c', 'command -v java'], { encoding: 'utf8' })
   if (probe.status === 0 && probe.stdout.trim()) return probe.stdout.trim()
   return 'java'

@@ -5,7 +5,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import mage.cards.decks.DeckCardLists;
 import mage.cards.decks.exporter.XmageDeckExporter;
+import mage.constants.TableState;
 import mage.remote.SessionImpl;
+import mage.view.SeatView;
+import mage.view.TableView;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -15,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -54,6 +58,10 @@ final class LlmSeats {
         private final Map<String, Long> held = new HashMap<>();
 
         synchronized String allocate(String base, int seat, String owner, long now) {
+            return allocate(base, seat, owner, now, Collections.emptySet());
+        }
+
+        synchronized String allocate(String base, int seat, String owner, long now, Set<String> seated) {
             List<Integer> numbers = new ArrayList<>();
             numbers.add(seat);
             for (int n = 1; n < 100; n++) {
@@ -64,7 +72,7 @@ final class LlmSeats {
             for (int n : numbers) {
                 String name = base + " " + n;
                 String key = name.toLowerCase(Locale.ROOT);
-                if (name.length() > MAX_USERNAME || name.equalsIgnoreCase(owner)) {
+                if (name.length() > MAX_USERNAME || name.equalsIgnoreCase(owner) || seated.contains(key)) {
                     continue;
                 }
                 Long until = held.get(key);
@@ -93,6 +101,22 @@ final class LlmSeats {
         synchronized void clear() {
             held.clear();
         }
+    }
+
+    static Set<String> seatedNames(Collection<TableView> tables) {
+        Set<String> names = new HashSet<>();
+        for (TableView table : tables) {
+            if (table.getTableState() == TableState.FINISHED) {
+                continue;
+            }
+            for (SeatView seat : table.getSeats()) {
+                String name = seat.getPlayerName();
+                if (name != null && !name.isEmpty()) {
+                    names.add(name.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return names;
     }
 
     private final LlmRuntime runtime;
@@ -203,13 +227,17 @@ final class LlmSeats {
     }
 
     void start(List<Plan> plans, JsonObject args, UUID tableId) {
+        start(plans, args, tableId, Collections.emptySet());
+    }
+
+    void start(List<Plan> plans, JsonObject args, UUID tableId, Set<String> seated) {
         if (plans.isEmpty()) {
             return;
         }
         pruneFinished();
         int playerCount = args.getAsJsonArray("playerTypes").size();
         for (Plan plan : plans) {
-            String username = NAMES.allocate(plan.selection.playerName, plan.seat, ownerName, System.currentTimeMillis());
+            String username = NAMES.allocate(plan.selection.playerName, plan.seat, ownerName, System.currentTimeMillis(), seated);
             if (username == null) {
                 errors.accept("No free player name for the " + plan.selection.playerName + " seat " + plan.seat);
                 continue;

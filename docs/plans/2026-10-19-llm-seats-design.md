@@ -1,10 +1,11 @@
 # LLM seats: play against ChatGPT, Claude, OpenRouter and GLM from the Nexus web client
 
-Date: 2026-10-19. Status: phases 0 to 4 done. With `--llm on` the proxy seats a
+Date: 2026-10-19. Status: phases 0 to 5 done. With `--llm on` the proxy seats a
 model itself from `createTable`, and the web client offers model seats when
-creating a table and shows their status in staging. The ChatGPT concede refusal
-found in the phase 3 play proof is fixed (see "Risks and checks"). Next is
-phase 5, docs and the live matrix.
+creating a table and shows their status in staging. `node scripts/play-vs-llm.mjs`
+starts it all. The ChatGPT concede refusal found in the phase 3 play proof and
+the name reuse after a proxy restart found in the phase 5 matrix are fixed (see
+"Risks and checks"). What is still open is in `ROADMAP.md` §4.11.
 
 ## Goal
 
@@ -386,14 +387,51 @@ files and adds 2, about 1,070 lines.
    - Not done here: a live check of the web UI against `--llm on`, which is in
      phase 5's matrix.
 5. **Docs and live matrix.**
-   - Add the launcher wrapper and update the README, `ROADMAP.md` §4 and
-     `docs/lessons.md`.
-   - Live checks:
-     - A 1v1 game with each provider.
-     - A best-of-three.
-     - Commander with two model seats.
-     - Removing a table stops its seats.
-     - A proxy restart mid-game.
+   - **Done:**
+     - `node scripts/play-vs-llm.mjs` keeps a running server and Vite, restarts
+       the proxy with `--llm` and opens the web client. `dev.mjs` and
+       `ctl.mjs` take `--llm`, and stop before touching the proxy when
+       `llm/.venv` or the bridge jar is missing.
+     - The root README's "Variant C", `llm/README.md`, `Mage.Proxy/README.md`,
+       `ROADMAP.md` §4.11 and two lessons in `docs/lessons.md`.
+     - After a reload, the staging badge showed the raw model id because the
+       catalog was not loaded. Staging now loads it when the table has model
+       seats.
+     - Under Git Bash, `javaBin()` took the POSIX path `sh` gives for
+       `java`, which Node cannot start. On Windows it now lets Node find
+       `java` on `PATH`.
+     - Tests: 2 new Java tests (28 in `LlmSeatsTest`) and 1 new web unit test.
+       The full suite passed 10 of 12 layers. `self-test`'s proxy-log check for
+       `GAME_INIT` and 1 of 9 `verify-report` checks failed in the full run;
+       both scripts pass when rerun on their own.
+   - **Live matrix:** against Mad with Mirror Bears unless noted, driven through
+     the proxy's WebSocket. The numbers come from each seat's `manifest.json`
+     and `bridge.log`, input tokens counted the same way for every CLI (see
+     `docs/lessons.md`). The 1v1s ran two at a time.
+
+     | Check | Seat | Result |
+     |---|---|---|
+     | 1v1 | ChatGPT `gpt-6-luna`, low | Mad won. 93 s, 76 tool calls, 3.26M input tokens (3.17M cached) |
+     | 1v1 | Claude `claude-haiku-5-5`, low | Claude won. 94 s, 92 calls (1 failed), 3.17M (3.04M cached) |
+     | 1v1 | OpenRouter `cohere/north-mini-code:free` | OpenRouter won. 72 s, 28 calls, 0.30M (none cached), 29 requests |
+     | 1v1 | Z.ai `glm-5.3-flash` | GLM won. 562 s, 75 calls, 3.44M (3.32M cached) |
+     | Best of three | ChatGPT `gpt-6-luna`, low | ChatGPT 2–1 after losing game 1. 270 s, 203 calls, 8.47M (8.19M cached) |
+     | Commander Free For All, Krenko and 99 Mountains | Mad, ChatGPT in seat 2, Claude in seat 3 | ChatGPT won. 153 s; 43 and 56 calls; 1.33M and 2.97M. It ran beside the best of three: three model seats at once |
+     | Removing a table | Claude | `stopped` 1 s after `removeTable`; the manifest says `cancelled` with cleanup finished |
+     | Web UI | ChatGPT `gpt-6-luna`, low | Create Table → Multiplayer seated it, and the badge went from "ChatGPT 2 is joining…" to "GPT-6-Luna · low". Change deck seated it again; after a reload it warned and recreated the table without it |
+     | Proxy restart mid-game | Claude `claude-haiku-5-5`, low | Found a bug, fixed; see below |
+
+   - **Proxy restart:** `dev.mjs restart proxy` kills the proxy's process tree,
+     the model seats included. No process is left, but the game stays on the
+     server with the model's player disconnected. The 10-minute name cooldown
+     lived only in the proxy's memory, so the next Claude table's seat logged in
+     as `Claude 2` again. The server handed it the old game, which it played
+     and lost; its manifest reported that result for the new table, whose game
+     was abandoned. `createTable` now also skips every name seated at an
+     unfinished server table. In the rerun the old table was still `DUELING`
+     with `Claude 2` after the restart. The new seat logged in as `Claude 1`,
+     its logs name only its own game, and it won in 64 s (35 calls, 1.01M input
+     tokens, 0.96M cached).
 6. **Later, optional.**
    - Bundling in the desktop launcher. It would need Python and the CLIs on the
      user's machine, or a TypeScript rewrite of the supervisor.
@@ -416,7 +454,11 @@ files and adds 2, about 1,070 lines.
   new table's game. `LlmSeats` must concede or leave and remove the table when
   it stops a seat. The bridge should also prefer the game of the table it was
   asked to join. Phase 3 removes the owner's table and keeps a stopped seat's
-  name out of use for 10 minutes; the bridge preference is still open.
+  name out of use for 10 minutes. Phase 5 found that a proxy restart forgets
+  those 10 minutes while the killed seat's game stays on the server, so
+  `createTable` now also skips names seated at unfinished tables. A restart
+  still kills seats without leaving their games, and the bridge preference is
+  still open.
 - **ChatGPT could not concede (fixed).** The gateway marks `concede` as
   destructive. Codex's `default_tools_approval_mode = "auto"` still asks
   approval for destructive tools, and with `-a never` the call failed, so the

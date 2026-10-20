@@ -34,7 +34,10 @@ export function handleLlmSeat(msg: LlmSeatEnvelope): void {
   setState({ llmSeats: upsertLlmSeats(getState().llmSeats, [msg]) })
 }
 
-/** Reads the table's model seats from the proxy, for a staging screen opened after a reload. */
+/**
+ * Reads the table's model seats from the proxy, for a staging screen opened after
+ * a reload, and the catalog that names their models.
+ */
 export async function loadLlmSeats(tableId: string): Promise<void> {
   let seats: LlmSeatInfo[] = []
   try {
@@ -42,7 +45,9 @@ export async function loadLlmSeats(tableId: string): Promise<void> {
   } catch {
     return
   }
-  if (seats.length > 0) setState({ llmSeats: upsertLlmSeats(getState().llmSeats, seats) })
+  if (seats.length === 0) return
+  setState({ llmSeats: upsertLlmSeats(getState().llmSeats, seats) })
+  await loadLlmCatalog()
 }
 
 /**

@@ -26,6 +26,7 @@
 | **Desktop app** (Windows / macOS / Linux) | Download the launcher from [Releases](https://github.com/Adamychen/xmage-nexus/releases): Windows `.msi`/`.exe`, macOS `.dmg` (Apple Silicon), Linux `.AppImage`/`.deb`/`.rpm`. It bundles the JRE + XMage server + proxy and boots everything with one click (~15 MB, auto-updates). |
 | **Browser** (zero install) | Join a hosted instance — see the [project page](https://adamychen.github.io/xmage-nexus/) — or self-host with [docs/deploy-tunnels.md](docs/deploy-tunnels.md). |
 | **Local dev** | Pick a variant below: [web-only](#variant-a--web-only-no-java-no-maven-fastest-loop) (no Java/Maven) or [full stack](#variant-b--full-stack-real-xmage-server--proxy--web-client). |
+| **Against a language model** (local, Windows) | Seat ChatGPT, Claude, an OpenRouter free model or Z.ai GLM at your table: [Variant C](#variant-c--play-against-a-language-model-windows). |
 
 ## Architecture
 
@@ -146,6 +147,29 @@ node scripts/build.mjs
 ```
 
 > The proxy jar is `Mage.Proxy/target/mage-proxy-1.4.62.jar` (`1.4.62-V1`, `Mage.Proxy/pom.xml:11`). Changing the XMage version requires updating the parent pom + rebuilding everything.
+
+### Variant C — Play against a language model (Windows)
+
+A table can seat ChatGPT, Claude, an OpenRouter free model or Z.ai GLM instead of a human. Each model plays through its own CLI (Codex, Claude Code, OpenCode) on your existing sign-in, run from an isolated home, so nothing is signed in again and no key enters the repository. Model seats run on this computer only: with `--llm` the proxy refuses to start unless it listens on loopback for local pages.
+
+One-time setup on top of Variant B (sign-in and details in [`llm/README.md`](llm/README.md)):
+
+```bash
+uv sync --project llm
+node scripts/build.mjs bridge
+llm/.venv/Scripts/python -m llm.configure
+```
+
+Then start the stack with model seats and open the web client:
+
+```bash
+node scripts/play-vs-llm.mjs
+```
+
+It keeps a running server and Vite, restarts the proxy with `--llm` and opens `http://localhost:5173`. In **Create Table → Multiplayer**, set a seat's type to a provider under **Language models**, then pick its model, reasoning level and deck. The waiting room shows the model joining, then its model and reasoning level. `node scripts/ctl.mjs start|restart [target] --llm` does the same through the stack scripts; a proxy restarted without `--llm` offers no model seats.
+
+- The XMage server must be built from the engine branch `llm-seats-engine`: the bridge needs its short IDs and game events.
+- Each game spends your own quota. A 1v1 against the Mad AI took 1 to 2 minutes (about 9 with `glm-5.3-flash`) and 0.3M to 3.4M input tokens, most of them cached except on OpenRouter. OpenRouter's free models allow 50 requests a day (a 1v1 took 29), shown in the seat picker.
 
 ### Ports & URLs
 

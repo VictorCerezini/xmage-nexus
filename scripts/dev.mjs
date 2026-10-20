@@ -1,14 +1,21 @@
 #!/usr/bin/env node
-// Control del stack de desarrollo del Mage.Proxy (servidor + proxy + vite).
-// Uso diagnóstico: node scripts/dev.mjs start|stop|status|restart [server|proxy|vite|all]
-// Uso recomendado para no bloquear la shell: node scripts/ctl.mjs start|stop|status|restart [server|proxy|vite|all]
+// Controls the Mage.Proxy dev stack (server + proxy + vite).
+// Diagnostic use: node scripts/dev.mjs start|stop|status|restart [server|proxy|vite|all] [--llm]
+// Recommended, without blocking the shell: node scripts/ctl.mjs start|stop|status|restart [server|proxy|vite|all] [--llm]
+// --llm starts the proxy with model seats on (`--llm on`, see llm/README.md).
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { daemon, forkPath, isAlive, log, logError, logFileFor, PORTS, readPid, SERVER_ADD_OPENS, stopPid, tailFile, waitForPort, waitForPortDown, buildServerClasspath } from './lib.mjs'
 
-const arg = process.argv[2] ?? 'status'
-const target = process.argv[3] ?? 'all'
+const options = process.argv.slice(2).filter((a) => a.startsWith('--'))
+const [arg = 'status', target = 'all'] = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+const llm = options.includes('--llm')
+const unknown = options.filter((o) => o !== '--llm')
+if (unknown.length) {
+  console.error(`unknown option: ${unknown.join(' ')} (only --llm)`)
+  process.exit(1)
+}
 const VALID = new Set(['server', 'proxy', 'vite', 'all'])
 if (!VALID.has(target)) {
   console.error(`destino inválido: ${target} (server|proxy|vite|all)`)
@@ -62,16 +69,29 @@ function startServer() {
   return true
 }
 
+/** What model seats need besides the proxy, each with the command that provides it. */
+function llmMissing() {
+  const root = path.join(import.meta.dirname, '..')
+  const python = path.join(root, 'llm', '.venv', ...(process.platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python']))
+  const target = path.join(root, 'Mage.Client.Bridge', 'target')
+  const bridge = fs.existsSync(target) && fs.readdirSync(target).some((f) => /^mage-client-bridge-[0-9.]+\.jar$/.test(f))
+  return [
+    ...(fs.existsSync(python) ? [] : ['no Python for model seats in llm/.venv: run uv sync --project llm']),
+    ...(bridge ? [] : ['no bridge jar in Mage.Client.Bridge/target: run node scripts/build.mjs bridge']),
+  ]
+}
+
 function startProxy() {
   const jar = `${import.meta.dirname}/../Mage.Proxy/target/mage-proxy-1.4.62.jar`
   if (!fs.existsSync(jar)) {
     logError(`falta el jar del proxy — ejecuta: node scripts/build.mjs`)
     return false
   }
-  log('arrancando proxy…')
+  log(llm ? 'starting proxy with model seats…' : 'starting proxy…')
   // SIM bots are dev/test-harness only: the release artifacts (Docker, bundle, launcher)
   // start the proxy without --sim, so no deployment ever runs a bot.
-  daemon('proxy', 'java', [...SERVER_ADD_OPENS, '-cp', jar, 'org.mage.proxy.Main', '--sim', 'on'], {
+  const llmArgs = llm ? ['--llm', 'on'] : []
+  daemon('proxy', 'java', [...SERVER_ADD_OPENS, '-cp', jar, 'org.mage.proxy.Main', '--sim', 'on', ...llmArgs], {
     cwd: `${import.meta.dirname}/../Mage.Proxy`,
   })
   return true
@@ -150,7 +170,7 @@ async function startAll(only) {
     stopPid('proxy')
     if (!startProxy()) process.exit(1)
     await waitForRequiredPort(PORTS.proxy, 'proxy WebSocket', 30_000)
-    log(`proxy OK (ws://localhost:${PORTS.proxy})`)
+    log(`proxy OK (ws://localhost:${PORTS.proxy})${llm ? ', model seats on' : ''}`)
   }
 
   // 3) vite
@@ -174,6 +194,11 @@ async function waitForRequiredPort(port, label, timeoutMs) {
 }
 
 async function main() {
+  if (llm && (arg === 'start' || arg === 'restart') && targetsOf().includes('proxy')) {
+    const missing = llmMissing()
+    for (const m of missing) logError(m)
+    if (missing.length) process.exit(1)
+  }
   switch (arg) {
     case 'start':
       await startAll()
@@ -192,7 +217,7 @@ async function main() {
       status()
       break
     default:
-      console.error('uso: node scripts/dev.mjs start|stop|status|restart [server|proxy|vite|all]')
+      console.error('usage: node scripts/dev.mjs start|stop|status|restart [server|proxy|vite|all] [--llm]')
       process.exit(1)
   }
 }

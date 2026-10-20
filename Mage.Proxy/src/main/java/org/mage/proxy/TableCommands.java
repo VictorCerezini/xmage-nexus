@@ -7,8 +7,10 @@ import mage.players.PlayerType;
 import mage.view.TableView;
 import org.java_websocket.WebSocket;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 /** Table and match commands: create, join, leave, start, watch. */
@@ -34,6 +36,7 @@ final class TableCommands {
                 }
                 MatchOptions options = MatchOptionsParser.parseMatchOptions(args);
                 UUID roomId = JsonArgs.uuid(args, "roomId", ctx.session().getMainRoomId());
+                Set<String> seated = llmSeats.isEmpty() ? Collections.emptySet() : LlmSeats.seatedNames(ctx.session().getTables(roomId));
                 Object result = ctx.session().createTable(roomId, options);
                 boolean ok = result != null;
                 if (!ok) {
@@ -42,7 +45,7 @@ final class TableCommands {
                     ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, true, null, result));
                     if (result instanceof TableView) {
                         ctx.startSims(args, roomId, ((TableView) result).getTableId());
-                        ctx.llmSeats().start(llmSeats, args, ((TableView) result).getTableId());
+                        ctx.llmSeats().start(llmSeats, args, ((TableView) result).getTableId(), seated);
                     }
                 }
                 return true;

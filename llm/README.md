@@ -44,6 +44,12 @@ are looked up on `PATH`, and Claude Code also in the Claude desktop app.
 executables and its isolated OpenCode home, so OpenRouter and Z.ai need no new
 sign-in and no key is copied.
 
+Then `node scripts/play-vs-llm.mjs` starts the dev stack with model seats on
+and opens the web client, where Create Table offers them (the root README's
+"Variant C"). `node scripts/ctl.mjs start|restart [target] --llm` starts the
+proxy the same way, and stops early if the Python environment or the bridge jar
+is missing.
+
 ## Commands
 
 All run from the repository root with `llm/.venv/Scripts/python`.

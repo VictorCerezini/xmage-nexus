@@ -3,6 +3,9 @@ package org.mage.proxy;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import mage.constants.TableState;
+import mage.view.SeatView;
+import mage.view.TableView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,8 +19,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -496,6 +502,50 @@ class LlmSeatsTest {
         LlmSeats.NAMES.release("ChatGPT 1", now, true);
         assertEquals("ChatGPT 3", LlmSeats.NAMES.allocate("ChatGPT", 1, "", now));
         assertEquals("ChatGPT 1", LlmSeats.NAMES.allocate("ChatGPT", 1, "", now + LlmSeats.NAME_COOLDOWN_MS));
+    }
+
+    @Test
+    void namesSkipPlayersSeatedAtUnfinishedTables() throws Exception {
+        Set<String> seated = LlmSeats.seatedNames(Arrays.asList(
+                tableView(TableState.DUELING, "Owner", "Claude 2"),
+                tableView(TableState.FINISHED, "Owner", "Claude 1"),
+                tableView(TableState.WAITING, "", "ChatGPT 2")));
+        assertEquals(new HashSet<>(Arrays.asList("owner", "claude 2", "chatgpt 2")), seated);
+        assertEquals("Claude 1", LlmSeats.NAMES.allocate("Claude", 2, "Owner", System.currentTimeMillis(), seated));
+    }
+
+    @Test
+    void aSeatTakesNoNameSeatedAtAnotherTable() throws Exception {
+        LlmSeats seats = seats(4);
+        JsonObject args = table("[" + seat(2, "") + "]");
+        seats.start(seats.prepare(args), args, TABLE, Collections.singleton("chatgpt 2"));
+        await("the launch", () -> processes.size() == 1);
+        assertEquals("ChatGPT 1", processes.get(0).request().get("username").getAsString());
+    }
+
+    private static TableView tableView(TableState state, String... players) throws ReflectiveOperationException {
+        TableView table = blank(TableView.class);
+        field(TableView.class, "tableState").set(table, state);
+        List<SeatView> seats = new ArrayList<>();
+        for (String player : players) {
+            SeatView seat = blank(SeatView.class);
+            field(SeatView.class, "playerName").set(seat, player);
+            seats.add(seat);
+        }
+        field(TableView.class, "seats").set(table, seats);
+        return table;
+    }
+
+    private static <T> T blank(Class<T> type) throws ReflectiveOperationException {
+        java.lang.reflect.Field f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        f.setAccessible(true);
+        return type.cast(((sun.misc.Unsafe) f.get(null)).allocateInstance(type));
+    }
+
+    private static java.lang.reflect.Field field(Class<?> type, String name) throws NoSuchFieldException {
+        java.lang.reflect.Field f = type.getDeclaredField(name);
+        f.setAccessible(true);
+        return f;
     }
 
     @Test

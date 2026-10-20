@@ -239,7 +239,8 @@ server is not on this machine cannot seat models either.
 Any of these problems answers `INVALID_ARGUMENT` and creates no table. Once the
 table exists, each seat logs in as `<playerName> <n>` (for example `ChatGPT 2`:
 `n` is the seat number when that name is free, otherwise the first free one from
-1 to 99, and never the owner's name) and joins with the table's password. The
+1 to 99; never the owner's name or a player seated at an unfinished table) and
+joins with the table's password. The
 password reaches the seat on its stdin and the bridge in an environment
 variable, never a command line, manifest or log.
 
@@ -264,9 +265,12 @@ user, the end of the session's grace period and proxy shutdown all stop the
 session's model seats. A stop asks the seat to leave (a `cancel.requested` file
 in its run folder) and kills its process tree after 20 s; a seat also stops on
 its own when the proxy process exits. A restarted proxy does not bring model
-seats back. A finished seat's name is free again at once; a stopped or failed
-seat's name waits 10 minutes, so a new seat never logs in as a player the server
-may still hold in a game. Each seat writes to `.run/llm/<tableId>-seat-<n>/`.
+seats back, and a killed seat's game stays on the server until the server drops
+the disconnected player. A finished seat's name is free again at once; a stopped
+or failed seat's name waits 10 minutes, and `createTable` skips every name seated
+at an unfinished server table, which still holds after a restart forgets those
+10 minutes. A new seat logging in as a player the server still holds in a game
+would be reattached to that game instead of its own. Each seat writes to `.run/llm/<tableId>-seat-<n>/`.
 
 ### Deck Management
 

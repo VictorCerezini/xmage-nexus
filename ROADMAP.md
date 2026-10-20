@@ -351,6 +351,24 @@ Design and rejected alternatives in `docs/plans/2026-10-09-report-pipeline-desig
 | Not covered: replay viewer, spectate, chat bots | Spectating a table and the replay viewer need a scenario that streams frames; the chat is the fixture echo only |
 | Mobile layout unchecked | Verified at 1440×900; the tour panel has a narrow-width rule but no screenshot below 520 px |
 
+### 4.11 Model seats (built 2026-10-19) — what is still open
+
+Design, phases and the live matrix in `docs/plans/2026-10-19-llm-seats-design.md`, setup in `llm/README.md`, protocol in `Mage.Proxy/README.md` ("Model seats"). Built: with `--llm on` the proxy seats ChatGPT (Codex), Claude (Claude Code), OpenRouter free models and Z.ai GLM (OpenCode) from `createTable`, each through `llm/seat.py` and its own `Mage.Client.Bridge`; the web client offers them in Create Table → Multiplayer and shows their status in staging. `node scripts/play-vs-llm.mjs` starts it all. Guarded by `LlmSeatsTest`, the `llm/` pytest suite, the bridge's tests and `e2e/llm-seats.spec.ts`.
+
+| What | Why |
+|---|---|
+| The bridge does not prefer its own table's game | The server hands a player it still holds in a game back to that game on the next login. The proxy avoids such names (a 10-minute cooldown, and no name seated at an unfinished table), but the bridge still plays whatever game the server gives it |
+| A proxy restart kills seats without leaving | `dev.mjs` stops the proxy with `taskkill /T /F`, so the seats cannot concede or leave; their games stay on the server until it drops the disconnected player, and a restarted proxy does not bring the seats back |
+| Change deck after a reload drops model seats | The seat requests behind "Change deck" live in the page's memory; after a reload the client warns and recreates the table without them |
+| Only the owner sees seat status | `llmSeat` events go to the owner's session; the other players see an ordinary player |
+| Not in the desktop launcher | It needs Python, uv and the CLIs on the player's machine, or a TypeScript rewrite of the supervisor |
+| Windows only | The supervisor uses `msvcrt` and `CREATE_NO_WINDOW` |
+| The engine patch rides on every release | The bridge needs the `llm-seats-engine` branch (short IDs, sequence counter, structured events, lazy card loading), carried onto each XMage release Nexus adopts, and a rebuilt bridge |
+| No tournaments or draft | The bridge plays tables only; `mcp/` already speaks the tournament protocol |
+| No A/B test against `mcp/` | Planned, not run |
+| OpenRouter's free quota | 50 free requests a day, and a 1v1 took 29; the seat picker shows what is left |
+| The live matrix is not scripted | Phase 5 drove it with a throwaway WebSocket script. Nothing in `scripts/` or a test layer reruns it, and a rerun spends real quota |
+
 ---
 
 ## 5. Phase Plan (archived)

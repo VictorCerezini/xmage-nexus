@@ -61,11 +61,19 @@ describe('model seat status', () => {
 
   it('seeds a table from getLlmSeats and survives a failed call', async () => {
     vi.mocked(cmds.getLlmSeats).mockResolvedValueOnce([seat({ status: 'joined' })])
+    vi.mocked(cmds.getLlmProviders).mockResolvedValue(catalog)
     await loadLlmSeats('t1')
     expect(getState().llmSeats).toEqual([seat({ status: 'joined' })])
+    expect(getState().llmCatalog).toEqual(catalog)
     vi.mocked(cmds.getLlmSeats).mockRejectedValueOnce(new Error('gateway not initialized'))
     await expect(loadLlmSeats('t1')).resolves.toBeUndefined()
     expect(getState().llmSeats).toEqual([seat({ status: 'joined' })])
+  })
+
+  it('asks for the catalog only when the table has model seats', async () => {
+    vi.mocked(cmds.getLlmSeats).mockResolvedValueOnce([])
+    await loadLlmSeats('t1')
+    expect(cmds.getLlmProviders).not.toHaveBeenCalled()
   })
 })
 
