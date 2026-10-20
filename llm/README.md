@@ -121,6 +121,8 @@ The bridge's lazily loaded card database is shared by all seats in
   or changed.
 - A seat stops after 2,000 tool calls, after two hours per game, or on any
   non-game tool use.
+- The bridge accepts a rollback request and a spectator's request to see its
+  hand without asking the model, as a computer opponent would.
 
 ## Tests
 

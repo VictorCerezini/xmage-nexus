@@ -30,6 +30,7 @@ import mage.client.bridge.tools.GetGameHistoryTool;
 import mage.client.bridge.tools.GetGameStateTool;
 import mage.client.bridge.tools.GetOracleTextTool;
 import mage.constants.CardType;
+import mage.constants.PlayerAction;
 import mage.game.BridgeLogEntry;
 import mage.constants.PhaseStep;
 import mage.constants.SubType;
@@ -52,6 +53,7 @@ import mage.view.PermanentView;
 import mage.view.PlayerView;
 import mage.view.StackAbilityView;
 import mage.view.TableClientMessage;
+import mage.view.UserRequestMessage;
 import org.junit.jupiter.api.Test;
 import org.apache.log4j.Logger;
 import sun.misc.Unsafe;
@@ -604,6 +606,50 @@ class BridgeCallbackHandlerTest {
             executor.shutdownNow();
             executor.awaitTermination(1, TimeUnit.SECONDS);
         }
+    }
+
+    @Test
+    void handCardAndRollbackRequestsAreAcceptedForTheRequester() throws Exception {
+        UUID gameId = UUID.randomUUID();
+        UUID requesterId = UUID.randomUUID();
+        List<List<Object>> playerActions = Collections.synchronizedList(new ArrayList<>());
+
+        InvocationHandler sessionHandler = (proxy, method, args) -> {
+            if ("sendPlayerAction".equals(method.getName())) {
+                playerActions.add(List.of(args));
+                return true;
+            }
+            return defaultReturnValue(method.getReturnType());
+        };
+
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            sessionHandler
+        ));
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        addActiveGame(handler, gameId);
+
+        handler.handleCallback(new ClientCallback(ClientCallbackMethod.USER_REQUEST_DIALOG, gameId,
+            userRequest(gameId, requesterId, PlayerAction.ADD_PERMISSION_TO_ROLLBACK_TURN, PlayerAction.DENY_PERMISSION_TO_ROLLBACK_TURN)));
+        handler.handleCallback(new ClientCallback(ClientCallbackMethod.USER_REQUEST_DIALOG, gameId,
+            userRequest(gameId, requesterId, PlayerAction.ADD_PERMISSION_TO_SEE_HAND_CARDS, null)));
+        handler.awaitProcessorIdle();
+
+        assertThat(playerActions).containsExactly(
+            List.of(PlayerAction.ADD_PERMISSION_TO_ROLLBACK_TURN, gameId, requesterId),
+            List.of(PlayerAction.ADD_PERMISSION_TO_SEE_HAND_CARDS, gameId, requesterId)
+        );
+    }
+
+    private static UserRequestMessage userRequest(UUID gameId, UUID requesterId, PlayerAction accept, PlayerAction deny) {
+        UserRequestMessage request = new UserRequestMessage("Request by TestPlayer", "Allow?");
+        request.setRelatedUser(requesterId, "player1");
+        request.setGameId(gameId);
+        request.setButton1("Accept", accept);
+        request.setButton2("Deny", deny);
+        return request;
     }
 
     @Test

@@ -400,7 +400,13 @@ files and adds 2, about 1,070 lines.
      - Under Git Bash, `javaBin()` took the POSIX path `sh` gives for
        `java`, which Node cannot start. On Windows it now lets Node find
        `java` on `PATH`.
-     - Tests: 2 new Java tests (28 in `LlmSeatsTest`) and 1 new web unit test.
+     - A rollback request against a model seat never completed: the server asks
+       every other HUMAN player, model seats included, and the bridge ignored
+       the dialog. The bridge now accepts it. Live check: on turn 5 a scripted
+       player asked to roll back one turn against ChatGPT `gpt-6-luna`, the
+       server rolled back to turn 4, and the model went on playing.
+     - Tests: 2 new Java tests (28 in `LlmSeatsTest`), 1 new bridge test (114
+       in the bridge) and 1 new web unit test.
        The full suite passed 10 of 12 layers. `self-test`'s proxy-log check for
        `GAME_INIT` and 1 of 9 `verify-report` checks failed in the full run;
        both scripts pass when rerun on their own.

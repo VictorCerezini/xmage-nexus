@@ -428,6 +428,15 @@ public final class BridgeCallbackProcessorService
             );
             return;
         }
+        if (request.getButton1Action() == mage.constants.PlayerAction.ADD_PERMISSION_TO_ROLLBACK_TURN) {
+            logger.info("[" + username + "] Auto-accepting rollback requested by " + request.getRelatedUserName());
+            sessionSupplier.get().sendPlayerAction(
+                mage.constants.PlayerAction.ADD_PERMISSION_TO_ROLLBACK_TURN,
+                request.getGameId(),
+                request.getRelatedUserId()
+            );
+            return;
+        }
         logger.debug("[" + username + "] Ignoring user request dialog: " + request.getTitle());
     }
 
