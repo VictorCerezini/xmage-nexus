@@ -198,7 +198,7 @@ Design, phases and the live matrix in `docs/plans/2026-10-19-llm-seats-design.md
 | Windows only | The supervisor uses `msvcrt` and `CREATE_NO_WINDOW` |
 | The engine patch rides on every release | The bridge needs the `llm-seats-engine` branch (short IDs, sequence counter, structured events, lazy card loading), carried onto each XMage release Nexus adopts, and a rebuilt bridge |
 | No tournaments or draft | The bridge plays tables only; `mcp/` already speaks the tournament protocol |
-| No A/B test against `mcp/` | Planned, not run |
+| The `mcp/` engine is a dev-only experiment arm | The 2026-10-20 A/B test (plan doc, phase 6) kept the bridge: `mcp/` matched its results within six games per arm at about 4x the tool calls, 10x the input tokens and 3x the time per game. `engine: "mcp"` runs ChatGPT seats at two-player, single-game tables only, and the web client never sends it |
 | OpenRouter's free quota | 50 free requests a day, and a 1v1 took 29; the seat picker shows what is left |
 | The live matrix is not scripted | Phase 5 drove it with a throwaway WebSocket script. Nothing in `scripts/` or a test layer reruns it, and a rerun spends real quota |
 

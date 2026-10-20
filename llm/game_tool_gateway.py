@@ -35,14 +35,25 @@ def finished_response(request):
 
 class GameToolGateway:
     def __init__(
-        self, upstream, allowed_tools, trace_path, max_calls=400, *, optimize_play=False, upstream_timeout=180
+        self,
+        upstream,
+        allowed_tools,
+        trace_path,
+        max_calls=400,
+        *,
+        optimize_play=False,
+        upstream_timeout=180,
+        describe=None,
     ):
-        validate_loopback_url(upstream)
+        """upstream is the bridge's loopback URL, or an object whose forward(payload, timeout) answers."""
+        if isinstance(upstream, str):
+            validate_loopback_url(upstream)
         if upstream_timeout <= 0:
             raise ValueError("The native bridge timeout must be positive")
         self.upstream = upstream
         self.upstream_timeout = upstream_timeout
         self.allowed = set(allowed_tools)
+        self.describe = describe
         if optimize_play and "pass_priority" not in self.allowed:
             raise ValueError("Efficient GUI play requires the pass_priority tool")
         self.view = PlayerView() if optimize_play else None
@@ -197,6 +208,8 @@ class GameToolGateway:
         self.url = f"http://127.0.0.1:{self.server.server_port}/mcp"
 
     def forward_request(self, payload):
+        if not isinstance(self.upstream, str):
+            return self.upstream.forward(payload, self.upstream_timeout)
         request = urllib.request.Request(  # noqa: S310 - upstream is restricted to loopback HTTP
             self.upstream, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
         )
@@ -220,6 +233,8 @@ class GameToolGateway:
             }
             if self.view:
                 self.view.describe_tool(tool)
+            if self.describe:
+                self.describe(tool)
 
     def record_call(self, record):
         with self.lock, self.trace_path.open("a", encoding="utf-8") as file:

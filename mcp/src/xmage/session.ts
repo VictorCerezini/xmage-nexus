@@ -11,6 +11,12 @@ const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_PORT = 17_171
 const EVENT_RING = 200
 const AUTO_PASS_MAX_REPEATS = 5
+const MANA_TYPES: Record<string, string> = { W: 'WHITE', U: 'BLUE', B: 'BLACK', R: 'RED', G: 'GREEN', C: 'COLORLESS' }
+
+function manaTypeName(value: string): string {
+  const upper = value.toUpperCase()
+  return MANA_TYPES[upper] ?? upper
+}
 
 const deckCardSchema = z.object({
   cardName: z.string(),
@@ -439,7 +445,8 @@ export function registerSessionTools(server: McpServer): void {
     'mage_disconnect',
     {
       title: 'Disconnect from XMage',
-      description: 'Cierra la sesión WS con el proxy (los asientos SIM se detienen en el proxy). Con session cierra solo esa.',
+      description:
+        'Ends the proxy session at once (its SIM and model seats stop and its XMage login is released) and closes the WebSocket. With session it ends only that one.',
       inputSchema: {
         session: z.string().optional().describe(PIN_DESC),
       },
@@ -450,8 +457,9 @@ export function registerSessionTools(server: McpServer): void {
       const client = state.client
       state.client = null
       state.loggedIn = false
+      if (client?.isOpen) await client.request('disconnect', {}, 5_000).catch(() => undefined)
       client?.close()
-      return textResult('sesión cerrada')
+      return textResult('session closed')
     },
   )
 
@@ -1160,10 +1168,10 @@ export function registerSessionTools(server: McpServer): void {
           break
         }
         case 'manaType': {
-          if (typeof value !== 'string') throw new Error('kind=manaType requiere value:string (W/U/B/R/G/C)')
+          if (typeof value !== 'string') throw new Error('kind=manaType needs value:string (W/U/B/R/G/C or a full name such as GREEN)')
           const targetPlayer = playerId ?? pending?.view.playerId ?? controlledPlayerId(state)
-          if (!targetPlayer) throw new Error('sin playerId de maná')
-          await answer(state, 'sendPlayerManaType', { playerId: targetPlayer, manaType: value }, pending)
+          if (!targetPlayer) throw new Error('no player id to pay mana for')
+          await answer(state, 'sendPlayerManaType', { playerId: targetPlayer, manaType: manaTypeName(value) }, pending)
           break
         }
         case 'playerAction': {
@@ -1262,10 +1270,10 @@ export function registerSessionTools(server: McpServer): void {
     {
       title: 'Pay mana',
       description:
-        'Paga maná: sourceId (sendPlayerUUID de una fuente) o manaType (sendPlayerManaType W/U/B/R/G/C ' +
-        'del pool). special=true envía sendPlayerString("special") para pulsar el botón especial de ' +
-        'maná (auto-pago). Para cancelar un pago usa mage_choose sin argumentos o mage_action ' +
-        'kind=boolean value=false.',
+        'Pays mana: sourceId taps that source (sendPlayerUUID), or manaType (W, U, B, R, G or C, or the ' +
+        'full name such as GREEN) spends that mana from the pool (sendPlayerManaType). special=true sends ' +
+        'sendPlayerString("special") to press the special mana button (auto-pay). To cancel a payment use ' +
+        'mage_choose without arguments or mage_action kind=boolean value=false.',
       inputSchema: {
         session: z.string().optional().describe(PIN_DESC),
         sourceId: z.string().optional(),
@@ -1282,10 +1290,10 @@ export function registerSessionTools(server: McpServer): void {
         await answer(state, 'sendPlayerUUID', { value: sourceId }, state.pendingPrompt)
       } else if (manaType) {
         const targetPlayer = state.pendingPrompt?.view.playerId ?? controlledPlayerId(state)
-        if (!targetPlayer) throw new Error('sin playerId de maná')
-        await answer(state, 'sendPlayerManaType', { playerId: targetPlayer, manaType: manaType.toUpperCase() }, state.pendingPrompt)
+        if (!targetPlayer) throw new Error('no player id to pay mana for')
+        await answer(state, 'sendPlayerManaType', { playerId: targetPlayer, manaType: manaTypeName(manaType) }, state.pendingPrompt)
       } else {
-        throw new Error('pasa sourceId, manaType o special=true')
+        throw new Error('pass sourceId, manaType or special=true')
       }
       return textResult(json({ ok: true, sourceId, manaType, special, promptSeq: state.promptSeq, pending: promptSummary(state) }))
     },

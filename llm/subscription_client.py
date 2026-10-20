@@ -37,7 +37,7 @@ def clean_env():
     return env
 
 
-def command(mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_seconds=180):
+def command(mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_seconds=180, tools=TOOLS):
     codex = paths.settings()["codex_executable"]
     if not codex:
         raise RuntimeError("Run python -m llm.configure with the native Codex executable before ChatGPT play")
@@ -85,6 +85,7 @@ def command(mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_secon
         "include_environment_context": False,
     }
     if mcp_url:
+        concede = next(name for name in tools if name.endswith("concede"))
         configs.update(
             {
                 # Called through code mode's JavaScript cell, every result reached the model twice and a
@@ -92,11 +93,11 @@ def command(mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_secon
                 "features.code_mode.direct_only_tool_namespaces": ["mcp__mage"],
                 "mcp_servers.mage.url": mcp_url,
                 "mcp_servers.mage.required": True,
-                "mcp_servers.mage.enabled_tools": TOOLS,
+                "mcp_servers.mage.enabled_tools": list(tools),
                 "mcp_servers.mage.tool_timeout_sec": tool_timeout_seconds,
                 "mcp_servers.mage.startup_timeout_sec": 30,
                 "mcp_servers.mage.default_tools_approval_mode": "auto",
-                "mcp_servers.mage.tools.concede.approval_mode": "approve",
+                f"mcp_servers.mage.tools.{concede}.approval_mode": "approve",
             }
         )
     for key, value in configs.items():
@@ -105,9 +106,11 @@ def command(mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_secon
     return cmd
 
 
-def start(prompt, stdout, stderr, mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_seconds=180):
+def start(
+    prompt, stdout, stderr, mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_seconds=180, tools=TOOLS
+):
     proc = subprocess.Popen(
-        command(mcp_url, model=model, reasoning=reasoning, tool_timeout_seconds=tool_timeout_seconds),
+        command(mcp_url, model=model, reasoning=reasoning, tool_timeout_seconds=tool_timeout_seconds, tools=tools),
         cwd=PLAYER_CWD,
         env=clean_env(),
         stdin=subprocess.PIPE,

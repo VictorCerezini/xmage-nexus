@@ -39,6 +39,8 @@ final class LlmSeats {
     static final int MAX_WINS = 10;
     static final long NAME_COOLDOWN_MS = 10 * 60_000;
     static final long STOP_GRACE_MS = 20_000;
+    static final String BRIDGE = "bridge";
+    static final String MCP = "mcp";
 
     static final Names NAMES = new Names();
 
@@ -46,11 +48,13 @@ final class LlmSeats {
         final int seat;
         final LlmCatalog.Selection selection;
         final DeckCardLists deck;
+        final String engine;
 
-        Plan(int seat, LlmCatalog.Selection selection, DeckCardLists deck) {
+        Plan(int seat, LlmCatalog.Selection selection, DeckCardLists deck, String engine) {
             this.seat = seat;
             this.selection = selection;
             this.deck = deck;
+            this.engine = engine;
         }
     }
 
@@ -128,6 +132,7 @@ final class LlmSeats {
     private volatile String serverHost = "";
     private volatile int serverPort = 0;
     private volatile String ownerName = "";
+    private volatile int proxyPort = 0;
 
     LlmSeats(LlmRuntime runtime, LlmCatalog catalog, Consumer<String> events, Consumer<String> errors) {
         this(runtime, catalog, events, errors, STOP_GRACE_MS);
@@ -154,6 +159,10 @@ final class LlmSeats {
     void setServer(String host, int port) {
         this.serverHost = host;
         this.serverPort = port;
+    }
+
+    void setProxyPort(int port) {
+        this.proxyPort = port;
     }
 
     void setOwnerName(String username) {
@@ -216,7 +225,11 @@ final class LlmSeats {
             if (deck.getCards().isEmpty()) {
                 throw new IllegalArgumentException("The deck of model seat " + seat + " has no playable cards");
             }
-            plans.add(new Plan(seat, selection, deck));
+            String engine = JsonArgs.str(entry, "engine", BRIDGE);
+            if (!BRIDGE.equals(engine) && !MCP.equals(engine)) {
+                throw new IllegalArgumentException("Model seat " + seat + " has an unknown engine: " + engine);
+            }
+            plans.add(new Plan(seat, selection, deck, engine));
         }
         int live = NAMES.live();
         if (live + plans.size() > runtime.maxSeats()) {
@@ -243,7 +256,9 @@ final class LlmSeats {
                 continue;
             }
             Path run = runtime.runRoot().resolve(tableId + "-seat-" + plan.seat);
-            LlmSeat seat = new LlmSeat(tableId, plan.seat, username, plan.selection, run, stopGraceMs, this::changed);
+            boolean loginOutlivesSeat = MCP.equals(plan.engine);
+            LlmSeat seat = new LlmSeat(tableId, plan.seat, username, plan.selection, run, stopGraceMs,
+                    changed -> changed(changed, loginOutlivesSeat));
             synchronized (seats) {
                 seats.put(key(tableId, plan.seat), seat);
             }
@@ -281,6 +296,10 @@ final class LlmSeats {
         request.addProperty("wins_needed", JsonArgs.getInt(args, "winsNeeded", 1));
         request.addProperty("owner_pid", ProcessHandle.current().pid());
         request.addProperty("run", run.toString());
+        request.addProperty("engine", plan.engine);
+        if (MCP.equals(plan.engine)) {
+            request.addProperty("proxy_url", "ws://127.0.0.1:" + proxyPort);
+        }
         return request;
     }
 
@@ -291,12 +310,12 @@ final class LlmSeats {
         }
     }
 
-    private void changed(LlmSeat seat) {
+    private void changed(LlmSeat seat, boolean loginOutlivesSeat) {
         JsonObject event = seat.toJson();
         event.addProperty("type", "llmSeat");
         events.accept(event.toString());
         if (seat.isTerminal()) {
-            boolean cooldown = !LlmSeat.FINISHED.equals(seat.status());
+            boolean cooldown = loginOutlivesSeat || !LlmSeat.FINISHED.equals(seat.status());
             NAMES.release(seat.username, System.currentTimeMillis(), cooldown);
             logger.info("model seat " + seat.username + " " + seat.status()
                     + (seat.reason() == null ? "" : ": " + seat.reason()));

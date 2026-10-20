@@ -233,7 +233,7 @@ server is not on this machine cannot seat models either.
 | `getLlmProviders` | `{refresh?}` | The model catalog: `{enabled: true, providers, unavailable}`, or just `{enabled: false}` without `--llm`. The first call, or `refresh: true`, runs `python -m llm.catalog` (up to 2 minutes); later calls read the saved catalog. A provider is `{id, playerType, playerName, auth, freeRequestsToday?, models: [{id, name, efforts, defaultEffort, isDefault, contextLength?, maxOutput?}]}`; `unavailable` is `[{id, reason}]`. A failed refresh answers `FAILED` with the cause |
 | `getLlmSeats` | `{tableId?}` | This session's model seats, all of them or one table's, each shaped like the `llmSeat` event without `type` and `seq` |
 
-`createTable` takes `llmSeats: [{seat, provider, model?, effort?, deck}]`:
+`createTable` takes `llmSeats: [{seat, provider, model?, effort?, deck, engine?}]`:
 
 - `seat` is 1-based into `playerTypes`, must be a `HUMAN` seat and may appear
   only once.
@@ -242,6 +242,11 @@ server is not on this machine cannot seat models either.
 - `deck` is the deck JSON `joinTable` takes; cards the server lacks are dropped
   and a deck left empty is refused.
 - `winsNeeded` must be 1 to 10, and the seats must fit under `--llmMaxSeats`.
+- `engine` is `bridge` (the default: the seat plays through `Mage.Client.Bridge`)
+  or `mcp`, a dev-only experiment arm where the seat plays through `mcp/` and
+  joins over this proxy's own WebSocket. The supervisor accepts `mcp` only for
+  ChatGPT seats at two-player, single-game tables (see `llm/README.md`). The
+  web client never sends it.
 
 Any of these problems answers `INVALID_ARGUMENT` and creates no table. Once the
 table exists, each seat logs in as `<playerName> <n>` (for example `ChatGPT 2`:
@@ -274,9 +279,11 @@ in its run folder) and kills its process tree after 20 s; a seat also stops on
 its own when the proxy process exits. A restarted proxy does not bring model
 seats back, and a killed seat's game stays on the server until the server drops
 the disconnected player. A finished seat's name is free again at once; a stopped
-or failed seat's name waits 10 minutes, and `createTable` skips every name seated
-at an unfinished server table, which still holds after a restart forgets those
-10 minutes. A new seat logging in as a player the server still holds in a game
+or failed seat's name waits 10 minutes, as does an `mcp` engine seat's name
+even after a clean finish (its login is a proxy session of its own, which a
+seat killed before it sends `disconnect` leaves in its grace period), and
+`createTable` skips every name seated at an unfinished server table, which still
+holds after a restart forgets those 10 minutes. A new seat logging in as a player the server still holds in a game
 would be reattached to that game instead of its own. Each seat writes to `.run/llm/<tableId>-seat-<n>/`.
 
 ### Deck Management

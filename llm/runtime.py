@@ -9,7 +9,7 @@ from pathlib import Path
 
 import psutil
 
-from llm import paths
+from llm import mcp_engine, paths
 
 BRIDGE_JAR = re.compile(r"mage-client-bridge-[0-9.]+\.jar")
 
@@ -79,3 +79,7 @@ def launch_bridge(arguments, env, log_file):
         stdin=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
+
+
+def launch_mcp(env, log_file):
+    return mcp_engine.launch(env, log_file)

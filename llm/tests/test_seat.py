@@ -579,3 +579,144 @@ def test_player_that_keeps_going_after_its_game_ended_is_stopped_and_the_result_
     assert manifest["terminal_reason"] == "game_over"
     assert finished == [True]
     assert agent in stopped
+
+
+class FakeMcpServer:
+    def __init__(self, sessions, game_over="Player ChatGPT 2 is the winner"):
+        self.proc = SimpleNamespace(poll=lambda: None)
+        self.calls = []
+        self.sessions = sessions
+        self.game_over = game_over
+
+    def initialize(self):
+        self.calls.append(("initialize", None))
+
+    def call(self, name, arguments=None, **_options):
+        self.calls.append((name, arguments))
+        if name == "mage_session":
+            return self.sessions.pop(0) if len(self.sessions) > 1 else self.sessions[0]
+        if name == "mage_game_state":
+            return {"state": {"turn": 9}, "gameOver": {"at": 1, "data": self.game_over}}
+        return {"text": "ok"}
+
+    def end_session(self):
+        self.calls.append(("end_session", self.proc.poll()))
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def mcp_harness(harness, monkeypatch, tmp_path):
+    request, runtime, stopped, gateway = harness
+    deck = tmp_path / "mcp-deck.dck"
+    deck.write_text("NAME:Mirror Bears\n20 [M12:246] Forest\n20 [M12:193] Runeclaw Bear\n", encoding="utf-8")
+    request.update(engine="mcp", proxy_url="ws://127.0.0.1:8787", deck=str(deck))
+    server = FakeMcpServer(
+        [{"gameId": None}, {"gameId": "g1", "game": {"turn": 1}}, {"gameOver": None}, {"gameOver": {"at": 1}}]
+    )
+    runtime.launch_mcp = lambda _env, _log: server
+    runtime.launch_bridge = Mock(side_effect=AssertionError("The mcp engine runs no bridge"))
+    built = {}
+
+    def make_gateway(upstream, tools, _trace, **kwargs):
+        built.update(kwargs, upstream=upstream, tools=tools)
+        return gateway
+
+    monkeypatch.setattr(seat, "GameToolGateway", make_gateway)
+    monkeypatch.setattr(seat, "rpc", Mock(side_effect=AssertionError("The mcp engine has no HTTP bridge")))
+    return request, runtime, stopped, gateway, server, built
+
+
+def test_mcp_engine_joins_through_the_proxy_and_records_the_winner(mcp_harness):
+    request, runtime, stopped, gateway, server, built = mcp_harness
+    request["table_password"] = "table-secret"
+    finished = []
+    gateway.finish_game = lambda: finished.append(True)
+    polls = iter([None, None])
+    agent = SimpleNamespace(poll=lambda: next(polls, 0), returncode=0)
+
+    def start(prompt, out, _err, url, *, model, reasoning, tool_timeout_seconds, tools):
+        assert tools == seat.mcp_engine.TOOLS
+        assert url == gateway.url
+        assert "mage_wait_for_prompt" in prompt
+        assert "get_action_choices" not in prompt
+        out.write(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 5, "output_tokens": 1}}) + "\n")
+        out.flush()
+        return agent
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    names = [name for name, _ in server.calls]
+    assert names[:3] == ["initialize", "mage_connect", "mage_join_table"]
+    connect = dict(server.calls)["mage_connect"]
+    assert connect["proxyUrl"] == "ws://127.0.0.1:8787"
+    assert (connect["host"], connect["port"], connect["username"]) == ("127.0.0.1", 18171, "ChatGPT 2")
+    join = dict(server.calls)["mage_join_table"]
+    assert join["tableId"] == request["table_id"]
+    assert join["password"] == "table-secret"
+    assert [card["cardName"] for card in join["deck"]["cards"]] == ["Forest", "Runeclaw Bear"]
+    assert built["upstream"] is server
+    assert built["tools"] == seat.mcp_engine.TOOLS
+    assert built["optimize_play"] is False
+    assert built["describe"] is seat.mcp_engine.describe_tool
+    assert finished == [True]
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert (manifest["engine"], manifest["tool_policy"]) == ("mcp", "mcp")
+    assert manifest["games"][0]["winner"] == "ChatGPT 2"
+    assert manifest["games"][0]["turns"] == 9
+    assert manifest["usage"][0]["input_tokens"] == 5
+    assert manifest["cleanup_complete"] is True
+    assert server.proc in stopped
+    assert server.calls[-1] == ("end_session", None)
+
+
+def test_mcp_engine_server_that_stops_during_play_is_a_failure(mcp_harness):
+    request, runtime, _stopped, _gateway, server, _built = mcp_harness
+    server.sessions = [{"gameId": "g1", "game": {"turn": 1}}]
+
+    def start(*_args, **_kwargs):
+        server.proc.poll = lambda: 1
+        return SimpleNamespace(poll=lambda: None, returncode=None)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert "mcp/ game server stopped during play" in manifest["error"]
+    assert manifest["cleanup_complete"] is True
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"engine": "browser"}, "Unknown game engine"),
+        ({"provider": "claude_subscription", "model": "claude-opus-5-5", "reasoning": "max"}, "does not support"),
+        ({"wins_needed": 2}, "two-player single games"),
+        ({"player_count": 3}, "two-player single games"),
+        ({"proxy_url": "ws://example.com:8787"}, "local proxy"),
+    ],
+)
+def test_mcp_engine_requests_outside_the_experiment_are_rejected(mcp_harness, change, message):
+    request, *_ = mcp_harness
+    request.update(change)
+    with pytest.raises(ValueError, match=message):
+        seat.validate_request(request)
+
+
+def test_bridge_seat_records_the_winner_from_its_game_over_line(harness, monkeypatch):
+    request, runtime, _stopped, _gateway = harness
+    launch = runtime.launch_bridge
+
+    def launch_with_winner(arguments, env, log):
+        bridge = launch(arguments, env, log)
+        log.write(f"[{request['username']}] Game over: Player Mad 1 is the winner\n")
+        log.flush()
+        return bridge
+
+    runtime.launch_bridge = launch_with_winner
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+    agent = SimpleNamespace(poll=lambda: 0, returncode=0)
+    assert seat.run_player(request, runtime=runtime, start_player=Mock(return_value=agent)) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["engine"] == "bridge"
+    assert manifest["games"][0]["winner"] == "Mad 1"

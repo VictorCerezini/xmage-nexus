@@ -9,6 +9,7 @@ describe('multi-session MCP', () => {
   let client: Client
   let turnA = 1
   let turnB = 1
+  const actionsA: string[] = []
 
   const text = async (name: string, args: Record<string, unknown> = {}) =>
     contentText(await client.callTool({ name, arguments: args }))
@@ -38,6 +39,10 @@ describe('multi-session MCP', () => {
         tableName: 'A',
         gameId: 'game-a',
         getGameView: () => baseGameView(turnA),
+        onRequest: (_conn: FakeConn, action: string) => {
+          actionsA.push(action)
+          return false
+        },
         onStartMatch: (conn: FakeConn) => conn.broadcast('GAME_TARGET', { message: 'Choose target A', targets: ['ta'], gameView: baseGameView(turnA) }, 'game-a'),
         onSendPlayerUUID: (conn: FakeConn) => {
           turnA = 2
@@ -103,9 +108,10 @@ describe('multi-session MCP', () => {
     expect(entryS1.active).toBe(false)
   }, 60_000)
 
-  it('disconnecting one session leaves the other connected', async () => {
+  it('disconnecting one session ends it on its proxy and leaves the other connected', async () => {
     await text('mage_use_session', { session: 's1' })
     await text('mage_disconnect')
+    expect(actionsA.at(-1)).toBe('disconnect')
 
     const list = JSON.parse(await text('mage_sessions'))
     const entryS1 = list.find((item: { sessionId: string }) => item.sessionId === 's1')

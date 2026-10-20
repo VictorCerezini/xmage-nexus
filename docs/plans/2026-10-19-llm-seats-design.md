@@ -91,8 +91,8 @@ stays an untouched mirror of upstream.
   Moving to it means rewriting our gateway policies and prompts against
   different tools, with a real risk of weaker play.
 
-Possible later experiment: an A/B test that drives `mcp/` from the same
-supervisor.
+Phase 6 ran that A/B test, driving `mcp/` from the same supervisor (see
+there): the bridge stays.
 
 ## Phase 1 finding: the bridge needs engine patches
 
@@ -450,7 +450,63 @@ files and adds 2, about 1,070 lines.
      user's machine, or a TypeScript rewrite of the supervisor.
    - Tournaments and draft. `mcp/` already speaks that protocol; the bridge
      does not.
-   - The A/B test against `mcp/`.
+   - **The A/B test against `mcp/` (run 2026-10-20).** A dev-only
+     `engine: "mcp"` seat plays through `mcp/`, which joins over the proxy's
+     own WebSocket, instead of through the bridge. The supervisor, gateway,
+     Codex flags and prompt shape stay the same; the model sees `mcp/`'s eight
+     play tools with English descriptions and no `session` argument, and the
+     supervisor does the login and join itself. Setup: ChatGPT `gpt-6-luna` at
+     max; both players on the same 60-card red-green deck (24 lands, Llanowar
+     Elves, Grizzly Bears, Centaur Courser, Hill Giant, Craw Wurm, Prodigal
+     Pyromancer, Lightning Bolt, Shock, Giant Growth); Mad at skill 1 in seat
+     1; six games per arm, the arms interleaved, four games at a time.
+
+     | | Bridge | `mcp/` |
+     |---|---|---|
+     | Games completed | 6 of 6 | 6 of 6 |
+     | Model wins | 4 | 3 |
+     | Median turns | 10 | 20 |
+     | Median game time | 152 s | 454 s |
+     | Median tool calls | 53 | 218 |
+     | Tool calls per turn | 5.9 | 10.0 |
+     | Failed tool calls | 0 | 5 |
+     | Input tokens, all six games | 12.5M (0.48M uncached) | 123.3M (1.91M uncached) |
+     | Uncached input per turn | 8.0k | 15.5k |
+     | Output tokens, all six games | 78.6k | 129.9k |
+
+     - Both arms play legal, complete games, and six games each cannot tell
+       their win rates apart.
+     - `mcp/` needs about two calls per decision. Its actions answer only
+       `{ok, promptSeq}`, so the model calls `mage_wait_for_prompt` for the
+       next prompt (612 of its 1,231 calls), where the bridge's
+       `choose_action` already returns the next decision. Luna also paid mana
+       source by source (124 `mage_pay_mana` calls), and `mcp/` has no
+       gateway auto-pass (the bridge's gateway passed 90 times for the model).
+     - Responses are the same size per call, about 3.9 KB in both arms. The
+       input gap is the call count times a context that grows with every call,
+       so per turn it is 1.9x uncached, and the totals also carry the longer
+       games.
+     - `mcp/` games ran twice as many turns, in wins and losses alike; the
+       discarded first run agrees (its three `mcp/` games ran 14-22 turns,
+       its two finished bridge games 10-11). The prompts and the combat tools
+       differ between the arms, so this may be play quality rather than chance,
+       but six games cannot separate the two.
+     - The five failures: three `mage_choose` calls with an id the prompt did
+       not offer, two of them spliced from two real 36-character ids (the
+       bridge's short ids avoid this), and two
+       `mage_pay_mana` calls with `manaType: "G"`. `mcp/` passed that letter
+       raw to the proxy's `ManaType.valueOf`, so paying from the pool by color
+       never worked; it now maps W/U/B/R/G/C to the enum names.
+     - The first run lost two bridge games to a cleanup bug in the new arm (a
+       finished `mcp` seat's proxy session lingered in its grace period and
+       fought the next seat that reused its name; see `docs/lessons.md`) and
+       was discarded.
+     - **Verdict: keep the bridge.** `mcp/` played as well within this sample,
+       at about 4x the tool calls, 10x the input tokens (4x uncached) and 3x
+       the time per game. Its tournament support is the remaining reason to
+       come back to it; an `mcp/` whose actions returned the next prompt would
+       close much of the gap. `engine: "mcp"` stays as a dev-only experiment
+       arm: ChatGPT seats, two players, one game, never sent by the web client.
 
 ## Risks and checks
 

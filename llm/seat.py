@@ -15,11 +15,12 @@ from uuid import UUID
 
 import psutil
 
-from llm import paths, providers, subscription_client
+from llm import mcp_engine, paths, providers, subscription_client
 from llm.game_tool_gateway import GameToolGateway
 from llm.jsonl import read_complete_events
 from llm.mcp_client import rpc
 
+ENGINES = ("bridge", "mcp")
 MAX_CALLS = 2000
 MAX_SECONDS = 7200
 MAX_WINS = 10
@@ -67,8 +68,22 @@ def request_provider(request):
     return providers.get(request.get("provider", "chatgpt_subscription"))
 
 
+def request_engine(request):
+    return request.get("engine", "bridge")
+
+
 def validate_request(request):
     provider = request_provider(request)
+    engine = request_engine(request)
+    if engine not in ENGINES:
+        raise ValueError(f"Unknown game engine: {engine}")
+    if engine == "mcp":
+        if provider.id not in mcp_engine.PROVIDERS:
+            raise ValueError(f"The mcp engine does not support {provider.label} seats")
+        if wins_needed(request) != 1 or int(request["player_count"]) != 2:
+            raise ValueError("The mcp engine plays two-player single games only")
+        if not str(request.get("proxy_url", "")).startswith("ws://127.0.0.1:"):
+            raise ValueError("The mcp engine needs the local proxy's WebSocket URL")
     UUID(request["table_id"])
     if not 1 <= int(request["seat"]) <= int(request["player_count"]):
         raise ValueError(f"The {provider.label} seat is outside the configured player count")
@@ -159,6 +174,8 @@ def run_player(request, *, start_player=None, runtime=None):
     validate_request(request)
     provider = request_provider(request)
     start_player = start_player or provider.start
+    engine = request_engine(request)
+    engine_label = "bridge" if engine == "bridge" else "mcp/ game server"
     run = Path(request["run"])
     run.mkdir(parents=True, exist_ok=True)
     owner = psutil.Process(request["owner_pid"])
@@ -176,7 +193,8 @@ def run_player(request, *, start_player=None, runtime=None):
         "player_count": request["player_count"],
         "auth": provider.auth,
         "api_mode": False,
-        "tool_policy": "gui-efficient-v2",
+        "engine": engine,
+        "tool_policy": "gui-efficient-v2" if engine == "bridge" else "mcp",
         "wins_needed": wins,
         "started_at_utc": datetime.now(UTC).isoformat(),
         "usage": [],
@@ -188,6 +206,8 @@ def run_player(request, *, start_player=None, runtime=None):
     event_paths = []
     url = None
     bridge = None
+    server = None
+    mcp_game = {}
     started = time.monotonic()
 
     def log(name):
@@ -204,18 +224,41 @@ def run_player(request, *, start_player=None, runtime=None):
         bridge_log = run / "bridge.log"
         return bridge_log.read_text(encoding="utf-8") if bridge_log.is_file() else ""
 
+    def engine_process():
+        return server.proc if server else bridge
+
+    def poll_mcp_game():
+        if "game_over" in mcp_game or not server.call("mage_session").get("gameOver"):
+            return
+        view = server.call("mage_game_state")
+        mcp_game["game_over"] = (view.get("gameOver") or {}).get("data")
+        mcp_game["turn"] = (view.get("state") or {}).get("turn")
+
+    def decided(number):
+        """How this player's game ended, or None while it goes on."""
+        if server:
+            return "game_over" if "game_over" in mcp_game else None
+        return native_terminal_reason(game_log(bridge_text(), request["username"], number), request["username"])
+
+    def winner(number):
+        if server:
+            return mcp_engine.winner(mcp_game.get("game_over"))
+        game_text = game_log(bridge_text(), request["username"], number)
+        return mcp_engine.winner(match_line(game_text, request["username"], "Game over"))
+
     def play_game(number):
         events = run / game_file(provider.events_file, number)
         gateway = GameToolGateway(
-            url,
-            subscription_client.TOOLS,
+            server or url,
+            mcp_engine.TOOLS if server else subscription_client.TOOLS,
             run / game_file("player-tools.jsonl", number),
             max_calls=MAX_CALLS,
-            optimize_play=True,
+            optimize_play=server is None,
             upstream_timeout=MAX_SECONDS + 30,
+            describe=mcp_engine.describe_tool if server else None,
         )
         gateways.append(gateway)
-        prompt = PROMPT.format(
+        prompt = (mcp_engine.PROMPT if server else PROMPT).format(
             username=request["username"],
             game_type=request["game_type"],
             deck_type=request["deck_type"],
@@ -235,6 +278,7 @@ def run_player(request, *, start_player=None, runtime=None):
             model=request["model"],
             reasoning=request["reasoning"],
             tool_timeout_seconds=MAX_SECONDS + 60,
+            **({"tools": mcp_engine.TOOLS} if server else {}),
         )
         processes.append(agent)
         event_paths.append(events)
@@ -245,15 +289,15 @@ def run_player(request, *, start_player=None, runtime=None):
         while agent.poll() is None:
             check_session(owner, created, run)
             # Read after polling: a bridge that logged the result and then left at match end is not a failure.
-            bridge_stopped = bridge.poll() is not None
-            if ended_at is None and native_terminal_reason(
-                game_log(bridge_text(), request["username"], number), request["username"]
-            ):
+            engine_stopped = engine_process().poll() is not None
+            if server and ended_at is None and not engine_stopped:
+                poll_mcp_game()
+            if ended_at is None and decided(number):
                 # The game is decided for this player; nothing it calls from now on reaches the next game.
                 gateway.finish_game()
                 ended_at = time.monotonic()
-            if bridge_stopped and ended_at is None:
-                raise RuntimeError(f"The {provider.label} bridge stopped during play")
+            if engine_stopped and ended_at is None:
+                raise RuntimeError(f"The {provider.label} {engine_label} stopped during play")
             if gateway.violations or gateway.call_count > MAX_CALLS:
                 raise RuntimeError("The game tool boundary or call limit was exceeded")
             if gateway.fatal_error is not None:
@@ -268,9 +312,7 @@ def run_player(request, *, start_player=None, runtime=None):
             time.sleep(0.5)
         trace = read_complete_events(events)
         provider.require_game_only_events(trace)
-        terminal_reason = native_terminal_reason(
-            game_log(bridge_text(), request["username"], number), request["username"]
-        )
+        terminal_reason = decided(number)
         if terminal_reason is None or (not stopped_after_report and agent.returncode != 0):
             reason = provider.failure_reason(trace) or f"see {events.name}"
             raise RuntimeError(f"{provider.label} stopped before a confirmed game result: {reason}")
@@ -278,6 +320,8 @@ def run_player(request, *, start_player=None, runtime=None):
             {
                 "game": number,
                 "terminal_reason": terminal_reason,
+                "winner": winner(number),
+                **({"turns": mcp_game.get("turn")} if server else {}),
                 "game_wall_seconds": round(time.monotonic() - game_started, 3),
                 "tool_calls": gateway.call_count,
                 "usage": provider.usage(trace),
@@ -308,9 +352,8 @@ def run_player(request, *, start_player=None, runtime=None):
                 raise TimeoutError("The next game of the match did not start within ten minutes")
             time.sleep(1)
 
-    try:
-        env = subscription_client.clean_env()
-        paths.PLAYER_CWD.mkdir(parents=True, exist_ok=True)
+    def join_with_bridge(env):
+        nonlocal bridge, url
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             mcp_port = reservation.getsockname()[1]
@@ -371,6 +414,58 @@ def run_player(request, *, start_player=None, runtime=None):
             if time.monotonic() > deadline:
                 raise TimeoutError("The table was not started within ten minutes; create a new match")
             time.sleep(1)
+
+    def join_with_mcp(env):
+        nonlocal server
+        server = local.launch_mcp(env, log("mcp-server.log"))
+        processes.append(server.proc)
+        save_status("joining")
+        server.initialize()
+        server.call(
+            "mage_connect",
+            {
+                "proxyUrl": request["proxy_url"],
+                "host": "127.0.0.1",
+                "port": int(request["server_port"]),
+                "username": request["username"],
+                "timeoutSec": 170,
+            },
+            timeout=180,
+        )
+        join = {
+            "tableId": request["table_id"],
+            "deck": mcp_engine.read_deck(request["deck"]),
+            "playerName": request["username"],
+        }
+        if request.get("table_password"):
+            join["password"] = request["table_password"]
+        server.call("mage_join_table", join)
+        save_status("waiting_for_start")
+        deadline = time.monotonic() + 600
+        game_seen = None
+        while True:
+            check_session(owner, created, run)
+            if server.proc.poll() is not None:
+                raise RuntimeError("The mcp/ game server stopped before the match started; see mcp-server.log")
+            snapshot = server.call("mage_session")
+            if snapshot.get("game") or snapshot.get("pendingPrompt"):
+                return
+            if snapshot.get("gameId"):
+                game_seen = game_seen or time.monotonic()
+                if time.monotonic() - game_seen > 20:
+                    server.call("mage_join_game", {"waitMs": 15000}, timeout=60)
+                    game_seen = time.monotonic()
+            if time.monotonic() > deadline:
+                raise TimeoutError("The table was not started within ten minutes; create a new match")
+            time.sleep(1)
+
+    try:
+        env = subscription_client.clean_env()
+        paths.PLAYER_CWD.mkdir(parents=True, exist_ok=True)
+        if engine == "mcp":
+            join_with_mcp(env)
+        else:
+            join_with_bridge(env)
         game = 1
         while True:
             manifest["terminal_reason"] = play_game(game)
@@ -385,11 +480,7 @@ def run_player(request, *, start_player=None, runtime=None):
     except SessionCancelledError as error:
         manifest["reason"] = str(error)
         # Stopping the seat right after the game ends, before the model's closing report, is still a result.
-        terminal_reason = (
-            native_terminal_reason(game_log(bridge_text(), request["username"], len(gateways)), request["username"])
-            if manifest["status"] == "playing"
-            else None
-        )
+        terminal_reason = decided(len(gateways)) if manifest["status"] == "playing" else None
         if terminal_reason is not None:
             manifest["terminal_reason"] = terminal_reason
             save_status("completed")
@@ -403,6 +494,8 @@ def run_player(request, *, start_player=None, runtime=None):
         return 1
     finally:
         for proc in reversed(processes):
+            if server and proc is server.proc:
+                server.end_session()
             local.stop_tree(proc)
         for stream in logs:
             stream.close()

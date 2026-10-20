@@ -95,6 +95,13 @@ const steps: ScriptedStep[] = [
     expected: { action: 'sendPlayerUUID', value: 'land-forest' },
   },
   {
+    label: 'mana from the pool by its letter',
+    method: 'GAME_PLAY_MANA',
+    data: { message: 'Pay {G}', options: { queryType: 'PLAY_MANA' }, gameView: manaView },
+    driver: async (call) => void (await call('mage_pay_mana', { manaType: 'g' })),
+    expected: { action: 'sendPlayerManaType', value: 'GREEN' },
+  },
+  {
     label: 'X mana confirm',
     method: 'GAME_PLAY_XMANA',
     data: { message: 'Pay X mana?' },
@@ -223,6 +230,12 @@ describe('complex interactions matrix', () => {
           advance('sendPlayerBoolean', ctx.args.value === true || ctx.args.value === 'true'),
         onSendPlayerInteger: (_conn: FakeConn, value: number) => advance('sendPlayerInteger', value),
         onSendPlayerString: (_conn: FakeConn, value: string) => advance('sendPlayerString', value),
+        onRequest: (conn: FakeConn, action: string, args: Record<string, unknown>, requestId: string | number) => {
+          if (action !== 'sendPlayerManaType') return false
+          conn.ok(requestId, action, {})
+          advance(action, args.manaType)
+          return true
+        },
       })
     })
     client = await startTestClient('complex-test')

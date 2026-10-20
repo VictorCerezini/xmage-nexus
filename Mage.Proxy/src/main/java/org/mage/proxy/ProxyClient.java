@@ -155,6 +155,7 @@ public class ProxyClient implements MageClient, CommandContext {
         this.simManager = new SimManager(config, this::broadcastError, gateway.simRoster());
         this.llmSeats = gateway.llmRuntime() == null ? LlmSeats.disabled()
                 : new LlmSeats(gateway.llmRuntime(), gateway.llmCatalog(), this::broadcastAuthorized, this::broadcastError);
+        this.llmSeats.setProxyPort(gateway.getPort());
         gateway.clientCreated();
         lobbyTimer.scheduleWithFixedDelay(this::publishLobby, 2, 2, TimeUnit.SECONDS);
         // keep the server session alive (the original client pings from its UI; we have no UI)

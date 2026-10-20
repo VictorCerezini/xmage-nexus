@@ -87,6 +87,17 @@ All run from the repository root with `llm/.venv/Scripts/python`.
   `XMAGE_BRIDGE_TABLE_PASSWORD` environment variable, and is never written to
   the manifest, a log or a command line. Mage.Proxy starts these seats for
   `createTable` with `llmSeats` when run with `--llm on`.
+
+  Two optional fields pick the engine. `engine` is `bridge` by default.
+  `engine: "mcp"` is a dev-only experiment arm: the supervisor starts
+  `node mcp/src/index.ts` over stdio, logs in and joins the table through the
+  proxy at `proxy_url` (`ws://127.0.0.1:<port>`, which Mage.Proxy fills in), and
+  the model plays with `mcp/`'s own tools. It runs ChatGPT seats at two-player,
+  single-game tables only, and needs Node.js 24 or later on `PATH` with
+  `mcp/`'s dependencies installed. For this arm the table password goes to
+  `mcp/` over its stdin. When the seat ends, the supervisor calls
+  `mage_disconnect`, which ends the seat's proxy session and frees its XMage
+  login at once instead of after the proxy's grace period.
 - `-m llm.sign_in openrouter|zai`: runs OpenCode's own key prompt with its home
   redirected to the isolated OpenCode home.
 - `-m llm.subscription_client`, `-m llm.claude_client`: one-shot connection
@@ -104,6 +115,11 @@ Each seat writes to its `run` folder:
   `bridge.log`.
 - `player-prompt.txt`, `player-tools.jsonl` and the CLI's event and stderr
   logs, with a `-game<N>` suffix from game 2 of a match.
+- `mcp-server.log`: the `mcp/` server's stderr, for the `mcp` engine only. That
+  engine has no bridge files; its results come from `mcp/`'s `GAME_OVER`.
+
+Each game in the manifest records its `winner` (the name in the server's game
+over message, or null for a draw), and for the `mcp` engine its last `turns`.
 
 The bridge's lazily loaded card database is shared by all seats in
 `.run/llm/bridge/db`.
@@ -113,10 +129,18 @@ The bridge's lazily loaded card database is shared by all seats in
 - The CLI gets only the eight game tools, through a loopback gateway that
   counts calls, auto-passes empty priority windows and drops unchanged boards
   and repeated rules text.
+- With the `mcp` engine the eight tools are `mcp/`'s play tools
+  (`mage_wait_for_prompt`, `mage_game_state`, `mage_choose`, `mage_play_card`,
+  `mage_pay_mana`, `mage_combat`, `mage_pass_priority`, `mage_concede`). The
+  gateway gives them English descriptions and hides their `session` argument;
+  the supervisor calls the setup tools itself, and the model never sees
+  `mcp/`'s stack, test or lobby tools. `mcp/` keeps its own auto-pass and
+  compact view, so the gateway's board and rules trimming is off.
 - Each CLI runs from an empty folder (`.run/llm/player-sandbox` unless
   configured), with built-in tools, project instructions and user settings off.
   Credential overrides are removed from its environment.
-- Codex pre-approves only `concede`, which the gateway marks destructive, and
+- Codex pre-approves only `concede` (`mage_concede` for the `mcp` engine),
+  which the gateway marks destructive, and
   only through that run's `-c` overrides; the user's Codex config is not read
   or changed.
 - A seat stops after 2,000 tool calls, after two hours per game, or on any

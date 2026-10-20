@@ -38,7 +38,7 @@ node src/index.ts    # servidor stdio (espera JSON-RPC por stdin)
 | Tool | Args | Qué hace |
 |---|---|---|
 | `mage_connect` | `session?`, `proxyUrl?`, `host?`, `port?`, `username?`, `password?`, `timeoutSec?` | Abre el WS contra el proxy y hace login (default local; cuenta autogenerada de ≤14 chars; reintenta `WARMING_UP`). `session` nombra la sesión MCP (multi-sesión). |
-| `mage_disconnect` | `session?` | Cierra la sesión (pin o activa). |
+| `mage_disconnect` | `session?` | Ends the proxy session (the pinned or active one) at once and closes its WebSocket. |
 | `mage_reconnect` | `session?` | Reabre el WS con las credenciales guardadas, re-loguea (attach si la sesión sigue viva; `lastConnectAttached`) y resincroniza la partida con `joinGame`. El auto-reconnect (backoff 1s→10s) ya lo hace solo. |
 | `mage_lobby` | `limit?`, `session?` | Mesas de la sala (id, tipo, asientos, estado) + resumen de usuarios. |
 | `mage_create_table` | `name?`, `gameType?`, `deckType?`, `winsNeeded?`, `playerTypes?`, `simDecks?`, `seatSkills?`, `skipInitShuffling?`, `skipStartingPlayerChoice?`, `session?` | Crea mesa (default HUMAN+SIM) y devuelve `tableId`. |
@@ -78,7 +78,7 @@ igual que `gameId` de `START_GAME`/`GAME_*`, así que `join/get` lo resuelven po
 | `mage_action` | `kind`(uuid/boolean/integer/string/manaType/playerAction), `value?`, `action?`, `data?`, `playerId?`, `force?`, `session?` | Respuesta cruda validada contra el prompt pendiente. |
 | `mage_choose` | `optionId?`, `value?`, `values?`, `session?` | Responde por opción/valor; sin args pasa (select/combat). |
 | `mage_play_card` | `cardId`, `session?` | `sendPlayerUUID` de una carta/fuente/habilidad jugable. |
-| `mage_pay_mana` | `sourceId?`, `manaType?`, `session?` | Paga con una fuente (`sendPlayerUUID`) o del pool (`sendPlayerManaType`). |
+| `mage_pay_mana` | `sourceId?`, `manaType?`, `special?`, `session?` | Pays with a source (`sendPlayerUUID`) or from the pool (`sendPlayerManaType`; `W`, `U`, `B`, `R`, `G`, `C` or a full name such as `GREEN`). |
 | `mage_pass_priority` | `session?` | `sendPlayerBoolean(false)`: pasar/confirmar/rechazar. |
 | `mage_combat` | `attackers?`, `blockers?`, `blockTargets?`, `confirm?`, `targetTimeoutMs?`, `session?` | Declara atacantes; bloqueadoras de una en una respondiendo el `GAME_TARGET` intercalado con `blockTargets[i]` (gang-block). |
 | `mage_auto_pass` | `enabled`, `session?` | Auto-pass en ventanas de prioridad del rival o sin jugables (default ON; nunca en asks/maná). Anti-flood: si el servidor repite el mismo prompt >5 veces, lo desactiva y registra `AUTO_PASS_STOPPED`. |

@@ -320,6 +320,7 @@ class LlmSeatsTest {
         assertRefused(seats, table("[" + seat(2, "") + "," + seat(2, "") + "]"), "two models");
         assertRefused(seats, table("[{\"seat\":2,\"provider\":\"chatgpt_subscription\"}]"), "needs a deck");
         assertRefused(seats, table("[]"), "non-empty");
+        assertRefused(seats, table("[" + seat(2, ",\"engine\":\"browser\"") + "]"), "unknown engine");
         JsonObject tooLong = table("[" + seat(2, "") + "]");
         tooLong.addProperty("winsNeeded", 11);
         assertRefused(seats, tooLong, "1 to 10 wins");
@@ -371,6 +372,40 @@ class LlmSeatsTest {
         assertTrue(deck.contains("20 [M12:246] Forest"), deck);
         assertTrue(deck.contains("20 [M12:193] Runeclaw Bear"), deck);
         assertFalse(events.stream().anyMatch(json -> json.contains("table-pw")));
+        assertEquals("bridge", request.get("engine").getAsString());
+        assertFalse(request.has("proxy_url"));
+    }
+
+    @Test
+    void anMcpEngineSeatGetsTheProxysOwnWebSocket() throws Exception {
+        LlmSeats seats = seats(4);
+        seats.setProxyPort(18787);
+        JsonObject args = table("[" + seat(2, ",\"engine\":\"mcp\"") + "]");
+        seats.start(seats.prepare(args), args, TABLE);
+
+        await("the launch", () -> processes.size() == 1);
+        JsonObject request = processes.get(0).request();
+        assertEquals("mcp", request.get("engine").getAsString());
+        assertEquals("ws://127.0.0.1:18787", request.get("proxy_url").getAsString());
+    }
+
+    @Test
+    void aFinishedMcpEngineSeatKeepsItsNameCoolingDown() throws Exception {
+        LlmSeats seats = seats(4);
+        JsonObject args = table("[" + seat(2, ",\"engine\":\"mcp\"") + "]");
+        seats.start(seats.prepare(args), args, TABLE);
+        await("the launch", () -> processes.size() == 1);
+        FakeProcess process = processes.get(0);
+        Path run = Path.of(process.request().get("run").getAsString());
+        process.say("playing");
+        process.say("completed");
+        manifest(run, "{\"status\":\"completed\"}");
+        process.end(0);
+
+        await("the finish", () -> statuses().contains("finished"));
+        long now = System.currentTimeMillis();
+        assertEquals("ChatGPT 1", LlmSeats.NAMES.allocate("ChatGPT", 2, "Owner", now));
+        assertEquals("ChatGPT 2", LlmSeats.NAMES.allocate("ChatGPT", 2, "Owner", now + LlmSeats.NAME_COOLDOWN_MS));
     }
 
     @Test
