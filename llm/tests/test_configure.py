@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from llm import catalog, configure, paths, sign_in
+from llm import catalog, configure, executables, paths, sign_in
 
 
 def arguments(**values):
@@ -15,7 +15,7 @@ def arguments(**values):
 
 @pytest.fixture
 def nothing_on_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(configure.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(executables.shutil, "which", lambda _name: None)
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     monkeypatch.setattr(paths, "SETTINGS_PATH", tmp_path / "settings.local.json")
     monkeypatch.setattr(paths, "RUN_ROOT", tmp_path / "run")
@@ -55,11 +55,11 @@ def test_at_least_one_player_cli_is_required(nothing_on_path):
 
 
 def test_npm_launcher_resolves_to_the_native_codex(monkeypatch, tmp_path):
-    native = tmp_path / configure.CODEX_NPM_EXE
+    native = tmp_path / executables.CODEX_NPM_EXE
     native.parent.mkdir(parents=True)
     native.write_text("")
-    monkeypatch.setattr(configure.shutil, "which", lambda _name: str(tmp_path / "codex.cmd"))
-    assert configure.native_executable("codex", configure.CODEX_NPM_EXE) == str(native)
+    monkeypatch.setattr(executables.shutil, "which", lambda _name: str(tmp_path / "codex.cmd"))
+    assert executables.native_executable("codex", executables.CODEX_NPM_EXE) == str(native)
 
 
 def test_main_writes_the_settings_and_the_player_folder(nothing_on_path, tmp_path):

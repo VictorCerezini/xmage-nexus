@@ -236,6 +236,10 @@ public class Config {
         return get("llmPython", "");
     }
 
+    public String getLlmData() {
+        return get("llmData", "");
+    }
+
     public int getLlmMaxSeats() {
         return Math.max(1, getInt("llmMaxSeats", DEFAULT_LLM_MAX_SEATS));
     }

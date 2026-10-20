@@ -9,7 +9,6 @@ from llm import opencode_client, paths
 
 PROVIDER = "openrouter_free"
 OPENCODE_PROVIDER = "openrouter"
-SIGN_IN = "python -m llm.sign_in openrouter"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 KEY_URL = "https://openrouter.ai/api/v1/key"
 # The free router picks a different model for each request, so one game would mix several players.
@@ -108,7 +107,7 @@ def daily_free_requests(key):
 
 
 def discover():
-    key = opencode_client.read_key(OPENCODE_PROVIDER, SIGN_IN)
+    key = opencode_client.read_key(OPENCODE_PROVIDER, paths.sign_in_command("openrouter"))
     catalog = read_catalog(opencode_client.get_json(MODELS_URL), opencode_client.read_efforts(OPENCODE_PROVIDER))
     # start() runs in a separate process and needs the context limits, which the Java client never passes.
     MODELS_PATH.write_text(json.dumps({item["id"]: item for item in catalog["models"]}, indent=2), encoding="utf-8")

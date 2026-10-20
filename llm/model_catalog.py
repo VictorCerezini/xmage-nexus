@@ -14,7 +14,7 @@ class CatalogClient:
     def __enter__(self):
         self.proc = subprocess.Popen(
             [
-                paths.settings()["codex_executable"],
+                subscription_client.executable(),
                 "app-server",
                 "--stdio",
                 "-c",

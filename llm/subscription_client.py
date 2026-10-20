@@ -37,12 +37,16 @@ def clean_env():
     return env
 
 
-def command(mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_seconds=180, tools=TOOLS):
-    codex = paths.settings()["codex_executable"]
+def executable():
+    codex = paths.settings().get("codex_executable")
     if not codex:
-        raise RuntimeError("Run python -m llm.configure with the native Codex executable before ChatGPT play")
+        raise RuntimeError(paths.missing_cli("Codex", "--codex", "codex login"))
+    return str(codex)
+
+
+def command(mcp_url=None, *, model=MODEL, reasoning="medium", tool_timeout_seconds=180, tools=TOOLS):
     cmd = [
-        str(codex),
+        executable(),
         "-a",
         "never",
         "exec",

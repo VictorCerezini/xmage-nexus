@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from llm import model_catalog, paths
 from llm.model_catalog import read_catalog, validate_selection
 
 
@@ -89,3 +90,9 @@ def test_empty_requested_model_intersection_reports_missing_access():
 
     with pytest.raises(RuntimeError, match="No GPT-6 Astra"):
         read_catalog(call)
+
+
+def test_catalog_without_codex_explains_the_setup(monkeypatch):
+    monkeypatch.setattr(paths, "settings", lambda: {"codex_executable": None})
+    with pytest.raises(RuntimeError, match=r"llm\.configure with Codex installed"), model_catalog.CatalogClient():
+        pass

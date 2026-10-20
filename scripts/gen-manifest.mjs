@@ -1,17 +1,16 @@
 #!/usr/bin/env node
-// Genera components-manifest.json (+ latest.json para el updater) a partir de
-// los tarballs de componentes empaquetados por modules.yml / release.yml.
-// Uso:
+// Writes components-manifest.json from the component tarballs that modules.yml / release.yml pack.
+// Usage:
 //   node scripts/gen-manifest.mjs --tag v0.1.0 --repo Adamychen/xmage-nexus \
 //     --dir /tmp/artifacts --out components-manifest.json
-//   (--base-url para desarrollo local con tarballs file://)
+//   (--base-url for local development with file:// tarballs)
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 
-const COMPONENTS = ['jre', 'server', 'proxy', 'proxy-xdhs']
+const COMPONENTS = ['jre', 'server', 'proxy', 'proxy-xdhs', 'llm']
 const TARGETS = ['linux-x64', 'win-x64', 'mac-arm64']
 
 function argValue(args, name) {
@@ -41,7 +40,7 @@ function main() {
   const baseUrl =
     argValue(args, '--base-url') ?? `https://github.com/${repo}/releases/download/${tag}`
   if (!tag) {
-    console.error('falta --tag (p. ej. v0.1.0)')
+    console.error('missing --tag (e.g. v0.1.0)')
     process.exit(1)
   }
   const release = tag.startsWith('v') ? tag.slice(1) : tag
@@ -63,7 +62,7 @@ function main() {
     if (Object.keys(perTarget).length) components[name] = perTarget
   }
   if (!files) {
-    console.error(`sin tarballs nexus-*-*.tar.gz en ${dir}`)
+    console.error(`no nexus-*-*.tar.gz tarballs in ${dir}`)
     process.exit(1)
   }
   const manifest = {
@@ -75,7 +74,7 @@ function main() {
     components,
   }
   fs.writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`)
-  console.log(`manifiesto ${release}: ${files} ficheros → ${out}`)
+  console.log(`manifest ${release}: ${files} files → ${out}`)
 }
 
 main()

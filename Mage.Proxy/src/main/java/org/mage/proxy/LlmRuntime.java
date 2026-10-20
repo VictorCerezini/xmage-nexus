@@ -14,16 +14,24 @@ final class LlmRuntime {
         Process start(ProcessBuilder builder) throws IOException;
     }
 
+    static final String DATA_ENV = "NEXUS_LLM_HOME";
+
     private final Path root;
     private final Path python;
     private final Path catalog;
+    private final Path data;
     private final int maxSeats;
     private final Launcher launcher;
 
     LlmRuntime(Path root, Path python, Path catalog, int maxSeats, Launcher launcher) {
+        this(root, python, catalog, null, maxSeats, launcher);
+    }
+
+    LlmRuntime(Path root, Path python, Path catalog, Path data, int maxSeats, Launcher launcher) {
         this.root = root;
         this.python = python;
         this.catalog = catalog;
+        this.data = data;
         this.maxSeats = maxSeats;
         this.launcher = launcher;
     }
@@ -47,8 +55,12 @@ final class LlmRuntime {
             throw new IllegalStateException("No Python for model seats at " + python
                     + ": run uv sync --project llm, or pass --llmPython");
         }
-        Path catalog = root.resolve(config.getLlmCatalog()).normalize();
-        return new LlmRuntime(root, python.toAbsolutePath(), catalog, config.getLlmMaxSeats(), ProcessBuilder::start);
+        Path data = config.getLlmData().isEmpty() ? null : Paths.get(config.getLlmData()).toAbsolutePath().normalize();
+        Path catalog = data != null && Config.DEFAULT_LLM_CATALOG.equals(config.getLlmCatalog())
+                ? data.resolve("catalog.json")
+                : root.resolve(config.getLlmCatalog()).normalize();
+        return new LlmRuntime(root, python.toAbsolutePath(), catalog, data, config.getLlmMaxSeats(),
+                ProcessBuilder::start);
     }
 
     static Path findRoot(String configured) {
@@ -113,7 +125,7 @@ final class LlmRuntime {
     }
 
     Path runRoot() {
-        return root.resolve(".run").resolve("llm");
+        return data != null ? data : root.resolve(".run").resolve("llm");
     }
 
     int maxSeats() {
@@ -121,6 +133,11 @@ final class LlmRuntime {
     }
 
     Process start(ProcessBuilder builder) throws IOException {
+        if (data != null) {
+            builder.environment().put(DATA_ENV, data.toString());
+        } else {
+            builder.environment().remove(DATA_ENV);
+        }
         return launcher.start(builder);
     }
 }

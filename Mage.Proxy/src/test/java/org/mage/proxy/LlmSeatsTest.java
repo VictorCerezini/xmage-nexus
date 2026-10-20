@@ -284,6 +284,32 @@ class LlmSeatsTest {
     }
 
     @Test
+    void aDesktopInstallKeepsModelSeatStateInItsDataFolder() throws IOException {
+        Files.createDirectories(dir.resolve("llm"));
+        Files.write(dir.resolve("llm").resolve("seat.py"), new byte[0]);
+        Path python = dir.resolve("python").resolve("python.exe");
+        Files.createDirectories(python.getParent());
+        Files.write(python, new byte[0]);
+        Path data = dir.resolve("data").resolve("llm").toAbsolutePath().normalize();
+        LlmRuntime configured = LlmRuntime.fromConfig(Config.parse(new String[]{"--llm", "on", "--llmRoot", dir.toString(),
+                "--llmPython", python.toString(), "--llmData", data.toString()}));
+        assertEquals(data, configured.runRoot());
+        assertEquals(data.resolve("catalog.json"), configured.catalog());
+
+        List<ProcessBuilder> started = new ArrayList<>();
+        LlmRuntime.Launcher capture = builder -> {
+            started.add(builder);
+            return new FakeProcess();
+        };
+        new LlmRuntime(dir, python, data.resolve("catalog.json"), data, 4, capture).start(new ProcessBuilder("seat"));
+        assertEquals(data.toString(), started.get(0).environment().get(LlmRuntime.DATA_ENV));
+        ProcessBuilder checkout = new ProcessBuilder("seat");
+        checkout.environment().put(LlmRuntime.DATA_ENV, "stale");
+        new LlmRuntime(dir, python, data.resolve("catalog.json"), 4, capture).start(checkout);
+        assertNull(started.get(1).environment().get(LlmRuntime.DATA_ENV));
+    }
+
+    @Test
     void theCatalogKeepsOnlyKnownFields() throws IOException {
         LlmRuntime runtime = runtime(4);
         JsonObject catalog = new LlmCatalog(runtime).read();

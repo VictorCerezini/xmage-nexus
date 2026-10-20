@@ -1,4 +1,4 @@
-"""The bridge runs from the shaded jar with the configured Java; nothing is launched for real."""
+"""The bridge runs from the shaded jar or the desktop thin jar with the configured Java; nothing launches for real."""
 
 import os
 import subprocess
@@ -19,6 +19,7 @@ def fake_repo(tmp_path, monkeypatch):
     java = jdk / "bin" / ("java.exe" if os.name == "nt" else "java")
     java.write_text("")
     monkeypatch.setattr(paths, "settings", lambda: {"java_home": str(jdk)})
+    monkeypatch.setattr(paths, "component", lambda: None)
     return target, java
 
 
@@ -75,3 +76,42 @@ def test_bridge_launches_with_java_jar_from_its_own_home(fake_repo, monkeypatch)
 def test_bridge_user_home_stays_in_the_run_folder():
     home = next(argument for argument in paths.bridge_java_arguments() if argument.startswith("-Duser.home="))
     assert home == f"-Duser.home={(paths.BRIDGE_HOME / 'home').as_posix()}"
+
+
+def test_desktop_bridge_runs_its_thin_jar_on_the_bundled_server(fake_repo, tmp_path, monkeypatch):
+    _, java = fake_repo
+    server = tmp_path / "server"
+    monkeypatch.setattr(paths, "REPO", tmp_path / "llm")
+    monkeypatch.setattr(paths, "settings", lambda: {"java_home": str(java.parent.parent), "server_dir": str(server)})
+    monkeypatch.setattr(
+        paths,
+        "component",
+        lambda: {
+            "bridge": {
+                "jar": "bridge/mage-client-bridge.jar",
+                "mainClass": "mage.client.bridge.BridgeClient",
+                "serverClasspath": ["classes/Mage", "lib/*"],
+            }
+        },
+    )
+    launched = {}
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda command, **_kwargs: launched.setdefault("command", command))
+    runtime.launch_bridge(["-Dxmage.bridge.seat=2"], {}, "log")
+    classpath = [
+        tmp_path / "llm" / "bridge" / "mage-client-bridge.jar",
+        server / "classes" / "Mage",
+        server / "lib" / "*",
+    ]
+    assert launched["command"] == [
+        str(java),
+        "-Dxmage.bridge.seat=2",
+        "-cp",
+        os.pathsep.join(str(entry) for entry in classpath),
+        "mage.client.bridge.BridgeClient",
+    ]
+
+
+def test_desktop_bridge_needs_the_launchers_server_folder(fake_repo, monkeypatch):
+    monkeypatch.setattr(paths, "component", lambda: {"bridge": {}})
+    with pytest.raises(RuntimeError, match="server folder"):
+        runtime.bridge_main()

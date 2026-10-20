@@ -25,7 +25,7 @@ const HUMAN_FILES = [
   { label: 'Linux (.rpm, Fedora/openSUSE)', suffix: '.rpm', hint: 'install with your package manager' },
 ]
 
-const MACHINE_PREFIXES = ['nexus-jre-', 'nexus-server-', 'nexus-proxy-', 'latest.json', 'components-manifest.json']
+const MACHINE_PREFIXES = ['nexus-jre-', 'nexus-server-', 'nexus-proxy-', 'nexus-llm-', 'latest.json', 'components-manifest.json']
 
 function arg(name, fallback = '') {
   const i = process.argv.indexOf('--' + name)
@@ -70,8 +70,9 @@ export function buildBody({ files, tag, notes }) {
   if (machine.length) {
     lines.push(
       `**The other ${machine.length} files (${mb(machineBytes)}) are not for you.** ` +
-        'The `nexus-jre-*`, `nexus-server-*`, `nexus-proxy-*` and `nexus-proxy-xdhs-*` tarballs are fetched ' +
-        'automatically by the launcher on first run (that is how it installs Java, the server and the proxy), ' +
+        'The `nexus-jre-*`, `nexus-server-*`, `nexus-proxy-*`, `nexus-proxy-xdhs-*` and `nexus-llm-*` tarballs are ' +
+        'fetched automatically by the launcher on first run (that is how it installs Java, the server, the proxy ' +
+        'and, on Windows, model seats), ' +
         'and the `.sig` files plus `latest.json` are the updater signatures and its feed. ' +
         'Download them only if you are setting up a server by hand.',
       '',

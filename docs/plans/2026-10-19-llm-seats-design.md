@@ -446,8 +446,33 @@ files and adds 2, about 1,070 lines.
      its logs name only its own game, and it won in 64 s (35 calls, 1.01M input
      tokens, 0.96M cached).
 6. **Later, optional.**
-   - Bundling in the desktop launcher. It would need Python and the CLIs on the
-     user's machine, or a TypeScript rewrite of the supervisor.
+   - **The desktop launcher (Windows, built locally 2026-10-20, not released).**
+     A `win-x64` launcher component, `llm`, holds a standalone CPython 3.13
+     with psutil, the supervisor without its tests, and the bridge's 0.3 MB
+     thin jar, which runs on the server component's classes and `lib/` (40 MB
+     in all; `scripts/assemble-llm.mjs`, and `modules.yml` on Windows). When it
+     is installed the launcher writes `data/llm/desktop.json` (bundled Java,
+     server folder) and starts the main proxy with `--llm on` and
+     `--llmData <data>/llm`; the proxy hands that folder to the supervisor as
+     `NEXUS_LLM_HOME`. In that mode the supervisor looks the CLIs up on every
+     refresh instead of reading `llm.configure`'s settings, keeps all of its
+     state in the data folder, and explains a missing CLI or key in terms of
+     the desktop app. The CLIs stay the player's to install.
+     - Checked without the Tauri shell: the components laid out as the
+       launcher extracts them (a jlink JRE as CI builds it, the server staged
+       from `llm-seats-engine`, the `llm` component), the server and a second
+       proxy started with the launcher's exact arguments. The catalog found
+       ChatGPT and Claude with no setup and asked for OpenRouter and Z.ai keys
+       with the desktop sign-in line. One ChatGPT `gpt-6-luna` max game
+       completed (41 calls, lost to Mad); the bridge ran on the bundled JRE
+       from the thin jar and the server's classes, and nothing was written
+       into the component folder.
+     - The machine's global Codex 0.153 offered only `gpt-6-astra`; the
+       pinned 0.163 the checkout uses also offers `gpt-6-luna` and
+       `gpt-6.1-sol`. A `settings.local.json` in the data folder overrides it.
+     - Still open: CI builds the engine from the fork's `nexus` branch, which
+       needs `llm-seats-engine` merged; the Tauri shell was not built with the
+       change; keys are stored from PowerShell, not from the client.
    - Tournaments and draft. `mcp/` already speaks that protocol; the bridge
      does not.
    - **The A/B test against `mcp/` (run 2026-10-20).** A dev-only

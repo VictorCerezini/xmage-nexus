@@ -69,7 +69,7 @@ def clean_env(tool_timeout_seconds=180):
 def executable():
     claude = paths.settings().get("claude_executable")
     if not claude or not Path(claude).is_file():
-        raise RuntimeError("Run python -m llm.configure with Claude Code installed (or --claude) before Claude play")
+        raise RuntimeError(paths.missing_cli("Claude Code", "--claude", "claude auth login --claudeai"))
     return str(claude)
 
 

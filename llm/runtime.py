@@ -68,10 +68,23 @@ def bridge_jar():
     return jars[-1]
 
 
+def bridge_main():
+    """The desktop component's thin bridge jar on the bundled server's classes, or the shaded jar of a checkout."""
+    component = paths.component()
+    if component is None:
+        return ["-jar", str(bridge_jar())]
+    bridge = component["bridge"]
+    server_dir = paths.settings().get("server_dir")
+    if not server_dir:
+        raise RuntimeError("The launcher did not record its server folder; restart XMage Nexus")
+    classpath = [paths.REPO / bridge["jar"], *(Path(server_dir) / entry for entry in bridge["serverClasspath"])]
+    return ["-cp", os.pathsep.join(str(entry) for entry in classpath), bridge["mainClass"]]
+
+
 def launch_bridge(arguments, env, log_file):
     paths.BRIDGE_HOME.mkdir(parents=True, exist_ok=True)
     return subprocess.Popen(
-        [java(), *arguments, "-jar", str(bridge_jar())],
+        [java(), *arguments, *bridge_main()],
         cwd=paths.BRIDGE_HOME,
         env=env,
         stdout=log_file,

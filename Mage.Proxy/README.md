@@ -221,6 +221,10 @@ Off by default. With `--llm on` a table's owner can seat a language model in a
   directory or its parent.
 - `--llmPython <exe>`: by default `llm/.venv/Scripts/python.exe` (Windows) or
   `llm/.venv/bin/python`; it must exist.
+- `--llmData <dir>`: keeps the catalog and the seats' run folders in this folder
+  instead of `.run/llm` under the root, and passes it to the supervisor as
+  `NEXUS_LLM_HOME`. The desktop launcher passes its data folder's `llm`; the
+  supervisor then finds the installed CLIs itself and needs no `llm.configure`.
 - `--llmMaxSeats <n>`: model seats alive at once across the proxy, default 4.
 
 Model seats play on this machine's subscription sign-ins and keys, so with

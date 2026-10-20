@@ -48,7 +48,7 @@ PERMISSIONS = {"*": "deny", GAME_TOOL_PREFIX + "*": "allow", "doom_loop": "allow
 def executable():
     opencode = paths.settings().get("opencode_executable")
     if not opencode or not Path(opencode).is_file():
-        raise RuntimeError("Run python -m llm.configure with OpenCode installed (or --opencode) before OpenCode play")
+        raise RuntimeError(paths.missing_cli("OpenCode", "--opencode"))
     return str(opencode)
 
 
@@ -177,7 +177,7 @@ def read_key(provider, sign_in):
     """The stored key, used only for that provider's own requests; never returned to catalogs or logs."""
     entry = json.loads(AUTH_PATH.read_text(encoding="utf-8")).get(provider) if AUTH_PATH.is_file() else None
     if not entry or entry.get("type") != "api" or not entry.get("key"):
-        raise RuntimeError(f"Sign in with {sign_in} before opening these matches.")
+        raise RuntimeError(f"Sign in before opening these matches: {sign_in}")
     return entry["key"]
 
 

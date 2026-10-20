@@ -194,7 +194,8 @@ Design, phases and the live matrix in `docs/plans/2026-10-19-llm-seats-design.md
 | A proxy restart kills seats without leaving | `dev.mjs` stops the proxy with `taskkill /T /F`, so the seats cannot concede or leave; their games stay on the server until it drops the disconnected player, and a restarted proxy does not bring the seats back |
 | Change deck after a reload drops model seats | The seat requests behind "Change deck" live in the page's memory; after a reload the client warns and recreates the table without them |
 | Only the owner sees seat status | `llmSeat` events go to the owner's session; the other players see an ordinary player |
-| Not in the desktop launcher | It needs Python, uv and the CLIs on the player's machine, or a TypeScript rewrite of the supervisor |
+| The desktop component is not released yet | Since 2026-10-20 the launcher has a Windows-only `llm` component (bundled CPython 3.13 with psutil, the supervisor, the bridge's thin jar; `scripts/assemble-llm.mjs`, built by `modules.yml` on `win-x64`) and starts the proxy with model seats on when it is installed (`llm/README.md`, "Desktop app"). CI builds the engine from the fork's `nexus` branch, which does not have `llm-seats-engine` yet, and the Tauri shell was not built or run with it |
+| The CLIs are the player's to install | Codex, Claude Code and OpenCode are found on the machine, not bundled; an older Codex lists fewer ChatGPT models. OpenRouter and Z.ai keys are stored with a PowerShell line the catalog prints, not from the client |
 | Windows only | The supervisor uses `msvcrt` and `CREATE_NO_WINDOW` |
 | The engine patch rides on every release | The bridge needs the `llm-seats-engine` branch (short IDs, sequence counter, structured events, lazy card loading), carried onto each XMage release Nexus adopts, and a rebuilt bridge |
 | No tournaments or draft | The bridge plays tables only; `mcp/` already speaks the tournament protocol |

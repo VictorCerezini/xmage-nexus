@@ -50,6 +50,37 @@ and opens the web client, where Create Table offers them (the root README's
 proxy the same way, and stops early if the Python environment or the bridge jar
 is missing.
 
+## Desktop app (Windows)
+
+The launcher's `llm` component (`win-x64` only) holds a standalone CPython 3.13
+with psutil, this package without its tests, and the bridge's thin jar.
+`node scripts/assemble-llm.mjs [stagingDir]` builds it into `<stagingDir>/llm`
+from uv's managed CPython 3.13 and `llm/uv.lock`, after
+`node scripts/build.mjs bridge`. The component's `llm.json` names its Python
+and how the bridge starts: the thin jar first, then the server component's
+`classes/Mage`, `classes/Mage.Common`, `classes/Mage.Sets` and `lib/*`, so the
+83 MB shaded jar is not shipped twice.
+
+When the release has the component, the launcher writes `data/llm/desktop.json`
+(the bundled `java_home` and the server component's `server_dir`) and starts
+the main proxy with `--llm on --llmRoot <component> --llmPython
+<component>/python/python.exe --llmData <data>/llm`. The proxy passes that
+folder to every supervisor process as `NEXUS_LLM_HOME`, and then:
+
+- the catalog, the seats' run folders, the bridge's card database, the player
+  sandbox and the isolated OpenCode home all live in it;
+- the CLIs are looked up on every catalog refresh and every seat, the same way
+  `llm.configure` looks them up, so installing one and pressing Refresh models
+  is enough. A `settings.local.json` in that folder overrides a path the lookup
+  found, and `desktop.json` always wins for Java and the server;
+- a missing CLI is reported as "install it, sign in with ..., then refresh the
+  model list", and a missing OpenRouter or Z.ai key with the PowerShell line
+  that runs `llm.sign_in` with the bundled Python and that folder.
+
+The CLIs are not bundled: Codex, Claude Code and OpenCode come from the
+machine. An older Codex lists fewer ChatGPT models (0.153 offers only
+`gpt-6-astra`; 0.163 also offers `gpt-6-luna` and `gpt-6.1-sol`).
+
 ## Commands
 
 All run from the repository root with `llm/.venv/Scripts/python`.

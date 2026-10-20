@@ -101,7 +101,7 @@ Tests: `Mage.Proxy/src/test` — **36 files**, including `ProxyClientFailedLogin
 | Anti-drift `verify` layer | `verify-player-leave`, `verify-hand-permission`, `verify-range-attack`, `verify-rollback-vote`, `verify-spectator-end`, `verify-swiss`, `verify-tournament-watch`, `verify-wizard-matrix`, `verify-reconnect` | The nine scripts listed in `VERIFY_SCRIPTS`; each logs out before closing its socket |
 | Fixture recording | `record.mjs` (3 866), `rec-lib.mjs`, `record-sync.mjs`, `drivers/*.mjs` | Real frames → `web/fixtures/recorded/`; one driver per mechanic |
 | Contract generators | `view-schema.mjs`, `engine-view-schema.mjs`, `server-state-schema.mjs`, `hint-schema.mjs`, `gen-types.mjs`, `gen-zod.mjs`, `gen-splash-i18n.mjs`, `gen-keywords-i18n.mjs`, `extract-keywords.mjs` | Each has a `--validate` mode used by CI; `*_schema.json` outputs live in `web/fixtures/` |
-| Release/site | `gen-dashboard.mjs`, `dashboard-ci.mjs`, `integration-report.mjs`, `gen-latest.mjs`, `gen-manifest.mjs`, `gen-release-body.mjs`, `assemble-modules.mjs` | Feed `site/` and the release workflow |
+| Release/site | `gen-dashboard.mjs`, `dashboard-ci.mjs`, `integration-report.mjs`, `gen-latest.mjs`, `gen-manifest.mjs`, `gen-release-body.mjs`, `assemble-modules.mjs`, `assemble-llm.mjs` | Feed `site/` and the release workflow |
 | Deploy/host | `deploy-bundle.mjs`, `deploy/*` (`host-xdhs.sh`, …), `check-upstream-release.mjs` | The public host + the 6-hourly upstream release probe |
 | MCP tooling | `playwright-mcp.mjs` | Wraps `@playwright/mcp` for browser interaction |
 

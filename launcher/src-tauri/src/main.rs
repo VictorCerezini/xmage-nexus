@@ -304,6 +304,7 @@ fn start_proxy(
     proxy: &ContractProxy,
     log_name: &str,
     workdir: &Path,
+    extra_args: &[String],
 ) -> Result<Child, String> {
     let jar = layout::component_dir(paths, release, component).join(&proxy.jar);
     if !jar.is_file() {
@@ -322,6 +323,7 @@ fn start_proxy(
         .arg(proxy.ws_port.to_string())
         .arg("--httpPort")
         .arg(proxy.http_port.to_string())
+        .args(extra_args)
         .current_dir(workdir)
         .stdout(append_log(&paths.logs.join(log_name)))
         .stderr(append_log(&paths.logs.join(log_name)));
@@ -560,6 +562,10 @@ fn bootstrap(app: &AppHandle) -> Result<(), String> {
     }
 
     emit_state(app, "starting-proxy", None, None);
+    let llm_args = layout::llm_proxy_args(&paths, &release).unwrap_or_else(|e| {
+        eprintln!("[bootstrap] model seats unavailable: {e} (continuing)");
+        Vec::new()
+    });
     let proxy_child = start_proxy(
         &paths,
         &java,
@@ -568,6 +574,7 @@ fn bootstrap(app: &AppHandle) -> Result<(), String> {
         &contract.proxy,
         "proxy.log",
         &paths.root,
+        &llm_args,
     )?;
     *processes.proxy.lock().unwrap() = Some(proxy_child);
 
@@ -583,6 +590,7 @@ fn bootstrap(app: &AppHandle) -> Result<(), String> {
             xdhs,
             "proxy-xdhs.log",
             &paths.root.join("proxy-xdhs"),
+            &[],
         ) {
             Ok(child) => {
                 *processes.proxy_xdhs.lock().unwrap() = Some(child);

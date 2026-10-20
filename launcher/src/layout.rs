@@ -70,6 +70,49 @@ pub fn server_data_dir(paths: &Paths) -> PathBuf {
     paths.data.join("server")
 }
 
+pub fn llm_data_dir(paths: &Paths) -> PathBuf {
+    paths.data.join("llm")
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct LlmComponent {
+    python: String,
+}
+
+pub fn llm_proxy_args(paths: &Paths, release: &str) -> Result<Vec<String>, String> {
+    let component = component_dir(paths, release, "llm");
+    let Ok(description) = std::fs::read_to_string(component.join("llm.json")) else {
+        return Ok(Vec::new());
+    };
+    let llm: LlmComponent =
+        serde_json::from_str(&description).map_err(|e| format!("llm.json: {e}"))?;
+    let python = llm
+        .python
+        .split('/')
+        .fold(component.clone(), |path, part| path.join(part));
+    if !python.is_file() {
+        return Err(format!("missing {}", python.display()));
+    }
+    let data = llm_data_dir(paths);
+    std::fs::create_dir_all(&data).map_err(|e| format!("llm data dir: {e}"))?;
+    let desktop = serde_json::json!({
+        "java_home": component_dir(paths, release, "jre").display().to_string(),
+        "server_dir": component_dir(paths, release, "server").display().to_string(),
+    });
+    std::fs::write(data.join("desktop.json"), format!("{desktop:#}\n"))
+        .map_err(|e| format!("desktop.json: {e}"))?;
+    Ok(vec![
+        "--llm".to_string(),
+        "on".to_string(),
+        "--llmRoot".to_string(),
+        component.display().to_string(),
+        "--llmPython".to_string(),
+        python.display().to_string(),
+        "--llmData".to_string(),
+        data.display().to_string(),
+    ])
+}
+
 pub fn seed_server_data(staging_server: &Path, data_server: &Path) -> Result<(), LayoutError> {
     for sub in ["saved", "gamesHistory"] {
         std::fs::create_dir_all(data_server.join(sub))?;
@@ -128,6 +171,45 @@ mod tests {
         mark_installed(&paths, "r1").unwrap();
         assert!(is_installed(&paths, "r1"));
         assert!(missing_components(&m, "t1", &paths).is_empty());
+    }
+
+    #[test]
+    fn llm_component_turns_on_model_seats_with_the_bundled_java_and_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = resolve(dir.path());
+        assert!(llm_proxy_args(&paths, "r1").unwrap().is_empty());
+        let component = component_dir(&paths, "r1", "llm");
+        std::fs::create_dir_all(component.join("python")).unwrap();
+        std::fs::write(
+            component.join("llm.json"),
+            r#"{"python": "python/python.exe", "bridge": {}}"#,
+        )
+        .unwrap();
+        assert!(llm_proxy_args(&paths, "r1")
+            .unwrap_err()
+            .contains("python.exe"));
+        let python = component.join("python").join("python.exe");
+        std::fs::write(&python, "").unwrap();
+        let data = llm_data_dir(&paths);
+        assert_eq!(
+            llm_proxy_args(&paths, "r1").unwrap(),
+            vec![
+                "--llm".to_string(),
+                "on".to_string(),
+                "--llmRoot".to_string(),
+                component.display().to_string(),
+                "--llmPython".to_string(),
+                python.display().to_string(),
+                "--llmData".to_string(),
+                data.display().to_string(),
+            ]
+        );
+        let text = std::fs::read_to_string(data.join("desktop.json")).unwrap();
+        let desktop: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let jre = component_dir(&paths, "r1", "jre");
+        let server = component_dir(&paths, "r1", "server");
+        assert_eq!(desktop["java_home"], jre.display().to_string());
+        assert_eq!(desktop["server_dir"], server.display().to_string());
     }
 
     #[test]
