@@ -230,6 +230,8 @@ async function main() {
 
   let res = await A.call('connect', { host: SERVER_HOST, port: SERVER_PORT, username: USER_A, password: 'x' })
   if (!check('login A', !!res.ok, res.error ?? '')) return
+  res = await A.call('getLlmProviders', {}, 120000).catch(() => ({ ok: false }))
+  const restartArgs = res.ok && res.data?.enabled === false ? [] : ['--llm']
   res = await B.call('connect', { host: SERVER_HOST, port: SERVER_PORT, username: USER_B, password: 'x' })
   if (!check('login B', !!res.ok, res.error ?? '')) return
   res = await A.call('createTable', {
@@ -327,7 +329,7 @@ async function main() {
   A.ws.terminate()
   B.ws.terminate()
   const oldPid = proxyPid()
-  execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'ctl.mjs'), 'restart', 'proxy'], { stdio: 'ignore' })
+  execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'ctl.mjs'), 'restart', 'proxy', ...restartArgs], { stdio: 'ignore' })
   const restartDeadline = Date.now() + 120000
   while (Date.now() < restartDeadline && (proxyPid() === oldPid || isAlive(oldPid))) await sleep(500)
   if (!check('[restart] the proxy process was replaced', proxyPid() !== oldPid && !isAlive(oldPid), `pid ${oldPid} → ${proxyPid()}`)) return

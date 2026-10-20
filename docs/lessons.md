@@ -252,4 +252,4 @@ ops), `docs/testing.md`, `web/AGENTS.md`, `Mage.Proxy/README.md`.
   `document.body`, so a test that renders the same component after another one finds two matches
   (`Found multiple elements by: [data-testid="stack-deck-toggle"]`) and passes alone but fails in the file.
   Call `afterEach(cleanup)` in any spec that queries through the returned `getBy*`.
-
+- `ctl.mjs restart proxy` starts the proxy without model seats unless `--llm` is passed again. The full suite's `verify-restart` layer restarted it that way, so after a green run the wizard offered no model seats. `verify-reconnect.mjs` now asks `getLlmProviders` first and passes `--llm` unless the proxy answers `enabled: false`.
