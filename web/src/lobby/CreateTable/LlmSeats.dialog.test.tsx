@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import CreateTableDialog from '../CreateTableDialog'
 import { STORAGE_KEY } from './constants'
@@ -41,20 +41,20 @@ const catalog: LlmCatalog = {
 
 async function openSeats() {
   render(<CreateTableDialog onClose={vi.fn()} />)
-  await waitFor(() => {
-    const gameType = screen.getAllByRole('combobox')[0] as HTMLSelectElement
-    expect(gameType.options.length).toBeLessThan(10)
-  }, { timeout: 5000, interval: 20 })
+  await waitFor(() => expect(screen.getByTestId('format-game-type')).toBeDefined(), { timeout: 5000, interval: 20 })
   fireEvent.change(screen.getByPlaceholderText(/Ej. Modern Casual Bo3|Modern Casual Bo3/), { target: { value: 'Model Duel' } })
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 6; i++) {
+    if (screen.queryByTestId('seat-node-0')) break
     const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
-    if (next) fireEvent.click(next)
+    if (!next) break
+    fireEvent.click(next)
   }
-  return (await screen.findByTestId('seat-type-0')) as HTMLSelectElement
+  fireEvent.click(await screen.findByTestId('seat-node-1'))
+  return screen.findByTestId('seat-type-0')
 }
 
-const llmOptions = (select: HTMLSelectElement) =>
-  Array.from(select.options).filter((o) => o.value.startsWith('llm:')).map((o) => [o.value, o.textContent])
+const seatTypes = (group: HTMLElement) => within(group).queryAllByRole('radio').map((r) => r.textContent)
+const pickSeatType = (group: HTMLElement, name: RegExp) => fireEvent.click(within(group).getByRole('radio', { name }))
 
 describe('model seats in the create table dialog', () => {
   beforeEach(() => {
@@ -71,17 +71,20 @@ describe('model seats in the create table dialog', () => {
     vi.mocked(cmds.getLlmProviders).mockResolvedValue({ enabled: false })
     const seatType = await openSeats()
     await waitFor(() => expect(cmds.getLlmProviders).toHaveBeenCalled())
-    expect(llmOptions(seatType)).toEqual([])
+    expect(seatTypes(seatType)).not.toContain('ChatGPT')
+    expect(screen.queryByText(/Modelos de lenguaje|Language models/)).toBeNull()
     expect(screen.queryByTestId('create-llm-refresh')).toBeNull()
   })
 
   it('creates the table with the chosen model, reasoning and deck', async () => {
     vi.mocked(cmds.getLlmProviders).mockResolvedValue(catalog)
     const seatType = await openSeats()
-    await waitFor(() => expect(llmOptions(seatType)).toEqual([['llm:chatgpt_subscription', 'ChatGPT']]))
+    await waitFor(() => expect(seatTypes(seatType)).toContain('ChatGPT'))
     expect(screen.getByTestId('create-llm-unavailable').textContent).toContain('claude_subscription (not signed in)')
 
-    fireEvent.change(seatType, { target: { value: 'llm:chatgpt_subscription' } })
+    pickSeatType(seatType, /^ChatGPT$/)
+    expect(within(seatType).getByRole('radio', { name: /^ChatGPT$/ }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByTestId('seat-node-1').textContent).toContain('ChatGPT · GPT B')
     const model = screen.getByTestId('seat-llm-model-0') as HTMLSelectElement
     const effort = () => screen.getByTestId('seat-llm-effort-0') as HTMLSelectElement
     expect(model.value).toBe('gpt-b')
@@ -89,9 +92,13 @@ describe('model seats in the create table dialog', () => {
     fireEvent.change(model, { target: { value: 'gpt-a' } })
     expect(effort().value).toBe('low')
     fireEvent.change(effort(), { target: { value: 'high' } })
+    expect(screen.getByTestId('seat-node-1').textContent).toContain('ChatGPT · GPT A')
 
-    const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
-    if (next) fireEvent.click(next)
+    for (let i = 0; i < 3 && !document.querySelector('.create-review'); i++) {
+      const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
+      if (next) fireEvent.click(next)
+    }
+    expect(screen.getByText(/ChatGPT · GPT A · .* high/)).toBeTruthy()
     fireEvent.click(await screen.findByRole('button', { name: /Crear Mesa|Create Table/ }))
 
     await waitFor(() => expect(cmds.createTable).toHaveBeenCalled())
@@ -108,10 +115,12 @@ describe('model seats in the create table dialog', () => {
   it('switching a model seat back to a bot drops it from the request', async () => {
     vi.mocked(cmds.getLlmProviders).mockResolvedValue(catalog)
     const seatType = await openSeats()
-    await waitFor(() => expect(llmOptions(seatType).length).toBe(1))
-    fireEvent.change(seatType, { target: { value: 'llm:chatgpt_subscription' } })
-    fireEvent.change(seatType, { target: { value: 'COMPUTER_MAD' } })
+    await waitFor(() => expect(seatTypes(seatType)).toContain('ChatGPT'))
+    pickSeatType(seatType, /^ChatGPT$/)
+    expect(screen.getByTestId('seat-llm-model-0')).toBeTruthy()
+    pickSeatType(seatType, /Mad/)
     expect(screen.queryByTestId('seat-llm-model-0')).toBeNull()
+    expect(within(seatType).getByRole('radio', { name: /^ChatGPT$/ }).getAttribute('aria-checked')).toBe('false')
 
     const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
     if (next) fireEvent.click(next)
@@ -129,7 +138,7 @@ describe('model seats in the create table dialog', () => {
     const seatType = await openSeats()
     expect((await screen.findByTestId('create-llm-error')).textContent).toContain('llm.catalog timed out')
     fireEvent.click(screen.getByTestId('create-llm-refresh'))
-    await waitFor(() => expect(llmOptions(seatType).length).toBe(1))
+    await waitFor(() => expect(seatTypes(seatType)).toContain('ChatGPT'))
     expect(cmds.getLlmProviders).toHaveBeenLastCalledWith(true)
     expect(screen.queryByTestId('create-llm-error')).toBeNull()
   })

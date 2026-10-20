@@ -26,7 +26,7 @@ else dev('start', 'server')
 if (!running('vite')) dev('start', 'vite')
 
 const url = `http://localhost:${PORTS.vite}`
-log(`model seats on: open ${url}, log in, then Create Table → seats → seat type → Language models`)
+log(`model seats on: open ${url}, log in, then Create Table → Multiplayer → pick a seat → Language models`)
 log('to turn model seats off: node scripts/ctl.mjs restart proxy')
 if (!options.includes('--no-open')) {
   const [cmd, args] = process.platform === 'win32'

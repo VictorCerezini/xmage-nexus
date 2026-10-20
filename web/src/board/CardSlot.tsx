@@ -4,14 +4,17 @@ import { cardName, hiddenFaceDownName } from '../cards/cardImages'
 import { useCardImageUrl } from '../cards/useCardImageUrl'
 import RenderedCard from '../cards/rendered/RenderedCard'
 import { getPreviousCardPosition, getPreviousCardSize, getPreviousCardZone, recordCardPosition } from './cardPositionRegistry'
-import { startCardFlight, onFlightLanded, getActiveFlights, subscribeFlights, noteFlightEvent } from './flightManager'
+import { startCardFlight, onFlightLanded, getActiveFlights, subscribeFlights, noteFlightEvent, ENTER_FLIGHT_MS } from './flightManager'
 import { combatHoldRemaining, isOffBattlefield } from './combatStrikes'
+import { DamageNumbers } from './DamageNumber'
 import { useCombatHeld } from './useCombatHeld'
-import { fxDuration } from './fx'
+import { fxMotionAllowed, fxMotionDuration } from './fx'
+import { useCounterPulse, type CounterPulse } from './useCounterPulse'
 import { extractOwnedKeywords } from '../data/keywordExtractor'
 import { keywordDisplayName, keywordSummary } from '../data/keywordI18n'
 import { cardDesignations, pairedPartnerName, classLevelOf, evidenceCounts, protectorName, type Designation } from './designations'
 import { roomDoorKey, roomSidesLabel } from '../game/rooms'
+import { useChangeFlag } from '../game/useChangeFlag'
 import CardIcons from './CardIcons'
 import { basePtValue, ptTrend } from './ptTrend'
 import Icon from '../ui/Icon'
@@ -22,12 +25,20 @@ import { setState, useSettings, useStore } from '../state/store'
 import { useSleeveFor } from '../appearance/useSleeve'
 import { perfMark } from '../system/perfProbe'
 import { ManaPip } from '../decks/ArenaManaSymbols'
-import { artCropUrl, manaSourceSymbols, primaryCardType } from './compactCard'
-import type { PtBadgeMode, SicknessStyle } from './cardOverlays'
+import { artCropUrl, landTapColor, manaSourceSymbols, primaryCardType } from './compactCard'
+import type { KeywordIconSet, PtBadgeMode, SicknessStyle } from './cardOverlays'
+import KeywordGlyph, { isGlyphKeyword } from './KeywordGlyph'
+import { manaPoolElement, spawnManaParticle, type ManaSide } from './manaParticle'
 import './CardSlot.css'
+import './manaParticle.css'
 
 /** Cota del acuse optimista si el eco del servidor no llega nunca. */
 const PENDING_ACK_MS = 3000
+
+function pulseClass(pulse: CounterPulse | undefined): string {
+  if (!pulse) return ''
+  return ` counter-badge-changed counter-badge-${pulse.direction}${pulse.scale ? ' counter-badge-pulse' : ''}`
+}
 
 interface CardSlotProps {
   cardId?: string
@@ -50,8 +61,10 @@ interface CardSlotProps {
   showDamage?: boolean
   /** Compact battlefield tile: art crop with the name, type and mana source overlaid. */
   compact?: boolean
+  /** Classic battlefield card: overlay its mana source too (the compact tile always does). */
+  showManaSource?: boolean
   /** Settings previews only: local art (never a network lookup) and per-option overrides of the global overlay settings. */
-  demo?: { artUrl: string | null; ptBadgeMode?: PtBadgeMode; sicknessStyle?: SicknessStyle }
+  demo?: { artUrl: string | null; ptBadgeMode?: PtBadgeMode; sicknessStyle?: SicknessStyle; keywordIcons?: KeywordIconSet }
 }
 
 export default function CardSlot({
@@ -73,12 +86,14 @@ export default function CardSlot({
   showCounters = false,
   showDamage = false,
   compact = false,
+  showManaSource = false,
   demo,
 }: CardSlotProps) {
   const { t } = useTranslation()
   const settings = useSettings()
   const ptBadgeMode = demo?.ptBadgeMode ?? settings.ptBadgeMode
   const sicknessStyle = demo?.sicknessStyle ?? settings.sicknessStyle
+  const keywordIcons = demo?.keywordIcons ?? settings.keywordIcons
   const sleeve = useSleeveFor(card.controllerId)
   const resolvedImgUrl = useCardImageUrl(card, !faceDown && !demo)
   const imgUrl = demo ? demo.artUrl : resolvedImgUrl
@@ -88,6 +103,8 @@ export default function CardSlot({
   const cropUrl = compact ? (demo ? demo.artUrl : artCropUrl(imgUrl)) : null
   const [cropFailed, setCropFailed] = useState<string | null>(null)
   const [pendingAck, setPendingAck] = useState<'pending' | 'chosen-pending' | null>(null)
+  const [castPhase, setCastPhase] = useState<'press' | 'pop' | null>(null)
+  const [pendingRun, setPendingRun] = useState(0)
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const slotRef = useRef<HTMLDivElement>(null)
   const isFirstMountRef = useRef(true)
@@ -103,6 +120,18 @@ export default function CardSlot({
   const recapMark = useStore((s) => (effectiveId ? s.turnRecap?.marks[effectiveId] : undefined))
   const enteredThisTurn = useStore((s) => (effectiveId ? s.enteredThisTurn[effectiveId] === true : false))
   const shownDamage = useCombatHeld(effectiveId ? String(effectiveId) : null, (card as PermanentView).damage ?? 0)
+  const targetOptional = useStore((s) => s.feedback?.method === 'GAME_TARGET' && s.feedback.required === false)
+  const [tapChanged] = useChangeFlag(tapped)
+  const tapManaColor = useMemo(() => landTapColor(card), [card])
+  const localPlayerId = useStore((s) => s.game?.players?.find((p) => p.controlled)?.playerId)
+
+  useEffect(() => {
+    if (!tapChanged || !tapped || !tapManaColor || !localPlayerId || !card.controllerId) return
+    const from = slotRef.current?.getBoundingClientRect()
+    const side: ManaSide = card.controllerId === localPlayerId ? 'my' : 'opp'
+    const pool = manaPoolElement(side)
+    if (from && pool && from.width > 0) spawnManaParticle(from, pool, tapManaColor)
+  }, [tapChanged, tapped, tapManaColor, localPlayerId, card.controllerId])
 
   const clearPending = useCallback(() => {
     if (pendingTimerRef.current) {
@@ -148,7 +177,10 @@ export default function CardSlot({
           if (!prevZone || !curZoneClass || prevZone !== curZoneClass) {
             const sourceSize = getPreviousCardSize(effectiveId)
             const flyIn = (toRect: DOMRect) => {
-              const flightId = startCardFlight(card, prev, toRect, 340, `[data-card-id="${effectiveId}"]`, { sourceSize, toCompact: compact })
+              const enteringLand = (card.cardTypes ?? []).some((t) => String(t).toUpperCase() === 'LAND')
+              const onBattlefield = !!el.closest('.creatures-band, .permanents-band')
+              const variant = !onBattlefield ? undefined : enteringLand ? 'land' : 'enter'
+              const flightId = startCardFlight(card, prev, toRect, onBattlefield ? ENTER_FLIGHT_MS : 340, `[data-card-id="${effectiveId}"]`, { sourceSize, toCompact: compact, variant })
               if (!flightId) return
               setFlightState('hidden')
               const land = () => {
@@ -210,7 +242,7 @@ export default function CardSlot({
     const holdMs = combatHoldRemaining(String(effectiveId))
     if (holdMs <= 0 || !isOffBattlefield(el)) return
     setHeld(true)
-    const release = setTimeout(() => setHeld(false), holdMs + 40 + fxDuration(420))
+    const release = setTimeout(() => setHeld(false), holdMs + 40 + fxMotionDuration(420))
     return () => clearTimeout(release)
   }, [effectiveId])
 
@@ -222,6 +254,7 @@ export default function CardSlot({
 
   const perm = card as PermanentView
   const counters = card.counters ?? []
+  const counterPulses = useCounterPulse(counters)
 
   const types = (card.cardTypes ?? []).map((t) => String(t).toLowerCase())
   const isCreature = types.includes('creature') || String(card.mageObjectType ?? '').toUpperCase().includes('CREATURE')
@@ -232,6 +265,11 @@ export default function CardSlot({
   const isFlipped = perm.flipped === true
 
   const loyaltyVal = perm.loyalty ? parseInt(String(perm.loyalty), 10) : 0
+  const loyaltySamples = useMemo(
+    () => (Number.isFinite(loyaltyVal) && loyaltyVal > 0 ? [{ name: 'loyalty', count: loyaltyVal }] : []),
+    [loyaltyVal],
+  )
+  const loyaltyPulse = useCounterPulse(loyaltySamples).loyalty
   const defenseVal = perm.defense ? parseInt(String(perm.defense), 10) : 0
 
   const hasSummoningSickness = isRealCreature && !tapped && perm.summoningSickness === true
@@ -260,7 +298,8 @@ export default function CardSlot({
   const classLevel = useMemo(() => classLevelOf(card.rules), [card.rules])
   const evidence = useMemo(() => evidenceCounts(card.rules), [card.rules])
   const protector = useMemo(() => protectorName(card.rules), [card.rules])
-  const manaSymbols = useMemo(() => (compact ? manaSourceSymbols(card) : []), [compact, card.rules, card.subTypes])
+  const manaSymbols = useMemo(() => (compact || showManaSource ? manaSourceSymbols(card) : []), [compact, showManaSource, card.rules, card.subTypes])
+  const showManaPill = (compact || showManaSource) && !showBack && !renderedFace && manaSymbols.length > 0
   const tileType = compact ? primaryCardType(card) : null
   // In 'changed' mode the badge only appears when we can PROVE the P/T moved: an
 // unknown printed value (token, cloak, disguise — the server sends no
@@ -284,11 +323,13 @@ const showPtBadge =
     : counters
 
   const handleClick = onClick ? () => {
+    if (isPlayable && fxMotionAllowed()) setCastPhase('press')
     const ackKind = isTarget ? 'chosen-pending' : 'pending'
     // No reenviar el mismo objetivo mientras el eco no lo confirme; el resto
     // de selecciones (jugable/combate) pueden re-clicarse (toggle del servidor).
     if (pendingAck === 'chosen-pending' && !isChosen) return
     setPendingAck(ackKind)
+    setPendingRun((n) => n + 1)
     if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current)
     pendingTimerRef.current = setTimeout(() => {
       pendingTimerRef.current = null
@@ -298,6 +339,11 @@ const showPtBadge =
     soundManager.play('tap', 'game')
     onClick()
   } : undefined
+
+  const handleCastAnimationEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
+    if (e.animationName === 'castPress') setCastPhase('pop')
+    else if (e.animationName === 'castPop' || e.animationName === 'castFade') setCastPhase(null)
+  }
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -350,13 +396,19 @@ const showPtBadge =
         attacking ? 'attacking' : '',
         blocking ? 'blocking' : '',
         isTarget ? 'targetable' : '',
+        isTarget && targetOptional && !isChosen ? 'target-optional' : '',
+        isTarget && !targetOptional && !isChosen && pendingAck !== 'chosen-pending' ? 'target-beacon' : '',
         isPlayable ? 'playable' : '',
         isChosen ? 'chosen' : '',
         pendingAck === 'pending' ? 'is-pending' : '',
+        tapChanged && tapped && tapManaColor ? `mana-${tapManaColor}` : '',
         pendingAck === 'chosen-pending' ? 'is-chosen-pending' : '',
+        castPhase === 'press' ? 'casting-press' : '',
+        castPhase === 'pop' ? 'casting-pop' : '',
         isFaceDownCard ? 'face-down' : '',
         isFlipped ? 'is-flipped-card' : '',
         compact ? 'is-compact' : '',
+        showManaPill && !compact ? 'has-mana-pill' : '',
         onClick ? 'clickable' : '',
         entering ? 'entering' : '',
         flightState === 'hidden' || held ? 'flight-hidden' : '',
@@ -364,6 +416,7 @@ const showPtBadge =
         className,
       ].filter(Boolean).join(' ')}
       onClick={handleClick}
+      onAnimationEnd={handleCastAnimationEnd}
       {...clickableProps(handleClick)}
       aria-label={onClick ? cardName(card) : undefined}
       aria-pressed={onClick && ariaPressed !== undefined ? ariaPressed : undefined}
@@ -405,17 +458,18 @@ const showPtBadge =
         </div>
       )}
 
+      {showManaPill && (
+        <div className="compact-mana-source" data-testid="compact-mana-source" data-mana={manaSymbols.join('')}>
+          {manaSymbols.map((sym) => (
+            sym === 'ANY'
+              ? <span key={sym} className="compact-mana-any" />
+              : <ManaPip key={sym} symbol={sym} size={16} className="compact-mana-pip" />
+          ))}
+        </div>
+      )}
+
       {compact && !showBack && (
         <>
-          {manaSymbols.length > 0 && (
-            <div className="compact-mana-source" data-testid="compact-mana-source" data-mana={manaSymbols.join('')}>
-              {manaSymbols.map((sym) => (
-                sym === 'ANY'
-                  ? <span key={sym} className="compact-mana-any" />
-                  : <ManaPip key={sym} symbol={sym} size={16} className="compact-mana-pip" />
-              ))}
-            </div>
-          )}
           {tapped && (
             <div className="compact-tap-badge" data-testid="compact-tap-badge" title={t('game', 'tapped')}>
               <ManaPip symbol="T" size={16} className="compact-tap-pip" />
@@ -441,9 +495,19 @@ const showPtBadge =
       )}
 
       {isPlaneswalker && loyaltyVal > 0 && !renderedFace && (
-        <div className="loyalty-badge" title={`${t('game', 'ability_loyalty')}: ${perm.loyalty}`}>
+        <div className={`loyalty-badge${pulseClass(loyaltyPulse)}`} title={`${t('game', 'ability_loyalty')}: ${perm.loyalty}`}>
           <span className="loyalty-icon"><Icon name="shield" size={11} /></span>
-          <span className="loyalty-val">{perm.loyalty}</span>
+          <span className={`loyalty-val${loyaltyPulse?.tick ? ` counter-tick is-${loyaltyPulse.direction}` : ''}`}>{perm.loyalty}</span>
+          {loyaltyPulse?.scale && <span key={`ring-${loyaltyPulse.seq}`} className="counter-change-ring" aria-hidden="true" />}
+          {loyaltyPulse?.label && (
+            <span
+              key={`label-${loyaltyPulse.seq}`}
+              className={`counter-change-label is-${loyaltyPulse.direction}${loyaltyPulse.scale ? ' counter-change-rise' : ''}`}
+              aria-hidden="true"
+            >
+              {loyaltyPulse.delta > 0 ? `+${loyaltyPulse.delta}` : `${loyaltyPulse.delta}`}
+            </span>
+          )}
         </div>
       )}
 
@@ -462,7 +526,7 @@ const showPtBadge =
 
       {showCounters && visibleCounters.length > 0 && !renderedFace && (
         <div className="card-counters-wrap">
-          {visibleCounters.map((c, ci) => {
+          {visibleCounters.map((c) => {
             const n = c.name.toLowerCase()
             let iconElement: React.ReactNode = null
             let customClass = ''
@@ -497,14 +561,25 @@ const showPtBadge =
               label = `+${c.count}`
             }
 
+            const pulse = counterPulses[c.name]
             return (
               <div
-                key={`${ci}:${c.count}`}
-                className={`counter-badge ${customClass}`}
+                key={c.name}
+                className={`counter-badge ${customClass}${pulseClass(pulse)}`}
                 title={`${c.name}: ${c.count}`}
               >
                 {iconElement && <span className="counter-icon-symbol">{iconElement}</span>}
-                {label && <span className="counter-text-val">{label}</span>}
+                {label && <span className={`counter-text-val${pulse?.tick ? ` counter-tick is-${pulse.direction}` : ''}`}>{label}</span>}
+                {pulse?.scale && <span key={`ring-${pulse.seq}`} className="counter-change-ring" aria-hidden="true" />}
+                {pulse?.label && (
+                  <span
+                    key={`label-${pulse.seq}`}
+                    className={`counter-change-label is-${pulse.direction}${pulse.scale ? ' counter-change-rise' : ''}`}
+                    aria-hidden="true"
+                  >
+                    {pulse.delta > 0 ? `+${pulse.delta}` : `${pulse.delta}`}
+                  </span>
+                )}
               </div>
             )
           })}
@@ -578,13 +653,24 @@ const showPtBadge =
           {keywordBadges.map((kw) => (
             <span
               key={kw.id}
-              className={`keyword-badge cat-${kw.category}`}
+              className={isGlyphKeyword(kw.id) ? `keyword-badge is-glyph icons-${keywordIcons} kw-${kw.id}` : `keyword-badge cat-${kw.category}`}
               title={`${keywordDisplayName(kw.id, kw.name, (k) => t('keywords', k), kw.parameter)} — ${keywordSummary(kw.id, (k) => t('keywords', k), kw.parameter)}`}
             >
-              {kw.icon}
+              {isGlyphKeyword(kw.id) ? <KeywordGlyph keyword={kw.id} set={keywordIcons} /> : kw.icon}
             </span>
           ))}
         </div>
+      )}
+
+      <DamageNumbers targetKey={`card:${effectiveId}`} />
+
+      {pendingAck === 'pending' && (
+        <span
+          key={pendingRun}
+          className="pending-ack-bar"
+          aria-hidden="true"
+          style={{ animationDuration: `${PENDING_ACK_MS}ms` }}
+        />
       )}
     </div>
   )

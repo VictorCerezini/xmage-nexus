@@ -361,5 +361,77 @@ export function synthesizeSound(ctx: AudioContext, key: SoundKey): AudioBuffer {
       }
       return buf
     }
+
+    case 'projectile_launch': {
+      const duration = 0.32
+      const buf = makeBuffer(ctx, duration)
+      const data = buf.getChannelData(0)
+      const sr = ctx.sampleRate
+      let low = 0
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr
+        const env = Math.min(1, t / 0.03) * Math.exp(-t * 8)
+        const cutoff = 350 + 700 * Math.sin((Math.PI * t) / duration)
+        low += (1 - Math.exp((-2 * Math.PI * cutoff) / sr)) * (Math.random() * 2 - 1 - low)
+        const body = Math.sin(2 * Math.PI * (170 + 60 * (t / duration)) * t) * 0.3
+        data[i] = (low * 0.9 + body) * env * 0.35
+      }
+      return buf
+    }
+
+    case 'card_land': {
+      const duration = 0.32
+      const buf = makeBuffer(ctx, duration)
+      const data = buf.getChannelData(0)
+      const sr = ctx.sampleRate
+      let lp = 0
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr
+        const body = Math.sin(2 * Math.PI * (55 + 110 * Math.exp(-t * 28)) * t) * Math.exp(-t * 16)
+        const wood = Math.sin(2 * Math.PI * 240 * t) * Math.exp(-t * 55) * 0.25
+        const white = Math.random() * 2 - 1
+        lp = lp * 0.7 + white * 0.3
+        const tuff = lp * Math.exp(-t * 45) * 0.45
+        data[i] = Math.tanh((body * 1.1 + wood + tuff) * 1.5) * 0.7
+      }
+      return buf
+    }
+
+    case 'projectile_impact': {
+      const duration = 0.3
+      const buf = makeBuffer(ctx, duration)
+      const data = buf.getChannelData(0)
+      const sr = ctx.sampleRate
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr
+        const body = Math.sin(2 * Math.PI * (90 + 150 * Math.exp(-t * 30)) * t) * Math.exp(-t * 18) * 0.8
+        const click = (Math.random() * 2 - 1) * Math.exp(-t * 400) * 0.5
+        const shimmer = Math.sin(2 * Math.PI * 1320 * t) * Math.exp(-t * 30) * 0.15
+        data[i] = Math.tanh((body + click + shimmer) * 1.4) * 0.6
+      }
+      return buf
+    }
+
+    case 'coin_flip': {
+      const duration = 1.5
+      const buf = makeBuffer(ctx, duration)
+      const data = buf.getChannelData(0)
+      const sr = ctx.sampleRate
+      const clinks = [1.05, 1.17]
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr
+        const wobble = 0.6 + 0.4 * Math.sin(2 * Math.PI * 28 * t)
+        const ring = (Math.sin(2 * Math.PI * 2650 * t) + Math.sin(2 * Math.PI * 4100 * t) * 0.3) * Math.exp(-t * 4.5) * wobble * 0.35
+        let clink = 0
+        for (const at of clinks) {
+          if (t < at) continue
+          const dt = t - at
+          clink += Math.sin(2 * Math.PI * 3520 * dt) * Math.exp(-dt * 60) * 0.5
+          clink += (Math.random() * 2 - 1) * Math.exp(-dt * 900) * 0.4
+        }
+        data[i] = Math.tanh((ring + clink) * 1.2) * 0.8
+      }
+      return buf
+    }
   }
 }

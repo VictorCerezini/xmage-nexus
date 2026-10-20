@@ -370,6 +370,12 @@ files and adds 2, about 1,070 lines.
        could not offer are listed with the reason, and "Refresh models" reruns
        the catalog.
      - Tournaments and draft tables offer no model seats.
+     - v0.5.0 redesigned the seats step as a round table with an editor for
+       the picked seat. After the merge, each provider is a chip under
+       "Language models" after the seat types. A model seat's node shows the
+       provider and model, and it does not count as a human waiting. The
+       review step lists its model, reasoning and deck. "Change deck" starts
+       from upstream's `recreateTableArgs` and adds the model seats.
      - A proxy without `--llm`, or an older one that answers
        `UNKNOWN_ACTION`, shows no model seats and no error.
      - Model seats are numbered after the owner's seat. Their decks are
@@ -425,6 +431,7 @@ files and adds 2, about 1,070 lines.
      | Commander Free For All, Krenko and 99 Mountains | Mad, ChatGPT in seat 2, Claude in seat 3 | ChatGPT won. 153 s; 43 and 56 calls; 1.33M and 2.97M. It ran beside the best of three: three model seats at once |
      | Removing a table | Claude | `stopped` 1 s after `removeTable`; the manifest says `cancelled` with cleanup finished |
      | Web UI | ChatGPT `gpt-6-luna`, low | Create Table → Multiplayer seated it, and the badge went from "ChatGPT 2 is joining…" to "GPT-6-Luna · low". Change deck seated it again; after a reload it warned and recreated the table without it |
+     | Web UI after merging v0.5.0 | ChatGPT `gpt-6.1-sol`, low | Seat 2 took the ChatGPT chip; its node read "ChatGPT · GPT-6.1-Sol" and the review listed its model, reasoning and deck. The badge went from "ChatGPT 2 is joining…" to "GPT-6.1-Sol · low". Change deck seated it again as `ChatGPT 1`, and deleting the table left both runs `cancelled` with cleanup finished |
      | Proxy restart mid-game | Claude `claude-haiku-5-5`, low | Found a bug, fixed; see below |
 
    - **Proxy restart:** `dev.mjs restart proxy` kills the proxy's process tree,

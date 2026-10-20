@@ -1,15 +1,16 @@
 import type { TranslationSchema } from '../i18n/types'
 import RenderedCardsSettings from '../settings/RenderedCardsSettings'
+import { boardLayoutChoiceOf, chooseBoardLayout, type BoardLayoutChoice } from '../settings/boardLayoutChoice'
 import CloseButton from '../ui/CloseButton'
 import IconButton from '../ui/IconButton'
 import Checkbox from '../ui/Checkbox'
-import Toggle from '../ui/Toggle'
+import OptionChoice from '../settings/OptionChoice'
 import { SLEEVES } from './sleeves'
 import CustomSleeveTile from './CustomSleeveTile'
 import CustomCardArtManager from './CustomCardArtManager'
 import PlaymatPicker from './PlaymatPicker'
 import { CARD_STYLES, TAP_STYLES } from '../board/compactCard'
-import { PT_BADGE_MODES, SICKNESS_STYLES } from '../board/cardOverlays'
+import { KEYWORD_ICON_SETS, PT_BADGE_MODES, SICKNESS_STYLES } from '../board/cardOverlays'
 import { ZOOM_PRESETS, isZoomPreset, stepZoom, zoomPercent } from './zoom'
 import { useTranslation } from '../i18n'
 import { useSettings } from '../state/selectors'
@@ -23,10 +24,11 @@ interface Props {
   onClose: () => void
 }
 
-const LAYOUTS: Array<{ id: 'standard' | 'pod' | 'arena'; labelKey: keyof TranslationSchema['lobby']; descKey: keyof TranslationSchema['lobby']; icon: string }> = [
+const LAYOUTS: Array<{ id: BoardLayoutChoice; labelKey: keyof TranslationSchema['lobby']; descKey: keyof TranslationSchema['lobby']; icon: string }> = [
   { id: 'standard', labelKey: 'board_standard', descKey: 'board_standard_desc', icon: '▭' },
   { id: 'pod', labelKey: 'board_pod', descKey: 'board_pod_desc', icon: '⊞' },
   { id: 'arena', labelKey: 'board_arena', descKey: 'board_arena_desc', icon: '⬒' },
+  { id: 'table', labelKey: 'board_table', descKey: 'board_table_desc', icon: '◐' },
 ]
 
 const UI_SCALE_DESC_KEYS: Record<string, 'ui_scale_compact' | 'ui_scale_normal' | 'ui_scale_large' | 'ui_scale_xlarge' | 'ui_scale_cjk'> = {
@@ -118,13 +120,13 @@ export default function AppearanceSettingsModal({ onClose }: Props) {
           <p className="appearance-section-hint">{t('lobby', 'appearance_board_hint')}</p>
           <div className="board-layout-grid">
             {LAYOUTS.map((l) => {
-              const isSelected = settings.boardLayout === l.id
+              const isSelected = boardLayoutChoiceOf(settings) === l.id
               return (
                 <button
                   key={l.id}
                   type="button"
                   className={`board-layout-item ${isSelected ? 'selected' : ''}`}
-                  onClick={() => setSetting('boardLayout', l.id)}
+                  onClick={() => chooseBoardLayout(l.id)}
                   data-testid={`board-layout-${l.id}`}
                 >
                   <span className="board-layout-icon">{l.icon}</span>
@@ -148,11 +150,19 @@ export default function AppearanceSettingsModal({ onClose }: Props) {
         <section className="appearance-section">
           <h3 className="appearance-section-title">{t('lobby', 'card_overlays_title')}</h3>
           <p className="appearance-section-hint">{t('lobby', 'card_overlays_hint')}</p>
-          <Toggle
-            checked={settings.showHandCost}
-            onChange={(v) => setSetting('showHandCost', v)}
+          <OptionChoice
+            kind="handCost"
             label={t('lobby', 'hand_cost_show')}
-            title={t('lobby', 'hand_cost_show_hint')}
+            hint={t('lobby', 'hand_cost_show_hint')}
+            value={settings.showHandCost}
+            onChange={(v) => setSetting('showHandCost', v)}
+          />
+          <OptionChoice
+            kind="manaSource"
+            label={t('lobby', 'mana_source_show')}
+            hint={t('lobby', 'mana_source_show_hint')}
+            value={settings.showManaSource}
+            onChange={(v) => setSetting('showManaSource', v)}
           />
           <RenderedCardsSettings />
           <div className="board-layout-grid">
@@ -184,6 +194,22 @@ export default function AppearanceSettingsModal({ onClose }: Props) {
                 <span className="board-layout-label">{t('lobby', `sickness_style_${style}`)}</span>
                 <span className="board-layout-desc">{t('lobby', `sickness_style_${style}_desc`)}</span>
                 {settings.sicknessStyle === style && <span className="board-layout-check">✓</span>}
+              </Button>
+            ))}
+          </div>
+          <div className="board-layout-grid">
+            {KEYWORD_ICON_SETS.map((set) => (
+              <Button
+                key={set}
+                variant="ghost"
+                className={`board-layout-item ${settings.keywordIcons === set ? 'selected' : ''}`}
+                onClick={() => setSetting('keywordIcons', set)}
+                aria-pressed={settings.keywordIcons === set}
+                data-testid={`appearance-keyword-icons-${set}`}
+              >
+                <span className="board-layout-label">{t('lobby', `keyword_icons_${set}`)}</span>
+                <span className="board-layout-desc">{t('lobby', `keyword_icons_${set}_desc`)}</span>
+                {settings.keywordIcons === set && <span className="board-layout-check">✓</span>}
               </Button>
             ))}
           </div>

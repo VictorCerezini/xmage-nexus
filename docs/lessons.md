@@ -70,6 +70,7 @@ ops), `docs/testing.md`, `web/AGENTS.md`, `Mage.Proxy/README.md`.
 - A model seat's `manifest.json` keeps each CLI's own usage shape, so the raw `input_tokens` are not comparable. Codex counts cached tokens inside `input_tokens` (`cached_input_tokens` is the cached part). Claude Code's `input_tokens` excludes the cache: add `cache_read_input_tokens` and `cache_creation_input_tokens` (a Claude 1v1 showed 102 "input tokens" for about 3.0M read). OpenCode reports `input`, `output` and `cache_read` per run, and `steps` is the request count that OpenRouter's free daily limit counts.
 - The XMage server keeps a game whose player disconnected and hands it to the next login of that username, whatever table the new client joined. A model seat killed by a proxy restart left its game on the server; the next seat reused its name (the 10-minute cooldown lived only in the proxy's memory), played the old game and reported that result for the new table, whose game was abandoned. `createTable` now skips every name seated at an unfinished server table.
 - A rollback request goes to every other HUMAN player as a `USER_REQUEST_DIALOG` (Accept sends `ADD_PERMISSION_TO_ROLLBACK_TURN` with the requester's user id), and a model seat is a HUMAN player. The bridge ignored the dialog, so a player's rollback against a model never completed and the game sat waiting. Computer players are never asked, and the proxy's SIM seats already accept, so the bridge now accepts too.
+- A reload during a draft's construction eliminated the player from the tournament. The page sends `leaving` on pagehide, so the proxy kept the XMage session for only 45 s; a reload that took longer hit the grace expiry, the server called `User.removeUserFromAllTables` (`TournamentController.quit` during construction) and the draft table vanished. Measured: a 60 s reload lost the table, a 20 s one kept it. The proxy now uses the full 180 s grace while the session is in its draft/construction phase (`START_DRAFT`/`DRAFT_INIT`/`CONSTRUCT` until `START_GAME`/`GAME_INIT`/`TOURNAMENT_OVER`), so a reload up to 180 s survives; a plain socket drop already had 180 s. A reload longer than that is still fatal, and the server's tournament logic was left alone on purpose.
 
 ## Web client
 
@@ -208,3 +209,47 @@ ops), `docs/testing.md`, `web/AGENTS.md`, `Mage.Proxy/README.md`.
 - **Without `JAVA_HOME` the stack's `java` is Oracle's `javapath` shim, which drops the redirected output of a
   detached spawn**, so `.run/*.log` stop growing and the self-test's log check fails although the stack works.
   Start the stack with `JAVA_HOME` set (`javaBin()` prefers it).
+
+- **Validating an archive entry's path is not validating the archive.** `launcher/src/extract.rs`
+  rejected `..` and absolute entry paths but unpacked symlink entries as they came, so a tarball with
+  `jre -> /somewhere` followed by `jre/owned.txt` wrote outside the destination (the two tests that
+  proved it failed before the fix). Links are now checked against where they would resolve
+  (`link_stays_inside`): relative links that stay under the destination are kept, since a JRE has them.
+  The component hashes in the manifest only help if the manifest itself is trusted.
+
+- **An escape that skips quotes is not an escape.** `renderNewsMarkdown` escaped `& < >` and then built
+  `<a href="…">` from a URL pattern that allowed `"`, so `[x](https://a/"onmouseover="…)` injected an
+  attribute into release notes fetched from GitHub. Escape quotes before building any attribute, and
+  assert on the parsed DOM (`getAttributeNames()`), not on a regex over the string: the first version
+  of that test matched `onmouseover=` inside the `href` value and failed for the wrong reason.
+
+- **`script-src 'unsafe-inline'` was there for one inline script.** The proxy's CSP carried it only
+  because `splash.html` had an inline `<script>`; the app proper never did. The script is
+  `public/splash.js` now, the policy is `script-src 'self'` (`Main.CONTENT_SECURITY_POLICY`, pinned by
+  `MainSecurityTest`), and `cspCompat.test.ts` fails if any page under `web/` grows an inline script or
+  an `on*=` handler again. With that, an injected string cannot run even if an escape is missed.
+
+- **Check what is already covered before writing tests for "files without a test".** A sibling-name
+  scan listed `gateway.ts`, `actions.ts` and `submitTable.ts` as untested; coverage said 98 %, 90 %
+  and 85 %, reached through other suites. The real holes were the two screens with no render test
+  (`GameScreen` 8 %, `LobbyScreen` 0 %). Also: `initialState` is exported from `state/state`, not from
+  `state/store`; importing it from the wrong place spreads `undefined` silently and the "reset"
+  between tests resets nothing.
+
+- A refusal code is not a message. The proxy answers a rate-limited report with `ok: true, stored: false, reason: "rate"`, and `ReportDialog` printed the word `rate` in the warning colour, so a player who pressed Send twice read a working channel as a broken one (the public proxy was healthy: a probe login stored a report). Every code a server can answer needs a sentence the player can act on (`report_rate`, `report_duplicate`, `report_quota`, `report_too_large`, nine locales); the raw text is only for codes nobody has met yet.
+- Measure a payload the way its receiver will. `JSON.stringify(...).length` undercounts what the proxy sees, because Gson's `toString` writes `<`, `>`, `&`, `=` and `'` as six-character `\uXXXX` escapes; a log full of rules text could pass the client's 96 KB check and be refused by the proxy's. `report.ts` `sizeOf` adds five characters per escaped one and `buildReport` has a last-resort trim.
+- A desktop client that talks to its own local proxy cannot say "sent". The report landed in the player's `%LOCALAPPDATA%`, the dialog said "Sent. Reference: …" and nobody ever received it. Decide who the receiver is before choosing the verb (`isLocalProxy` → "Saved on this computer" + a prefilled GitHub issue).
+- `Element.replaceChildren(null)` inserts the text "null". Filter optional children before the call (`ops/status` Reports tab painted `null` between two paragraphs).
+- `width: min(Npx, 96vw)` on a panel inside a backdrop that has its own padding overflows by twice that padding on a phone (create-table dialog: 20..394 in a 390 px window). Cap the panel at `100vw - 2 × backdrop padding`, divided by `--ui-zoom`; guard in `e2e/mobile.spec.ts`, verified red with the cap removed.
+- **The engine skips a step with no stop set without asking whether you have a play.** `HumanPlayer.checkPassStep` passes any step whose `SkipPrioritySteps` flag is off, on an empty stack, before the client sees a `GAME_SELECT`; so a client "smart stops" layer can only ever pass *more*, never stop where the engine already skipped. With the Simple preset (every stop off) the land drop in main 1 never reached the client. The client now sends the engine every stop on while smart stops are active (`serverPhaseStops`) and decides itself (`decideStop`: playable → stop, marked stop → stop, else pass). The engine does list the land drop (`canPlayObjects[...].basicPlayAbilities = "Play Mountain"`, frame `recorded/land-drop.json`) and omits it once a land is played, so the old name-based hand heuristic was both redundant and a source of false stops.
+- Only `BasicManaAbility` lands in `canPlayObjects[...].basicManaAbilities`; Sol Ring (`{T}: Add {C}{C}.`), filter lands (`{U/R}, {T}: Add {U}{U}.`) and Treasures come under `other` (frame `recorded/mana-rocks.json`). `meaningfulPlayables` filters `other` by the `: Add {…}` text, otherwise any untapped rock turned every window into a stop.
+
+- **Two files whose names differ only by case are one file on macOS and Windows.** `game/combatLedger.ts`
+  (the model) next to `game/CombatLedger.tsx` (the component) made `tsc` fail with TS1261 ("already
+  included file name … differs only in casing") and the import resolve to the wrong one on this Mac, while
+  Linux CI would have built both. Give the model a different stem (`combatLedgerModel.ts`).
+- **`@testing-library/react` does not clean up between tests in this repo.** `getByTestId` is bound to
+  `document.body`, so a test that renders the same component after another one finds two matches
+  (`Found multiple elements by: [data-testid="stack-deck-toggle"]`) and passes alone but fails in the file.
+  Call `afterEach(cleanup)` in any spec that queries through the returned `getBy*`.
+

@@ -3,6 +3,8 @@ import { detectAndAnimateTransitions } from './gameTransitionEngine'
 import { clearCardPositionRegistry, recordCardPosition } from './cardPositionRegistry'
 import { clearFlights, getActiveFlights, hasFlightFor } from './flightManager'
 import { clearFeedbackFx, getFeedbackFxState } from './feedbackFx'
+import { clearStackHold } from './stackHold'
+import { damageNumbersFor } from './DamageNumber'
 import type { CardView, GameView, PlayerView } from '../net/types'
 
 function domRect(left = 100, top = 200): DOMRect {
@@ -117,6 +119,7 @@ describe('gameTransitionEngine — stack resolution and feedback', () => {
     clearFlights()
     clearCardPositionRegistry()
     clearFeedbackFx()
+    clearStackHold()
     document.body.innerHTML = ''
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => {
       const rect = domRect(200 * (rectCounter++ % 20), 300)
@@ -179,26 +182,51 @@ describe('gameTransitionEngine — stack resolution and feedback', () => {
     expect(hasFlightFor('bolt-1')).toBe(false)
   })
 
-  it('spawns a damage floater on creature damage', () => {
+  it('records a damage number on creature damage', () => {
     const damaged = { id: 'c1', name: 'Grizzly Bears', cardTypes: ['Creature'], damage: 3 }
     const intact = { id: 'c1', name: 'Grizzly Bears', cardTypes: ['Creature'], damage: 0 }
-    document.body.innerHTML = '<div data-player-id="p1"><div data-card-id="c1"></div></div>'
+    document.body.innerHTML = '<div data-player-id="p1"><div class="card-slot" data-card-id="c1"></div></div>'
     const prev = baseGame({ players: [player({ battlefield: { c1: intact as never } })] })
     const next = baseGame({ players: [player({ battlefield: { c1: damaged as never } })] })
 
     detectAndAnimateTransitions(prev, next)
 
-    const floater = getFeedbackFxState().floaters.find((f) => f.text === '-3')
-    expect(floater).toBeDefined()
-    expect(floater?.tone).toBe('bad')
+    expect(damageNumbersFor('card:c1').map((n) => n.amount)).toEqual([3])
+    expect(getFeedbackFxState().floaters.some((f) => f.text === '-3')).toBe(false)
   })
 
-  it('spawns life-loss and life-gain floaters for players', () => {
-    document.body.innerHTML = '<div data-player-id="p1" data-player-name="Alice"></div>'
+  it('shows a creature hit only when the spell projectile lands', async () => {
+    const damaged = { id: 'c9', name: 'Grizzly Bears', cardTypes: ['Creature'], damage: 3 }
+    const intact = { id: 'c9', name: 'Grizzly Bears', cardTypes: ['Creature'], damage: 0 }
+    document.body.innerHTML = '<div data-player-id="p1"><div class="card-slot" data-card-id="c9"></div></div>'
+    const targetedBolt = { ...bolt, targets: ['c9'] } as unknown as CardView
+    const prev = baseGame({ players: [player({ battlefield: { c9: intact as never } })], stack: { 'bolt-1': targetedBolt } })
+    const next = baseGame({ players: [player({ battlefield: { c9: damaged as never } })], stack: {} })
+    recordCardPosition('bolt-1', domRect(1000, 500), 'stack-zone')
+
+    detectAndAnimateTransitions(prev, next)
+    await afterLayout()
+    expect(damageNumbersFor('card:c9')).toHaveLength(0)
+
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    expect(damageNumbersFor('card:c9').map((n) => n.amount)).toEqual([3])
+  })
+
+  it('records a damage number for life lost to a resolved damage spell, not for life lost to an effect', () => {
+    document.body.innerHTML = '<div class="player-info-bar" data-player-id="p1" data-player-name="Alice"></div>'
+    const before = damageNumbersFor('player:p1').length
     const prev = baseGame({ players: [player({ life: 20 })] })
     detectAndAnimateTransitions(prev, baseGame({ players: [player({ life: 17 })] }))
-    expect(getFeedbackFxState().floaters.some((f) => f.text === '-3' && f.tone === 'bad')).toBe(true)
+    expect(damageNumbersFor('player:p1')).toHaveLength(before)
 
+    const bolt = { id: 'bolt-dmg', name: 'Lightning Bolt', rules: ['Lightning Bolt deals 3 damage to any target.'] }
+    const withBolt = baseGame({ players: [player({ life: 20 })], stack: { 'bolt-dmg': bolt as never } })
+    detectAndAnimateTransitions(withBolt, baseGame({ players: [player({ life: 17 })], stack: {} }))
+    expect(damageNumbersFor('player:p1').map((n) => n.amount)).toContain(3)
+  })
+
+  it('spawns a life-gain floater for players', () => {
+    document.body.innerHTML = '<div class="player-info-bar" data-player-id="p1" data-player-name="Alice"></div>'
     clearFeedbackFx()
     detectAndAnimateTransitions(baseGame({ players: [player({ life: 17 })] }), baseGame({ players: [player({ life: 19 })] }))
     expect(getFeedbackFxState().floaters.some((f) => f.text === '+2' && f.tone === 'good')).toBe(true)

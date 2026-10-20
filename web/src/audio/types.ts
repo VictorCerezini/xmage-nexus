@@ -21,6 +21,10 @@ export type SoundKey =
   | 'impact_epic'
   | 'heartbeat'
   | 'exile'
+  | 'projectile_launch'
+  | 'projectile_impact'
+  | 'card_land'
+  | 'coin_flip'
 
 export type SoundCategory = 'game' | 'ui'
 

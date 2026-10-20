@@ -1,221 +1,364 @@
+import { useState, type KeyboardEvent } from 'react'
 import { useTranslation } from '../../i18n'
 import ChipButton from '../../ui/ChipButton'
 import Chip from '../../ui/Chip'
 import Icon from '../../ui/Icon'
-import { deckRef } from '../decks'
-import { HUMAN_SEAT, isHumanSeatType, seatTypeLabel } from './constants'
+import { deckRef, type Deck } from '../decks'
+import { HUMAN_SEAT, isHumanSeatType, normalizeSeatType, seatTypeLabel } from './constants'
 import type { CreateTableForm } from './useCreateTableForm'
 import Field from '../../ui/Field'
 import Button from '../../ui/Button'
 import StarterDecksOffer from '../../decks/StarterDecksOffer'
+import DeckCarousel from './DeckCarousel'
 import LlmSeatFields from './LlmSeatFields'
-import { llmSeatValue } from './llmSeats'
+import { llmProviderOf, llmSeatValue } from './llmSeats'
+import { seatNodePosition } from './seatLayout'
+import { radioNavIndex } from './radioNav'
+import './SeatsTab.css'
+
+type TableSeat = { key: string; label: string; sub: string; kind: 'you' | 'human' | 'bot' | 'llm'; warn: boolean }
 
 export default function SeatsTab({ form, onEditDeck }: { form: CreateTableForm; onEditDeck?: (deckId: string) => void }) {
   const { t } = useTranslation()
+  const [picked, setPicked] = useState<number | null>(null)
+  const offset = form.humanSeat ? 1 : 0
   const humansWaiting = form.seatConfigs.filter((s, i) => isHumanSeatType(s.type) && !form.llmChoices[i]).length
-  const offerLlm = form.llmSeatsAllowed && (form.llmProviders.length > 0 || form.llmCatalogLoading)
   const bots = form.seatConfigs.length - humansWaiting
+
+  const findSeatDeck = (ref: string): Deck | undefined =>
+    form.availableDecks.find((d) => deckRef(d) === ref) ?? form.availableDecks.find((d) => d.name === ref)
+
+  const seats: TableSeat[] = [
+    ...(form.humanSeat
+      ? [{ key: 'you', label: t('lobby', 'seat_node_you'), sub: form.myDeck?.name ?? '', kind: 'you' as const, warn: !form.myDeck && !form.isDraftLimited }]
+      : []),
+    ...form.seatConfigs.map((cfg, idx): TableSeat => {
+      const llm = form.llmChoices[idx]
+      const human = isHumanSeatType(cfg.type) && !llm
+      const deck = findSeatDeck(cfg.deckName)
+      const deckEmpty = !deck || deck.cards.reduce((sum, c) => sum + c.amount, 0) === 0
+      const label = t('lobby', 'create_seat_number', { num: idx + 1 + offset })
+      if (llm) {
+        const provider = form.llmProviders.find((p) => p.id === llm.provider)
+        const model = provider?.models.find((m) => m.id === llm.model)?.name ?? llm.model
+        return { key: `seat-${idx}`, label, sub: `${provider?.playerName ?? llm.provider} · ${model}`, kind: 'llm', warn: !provider || (!form.isDraftLimited && deckEmpty) }
+      }
+      return {
+        key: `seat-${idx}`,
+        label,
+        sub: human ? t('lobby', 'create_seat_human_short') : `${seatTypeLabel(cfg.type, t)} · ${cfg.skill ?? 2}`,
+        kind: human ? 'human' : 'bot',
+        warn: !human && !form.isDraftLimited && deckEmpty,
+      }
+    }),
+  ]
+  const active = seats.length === 0 ? -1 : Math.min(picked ?? 0, seats.length - 1)
+  const activeSeat = seats[active]
+
+  const onNodeKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const nodes = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'))
+    const next = radioNavIndex(e.key, nodes.indexOf(e.target as HTMLElement), nodes.length)
+    if (next === null) return
+    e.preventDefault()
+    setPicked(next)
+    nodes[next].focus()
+  }
+
   return (
     <div className="create-tab-content">
-      <div className="wizard-step-heading">
-        <h3><Icon name="bot" size={15} /> {t('lobby','create_tab_multi')}</h3>
-        <p>{t('lobby','create_step_desc_seats')}</p>
-      </div>
-      <div className="create-seats-section">
-        <div className="create-seat-box human-seat-box">
-          <div className="seat-box-header">
-            <span className="seat-title"><Icon name="user" size={13} /> {t('common','player')}</span>
-            <ChipButton pill active={form.humanSeat} onClick={() => form.setHumanSeat(!form.humanSeat)}>
-              {form.humanSeat ? (<><Icon name="check" size={12} /> {t('common','player')}</>) : (<><Icon name="eye" size={12} /> {t('lobby','spectators')}</>)}
-            </ChipButton>
-          </div>
-          {form.humanSeat && (
-            <>
-              {form.isDraftLimited ? (
-                <div className="wizard-hint-box wizard-hint-box--info wizard-hint-box--spaced">
-                  <Icon name="layers" size={13} /> {t('lobby', 'create_tourney_draft_timing_desc')}
-                </div>
-              ) : (
-                <>
-                  <Field label={t('lobby','active_deck')}>
-                    <div className="create-deck-picker">
-                      <select
-                        value={form.myDeck ? deckRef(form.myDeck) : ''}
-                        onChange={(e) => form.selectMyDeck(e.target.value)}
-                        disabled={form.availableDecks.length === 0}
-                      >
-                        {form.availableDecks.map((d) => (
-                          <option key={deckRef(d)} value={deckRef(d)}>
-                            {d.name} ({d.cards.reduce((sum, c) => sum + c.amount, 0)} {t('decks','total_cards')})
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon="package"
-                        data-testid="create-edit-deck"
-                        disabled={!form.myDeck || !onEditDeck}
-                        title={t('lobby','create_edit_deck')}
-                        onClick={() => { if (form.myDeck) onEditDeck?.(deckRef(form.myDeck)) }}
-                      >
-                        {t('lobby','create_edit_deck')}
-                      </Button>
-                    </div>
-                  </Field>
-                  {!form.myDeck && (
-                    <Chip tone="warn" size="xs" pill icon="alert">{t('lobby','create_err_no_deck')}</Chip>
-                  )}
-                  {form.decksLoaded && form.availableDecks.length === 0 && (
-                    <StarterDecksOffer onAdded={form.adoptStarterDecks} />
-                  )}
-                </>
-              )}
-              <Field label={t('lobby','create_field_my_skill')}>
-                <select data-testid="my-skill" value={form.mySkill} onChange={(e) => form.setMySkill(Number(e.target.value))}>
-                  {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
-                </select>
-              </Field>
-            </>
+      <div className="seats-stage">
+        <div className="seats-stage-head">
+          <span className="seat-title"><Icon name="users" size={13} /> {t('lobby', 'create_seats_title')}</span>
+          <span className="seats-stage-meta">
+            {t('lobby','create_seats_waiting_count',{count:humansWaiting})} · {t('lobby','create_seats_bot_count',{count:bots})} · {t('lobby','create_seats_total_count',{total:form.numPlayers})}
+          </span>
+          <ChipButton pill active={form.humanSeat} onClick={() => form.setHumanSeat(!form.humanSeat)}>
+            {form.humanSeat ? (<><Icon name="check" size={12} /> {t('common','player')}</>) : (<><Icon name="eye" size={12} /> {t('lobby','spectators')}</>)}
+          </ChipButton>
+          {form.numPlayers !== (form.selectedGameTypeInfo?.maxPlayers ?? form.numPlayers) && form.selectedGameTypeInfo && (
+            <Chip tone="warn" size="xs" pill>Config: {form.numPlayers} / {form.selectedGameTypeInfo.maxPlayers} max</Chip>
           )}
-          {!form.humanSeat && <span className="wizard-hint-box">{t('lobby','create_enter_as_spectator')}</span>}
         </div>
 
-        <div className="create-seat-box ai-seat-box">
-          <div className="seat-box-header">
-            <span className="seat-title"><Icon name="bot" size={13} /> {t('lobby','create_seats_title')} — {form.seatConfigs.length} ({t('lobby','create_seats_waiting_count',{count:humansWaiting})} · {t('lobby','create_seats_bot_count',{count:bots})}, {t('lobby','create_seats_total_count',{total:form.numPlayers})})</span>
-            {form.numPlayers !== (form.selectedGameTypeInfo?.maxPlayers ?? form.numPlayers) && form.selectedGameTypeInfo && (
-              <Chip tone="warn" size="xs" pill>Config: {form.numPlayers} / {form.selectedGameTypeInfo.maxPlayers} max</Chip>
-            )}
+        {form.numPlayers > 2 && (
+          <div className="wizard-hint-box wizard-hint-box--spaced">
+            {form.isTournament ? t('lobby','create_seats_hint_tourney') : form.isMultiplayerGame ? t('lobby','create_seats_hint_multi') : t('lobby','create_seats_hint_duel')}
           </div>
-          {form.numPlayers > 2 && (
-            <div className="wizard-hint-box wizard-hint-box--spaced">
-              {form.isTournament ? t('lobby','create_seats_hint_tourney') : form.isMultiplayerGame ? t('lobby','create_seats_hint_multi') : t('lobby','create_seats_hint_duel')}
-            </div>
-          )}
-          {form.seatConfigs.length === 0 ? (
+        )}
+
+        <div className="seats-stage-body">
+          {seats.length === 0 ? (
             <div className="wizard-hint-box">{t('lobby','create_seats_no_extra')}</div>
           ) : (
-            <div className="create-seats-section">
-              {form.seatConfigs.map((cfg, idx) => {
-                const llm = form.llmChoices[idx]
-                const llmProvider = llm ? form.llmProviders.find((p) => p.id === llm.provider) : undefined
+            <div className="seat-table" role="radiogroup" aria-label={t('lobby', 'create_seats_title')} onKeyDown={onNodeKeyDown}>
+              <div className="seat-table-felt" aria-hidden="true" />
+              {seats.map((seat, i) => {
+                const { x, y } = seatNodePosition(i, seats.length)
+                const isActive = i === active
                 return (
-                <div key={idx} className="create-seat-box create-seat-box--seat">
-                  <div className="seat-box-header">
-                    <span className="seat-title">{t('lobby','create_seat_number',{num:idx+2})} {form.humanSeat ? `→ ${idx + 2}` : `→ ${idx + 1}`}</span>
-                    <select data-testid={`seat-type-${idx}`} value={llm ? llmSeatValue(llm.provider) : cfg.type} onChange={(e) => form.setSeatType(idx, e.target.value)} className="create-seat-select create-seat-select--type">
-                      <option value={HUMAN_SEAT}>{seatTypeLabel(HUMAN_SEAT, t)}</option>
-                      {form.playerTypes.map((pt) => (
-                        <option key={pt} value={pt}>{seatTypeLabel(pt, t)}</option>
-                      ))}
-                      {offerLlm && (
-                        <optgroup label={t('lobby', 'create_seat_llm_group')}>
-                          {form.llmProviders.map((p) => (
-                            <option key={p.id} value={llmSeatValue(p.id)}>{p.playerName}</option>
-                          ))}
-                          {form.llmProviders.length === 0 && <option value="" disabled>{t('lobby', 'create_seat_llm_loading')}</option>}
-                        </optgroup>
-                      )}
-                    </select>
+                  <div
+                    key={seat.key}
+                    role="radio"
+                    aria-checked={isActive}
+                    aria-label={seat.label}
+                    tabIndex={isActive ? 0 : -1}
+                    data-testid={`seat-node-${i}`}
+                    className={`seat-node seat-node--${seat.kind} ${isActive ? 'active' : ''} ${seat.warn ? 'warn' : ''}`}
+                    style={{ left: `${x}%`, top: `${y}%` }}
+                    onClick={() => setPicked(i)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter' && e.key !== ' ') return
+                      e.preventDefault()
+                      setPicked(i)
+                    }}
+                  >
+                    <span className="seat-node-avatar"><Icon name={seat.kind === 'bot' || seat.kind === 'llm' ? 'bot' : 'user'} size={15} /></span>
+                    <span className="seat-node-label">{seat.label}</span>
+                    <span className="seat-node-sub">{seat.sub}</span>
                   </div>
-                  {!isHumanSeatType(cfg.type) && (
-                  <Field label={t('lobby','create_field_seat_skill')}>
-                    <select data-testid={`seat-skill-${idx}`} value={cfg.skill ?? 2} onChange={(e) => form.setSeatSkill(idx, Number(e.target.value))} className="create-seat-select create-seat-select--skill">
-                      {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
-                        <option key={v} value={v}>{v}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  )}
-                  {isHumanSeatType(cfg.type) && !llm && <span className="wizard-hint-box"><Icon name="user" size={11} /> {t('lobby','create_seat_human_waiting')}</span>}
-                  {llm && llmProvider && (
-                    <LlmSeatFields
-                      idx={idx}
-                      provider={llmProvider}
-                      choice={llm}
-                      onModel={(m) => form.setLlmModel(idx, m)}
-                      onEffort={(e) => form.setLlmEffort(idx, e)}
-                    />
-                  )}
-                  {(!isHumanSeatType(cfg.type) || llm) && !form.isDraftLimited && (() => {
-                    const deck = form.availableDecks.find((d) => deckRef(d) === cfg.deckName)
-                      ?? form.availableDecks.find((d) => d.name === cfg.deckName)
-                    const total = deck ? deck.cards.reduce((sum, c) => sum + c.amount, 0) : 0
-                    return (
-                      <>
-                        <Field label={t('lobby','create_seat_deck_label',{num:idx+2})}>
-                          <select value={cfg.deckName} onChange={(e) => form.setSeatDeck(idx, e.target.value)} disabled={form.availableDecks.length === 0}>
-                            {form.availableDecks.map((d) => (
-                              <option key={deckRef(d)} value={deckRef(d)}>
-                                {d.name} ({d.cards.reduce((sum, c) => sum + c.amount, 0)})
-                              </option>
-                            ))}
-                          </select>
-                        </Field>
-                        {(!deck || total === 0) ? (
-                          <Chip tone="warn" size="xs" pill icon="alert">{t('lobby','create_warn_seat_deck_empty')}</Chip>
-                        ) : (
-                          <span className="wizard-hint-box">{total} {t('decks','total_cards')}</span>
-                        )}
-                      </>
-                    )
-                  })()}
-                  {!isHumanSeatType(cfg.type) && <span className="wizard-hint-box">{t('lobby','create_seat_bot_internal',{type:seatTypeLabel(cfg.type, t)})}</span>}
-                </div>
                 )
               })}
             </div>
           )}
-          {form.llmSeatsAllowed && form.llmCatalogError && (
-            <Chip tone="warn" size="xs" pill icon="alert" data-testid="create-llm-error">{t('lobby', 'create_llm_catalog_failed', { error: form.llmCatalogError })}</Chip>
+
+          {activeSeat?.kind === 'you' && (
+            <YouEditor form={form} onEditDeck={onEditDeck} />
           )}
-          {form.llmSeatsAllowed && form.llmUnavailable.length > 0 && (
-            <span className="wizard-hint-box" data-testid="create-llm-unavailable">
-              {t('lobby', 'create_llm_unavailable', { list: form.llmUnavailable.map((u) => (u.reason ? `${u.id} (${u.reason})` : u.id)).join(', ') })}
-            </span>
+          {activeSeat && activeSeat.kind !== 'you' && (
+            <SeatEditor form={form} idx={active - offset} seatNumber={active + 1} findSeatDeck={findSeatDeck} />
           )}
-          {form.llmSeatsAllowed && (form.llmProviders.length > 0 || form.llmCatalogError) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="refresh"
-              data-testid="create-llm-refresh"
-              disabled={form.llmCatalogLoading}
-              onClick={() => { void form.refreshLlmCatalog() }}
-            >
-              {form.llmCatalogLoading ? t('lobby', 'create_seat_llm_loading') : t('lobby', 'create_llm_refresh')}
-            </Button>
-          )}
-          <div className="create-seats-shortcuts">
-            <Field group label={t('lobby','create_seats_apply_all_shortcut')}>
-              <div className="chip-row">
-                <ChipButton
-                  pill
-                  active={form.playerTypesSel.includes(HUMAN_SEAT)}
-  onClick={() => {
+        </div>
+
+        {form.llmSeatsAllowed && (form.llmCatalogError || form.llmUnavailable.length > 0 || form.llmProviders.length > 0) && (
+          <div className="seats-llm-notices">
+            {form.llmCatalogError && (
+              <Chip tone="warn" size="xs" pill icon="alert" data-testid="create-llm-error">{t('lobby', 'create_llm_catalog_failed', { error: form.llmCatalogError })}</Chip>
+            )}
+            {form.llmUnavailable.length > 0 && (
+              <span className="wizard-hint-box" data-testid="create-llm-unavailable">
+                {t('lobby', 'create_llm_unavailable', { list: form.llmUnavailable.map((u) => (u.reason ? `${u.id} (${u.reason})` : u.id)).join(', ') })}
+              </span>
+            )}
+            {(form.llmProviders.length > 0 || form.llmCatalogError) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="refresh"
+                data-testid="create-llm-refresh"
+                disabled={form.llmCatalogLoading}
+                onClick={() => { void form.refreshLlmCatalog() }}
+              >
+                {form.llmCatalogLoading ? t('lobby', 'create_seat_llm_loading') : t('lobby', 'create_llm_refresh')}
+              </Button>
+            )}
+          </div>
+        )}
+
+        <div className="create-seats-shortcuts">
+          <Field group label={t('lobby','create_seats_apply_all_shortcut')}>
+            <div className="chip-row">
+              <ChipButton
+                pill
+                active={form.playerTypesSel.includes(HUMAN_SEAT)}
+                onClick={() => {
                   form.toggleAi(HUMAN_SEAT)
                   form.applySeatTypeToAll(HUMAN_SEAT)
                 }}
-                ><Icon name="user" size={12} /> {t('lobby','create_seat_human_short')}</ChipButton>
-                {form.playerTypes.map((pt) => (
-                  <ChipButton
-                    pill
-                    active={form.playerTypesSel.includes(pt)}
- key={pt}  onClick={() => {
+              >
+                <Icon name="user" size={12} /> {t('lobby','create_seat_human_short')}
+              </ChipButton>
+              {form.playerTypes.map((pt) => (
+                <ChipButton
+                  pill
+                  key={pt}
+                  active={form.playerTypesSel.includes(pt)}
+                  onClick={() => {
                     form.toggleAi(pt)
                     form.applySeatTypeToAll(pt)
                   }}
-                  >{seatTypeLabel(pt, t)}</ChipButton>
-                ))}
-              </div>
-            </Field>
-          </div>
+                >
+                  {seatTypeLabel(pt, t)}
+                </ChipButton>
+              ))}
+            </div>
+          </Field>
         </div>
       </div>
     </div>
+  )
+}
+
+function YouEditor({ form, onEditDeck }: { form: CreateTableForm; onEditDeck?: (deckId: string) => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="seat-editor">
+      <div className="seat-editor-head">
+        <span className="seat-title"><Icon name="user" size={13} /> {t('common','player')}</span>
+      </div>
+      {form.isDraftLimited ? (
+        <div className="wizard-hint-box wizard-hint-box--info">
+          <Icon name="layers" size={13} /> {t('lobby', 'create_tourney_draft_timing_desc')}
+        </div>
+      ) : (
+        <>
+          <Field group label={t('lobby','active_deck')}>
+            <DeckCarousel
+              decks={form.availableDecks}
+              selected={form.myDeck ? deckRef(form.myDeck) : ''}
+              onSelect={form.selectMyDeck}
+              label={t('lobby', 'active_deck')}
+            />
+          </Field>
+          <div className="seat-editor-row">
+            {!form.myDeck && <Chip tone="warn" size="xs" pill icon="alert">{t('lobby','create_err_no_deck')}</Chip>}
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="package"
+              data-testid="create-edit-deck"
+              disabled={!form.myDeck || !onEditDeck}
+              title={t('lobby','create_edit_deck')}
+              onClick={() => { if (form.myDeck) onEditDeck?.(deckRef(form.myDeck)) }}
+            >
+              {t('lobby','create_edit_deck')}
+            </Button>
+          </div>
+          {form.decksLoaded && form.availableDecks.length === 0 && (
+            <StarterDecksOffer onAdded={form.adoptStarterDecks} />
+          )}
+        </>
+      )}
+      <Field label={t('lobby','create_field_my_skill')}>
+        <select data-testid="my-skill" value={form.mySkill} onChange={(e) => form.setMySkill(Number(e.target.value))}>
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      </Field>
+    </div>
+  )
+}
+
+function SeatEditor({ form, idx, seatNumber, findSeatDeck }: { form: CreateTableForm; idx: number; seatNumber: number; findSeatDeck: (ref: string) => Deck | undefined }) {
+  const { t } = useTranslation()
+  const cfg = form.seatConfigs[idx]
+  if (!cfg) return null
+  const llm = form.llmChoices[idx]
+  const llmProvider = llm ? form.llmProviders.find((p) => p.id === llm.provider) : undefined
+  const human = isHumanSeatType(cfg.type) && !llm
+  const deck = findSeatDeck(cfg.deckName)
+  const total = deck ? deck.cards.reduce((sum, c) => sum + c.amount, 0) : 0
+  const deckEmpty = !deck || total === 0
+  const offerLlm = form.llmSeatsAllowed && (form.llmProviders.length > 0 || form.llmCatalogLoading)
+  const baseOptions = [HUMAN_SEAT, ...form.playerTypes]
+  const typeOptions = [...baseOptions, ...(offerLlm ? form.llmProviders.map((p) => llmSeatValue(p.id)) : [])]
+  const typeLabel = (pt: string) => (isHumanSeatType(pt) ? t('lobby', 'create_seat_human_short') : seatTypeLabel(pt, t))
+  const isSelected = (pt: string) => {
+    const providerId = llmProviderOf(pt)
+    if (providerId !== null) return llm?.provider === providerId
+    if (isHumanSeatType(pt)) return human
+    return !human && !llm && normalizeSeatType(pt) === normalizeSeatType(cfg.type)
+  }
+
+  const onTypeKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const chips = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'))
+    const next = radioNavIndex(e.key, chips.indexOf(e.target as HTMLElement), chips.length)
+    if (next === null) return
+    e.preventDefault()
+    form.setSeatType(idx, typeOptions[next])
+    chips[next].focus()
+  }
+
+  const typeChip = (pt: string, label: string) => {
+    const selected = isSelected(pt)
+    return (
+      <ChipButton
+        key={pt}
+        pill
+        role="radio"
+        aria-checked={selected}
+        active={selected}
+        tabIndex={selected ? 0 : -1}
+        data-seat-type={pt}
+        onClick={() => form.setSeatType(idx, pt)}
+      >
+        {label}
+      </ChipButton>
+    )
+  }
+
+  return (
+    <div className="seat-editor" data-testid={`seat-editor-${idx}`}>
+      <div className="seat-editor-head">
+        <span className="seat-title">
+          <Icon name={human ? 'user' : 'bot'} size={13} /> {t('lobby', 'create_seat_number', { num: seatNumber })}
+        </span>
+      </div>
+      <Field group label={t('lobby', 'create_seat_type_label')}>
+        <div className="seat-type-options" role="radiogroup" aria-label={t('lobby', 'create_seat_type_label')} data-testid={`seat-type-${idx}`} onKeyDown={onTypeKeyDown}>
+          {baseOptions.map((pt) => typeChip(pt, typeLabel(pt)))}
+          {offerLlm && (
+            <>
+              <span className="seat-type-group" aria-hidden="true">{t('lobby', 'create_seat_llm_group')}</span>
+              {form.llmProviders.map((p) => typeChip(llmSeatValue(p.id), p.playerName))}
+              {form.llmProviders.length === 0 && (
+                <Chip size="xs" pill>{t('lobby', 'create_seat_llm_loading')}</Chip>
+              )}
+            </>
+          )}
+        </div>
+      </Field>
+      {llm ? (
+        <>
+          {llmProvider && (
+            <LlmSeatFields
+              idx={idx}
+              provider={llmProvider}
+              choice={llm}
+              onModel={(m) => form.setLlmModel(idx, m)}
+              onEffort={(e) => form.setLlmEffort(idx, e)}
+            />
+          )}
+          {!form.isDraftLimited && (
+            <SeatDeckField form={form} idx={idx} seatNumber={seatNumber} selected={cfg.deckName} total={total} deckEmpty={deckEmpty} />
+          )}
+        </>
+      ) : human ? (
+        <span className="wizard-hint-box"><Icon name="user" size={11} /> {t('lobby','create_seat_human_waiting')}</span>
+      ) : (
+        <>
+          <Field label={t('lobby','create_field_seat_skill')}>
+            <select data-testid={`seat-skill-${idx}`} value={cfg.skill ?? 2} onChange={(e) => form.setSeatSkill(idx, Number(e.target.value))} className="create-seat-select create-seat-select--skill">
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </Field>
+          {!form.isDraftLimited && (
+            <SeatDeckField form={form} idx={idx} seatNumber={seatNumber} selected={cfg.deckName} total={total} deckEmpty={deckEmpty} />
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function SeatDeckField({ form, idx, seatNumber, selected, total, deckEmpty }: { form: CreateTableForm; idx: number; seatNumber: number; selected: string; total: number; deckEmpty: boolean }) {
+  const { t } = useTranslation()
+  return (
+    <Field
+      group
+      label={t('lobby','create_seat_deck_label',{num: seatNumber})}
+      hint={deckEmpty ? t('lobby','create_warn_seat_deck_empty') : `${total} ${t('decks','total_cards')}`}
+      hintTone={deckEmpty ? 'warn' : 'muted'}
+    >
+      <DeckCarousel
+        decks={form.availableDecks}
+        selected={selected}
+        onSelect={(ref) => form.setSeatDeck(idx, ref)}
+        label={t('lobby','create_seat_deck_label',{num: seatNumber})}
+        disabled={form.availableDecks.length === 0}
+      />
+    </Field>
   )
 }

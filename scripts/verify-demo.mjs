@@ -67,10 +67,11 @@ try {
     check((await page.getByText('Friday Commander pod', { exact: false }).count()) > 0, 'lobby lists the extra demo tables')
 
     await page.getByTestId('demo-tour-toggle').click()
-    await page.getByRole('button', { name: /^Ranks and ELO/ }).click()
+    await page.getByRole('button', { name: /^Ranks and ratings/ }).click()
     await page.getByText('Leaderboard', { exact: false }).first().waitFor({ timeout: 10000 })
     const rows = await page.locator('table tbody tr, [role="row"]').count()
     check(rows >= 10, `ranking lists the roster (${rows} rows)`)
+    check((await page.getByTestId('leaderboard-demo-note').count()) === 1, 'ranking says the data is sample data')
     check((await page.getByText('MYTHIC').count()) > 0, 'ranking shows the tiers')
     await page.keyboard.press('Escape')
 

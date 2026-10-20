@@ -32,6 +32,8 @@ describe('galería de estados (P3)', () => {
     expect([...new Set(entries.map((entry) => entry.group))]).toEqual([
       'Frames reales',
       'Prompts',
+      'Animaciones',
+      'Pila',
       'Pantallas',
       'Tablero',
       'Dialogs',
@@ -56,6 +58,89 @@ describe('galería de estados (P3)', () => {
     const mana = prompts.find((entry) => entry.id === 'prompt:mana')
     expect(mana?.feedback?.playerId).toBeTruthy()
     expect(mana?.playableIds?.length).toBeGreaterThan(0)
+  })
+
+  it('animation entries: each has the action its state needs and a base that can show it', () => {
+    const withAction = [
+      'anim:untap-wave',
+      'anim:life-5',
+      'anim:life-2',
+      'anim:token-pop',
+      'anim:sickness',
+      'anim:entered-glow',
+      'anim:dissolve',
+      'anim:stack-trail',
+      'anim:land-slide',
+      'anim:creature-damage',
+      'anim:player-damage',
+      'anim:player-life-loss',
+      'anim:counter-change',
+      'anim:loyalty-change',
+      'anim:mill',
+    ]
+    for (const id of withAction) expect(entry(entries, id).action?.label, id).toBeTruthy()
+    const staticStates = ['anim:life-6', 'anim:chosen-target', 'anim:opp-pill-required', 'anim:opp-pill-optional']
+    for (const id of staticStates) expect(entry(entries, id).action, id).toBeUndefined()
+
+    const untapBase = entry(entries, 'anim:untap-wave').game
+    const me = (untapBase?.players ?? []).find((p) => p.controlled)
+    const tapped = Object.values(me?.battlefield ?? {}).filter((perm) => perm.tapped === true)
+    expect(tapped.length).toBeGreaterThanOrEqual(2)
+    expect(untapBase?.combat ?? []).toHaveLength(0)
+
+    expect(entry(entries, 'anim:life-6').game?.players?.find((p) => p.controlled)?.life).toBe(6)
+    expect(Object.values(entry(entries, 'anim:stack-trail').game?.myHand ?? {}).some((c) => (c.cardTypes ?? []).includes('Instant'))).toBe(true)
+    expect(Object.values(entry(entries, 'anim:land-slide').game?.myHand ?? {}).some((c) => (c.cardTypes ?? []).some((t) => String(t).toLowerCase() === 'land'))).toBe(true)
+    expect(entry(entries, 'anim:player-damage').game?.stack && Object.keys(entry(entries, 'anim:player-damage').game!.stack!)).toHaveLength(1)
+    expect(entry(entries, 'anim:opp-pill-required').feedback?.required).toBe(true)
+    expect(entry(entries, 'anim:opp-pill-optional').feedback?.required).toBe(false)
+    expect(entry(entries, 'anim:chosen-target').feedback?.chosenTargets?.length).toBe(1)
+  })
+
+  it('las entradas de sickness y entered-glow pertenecen a Animaciones', () => {
+    expect(entry(entries, 'anim:sickness').group).toBe('Animaciones')
+    expect(entry(entries, 'anim:entered-glow').group).toBe('Animaciones')
+    expect(entry(entries, 'anim:spell-cast-own').group).toBe('Animaciones')
+    expect(entry(entries, 'anim:spell-cast-opp').group).toBe('Animaciones')
+    expect(entry(entries, 'anim:counter-change').group).toBe('Animaciones')
+    expect(entry(entries, 'anim:counter-change').action?.label).toBe('Replay')
+    const counterMe = entry(entries, 'anim:counter-change').game?.players?.find((p) => p.controlled)
+    const counterBattlefield = Object.values(counterMe?.battlefield ?? {})
+    expect(counterBattlefield.some((perm) => perm.counters?.some((c) => c.name === '+1/+1' && c.count === 1))).toBe(true)
+    expect(entry(entries, 'anim:loyalty-change').group).toBe('Animaciones')
+    const loyaltyMe = entry(entries, 'anim:loyalty-change').game?.players?.find((p) => p.controlled)
+    expect(Object.values(loyaltyMe?.battlefield ?? {}).some((perm) => perm.loyalty === '4')).toBe(true)
+    expect(entry(entries, 'anim:mill').group).toBe('Animaciones')
+    expect(entry(entries, 'anim:equip-move').group).toBe('Animaciones')
+    expect(entry(entries, 'anim:equip-move').action?.label).toBe('Replay')
+    expect(entry(entries, 'anim:coin-flip').group).toBe('Animaciones')
+    expect(entry(entries, 'anim:coin-flip').action?.label).toBe('Replay')
+    expect(entry(entries, 'anim:sickness').action?.label).toBe('Invocar criatura')
+    expect(entry(entries, 'anim:entered-glow').action?.label).toBe('Entrar criatura')
+  })
+
+  it('anim:coin-flip starts at turn 0 with nobody active and no mulligan prompt', () => {
+    const coin = entry(entries, 'anim:coin-flip')
+    expect(coin.game?.turn).toBe(0)
+    expect(coin.game?.players?.some((p) => p.isActive)).toBe(false)
+    expect(coin.feedback ?? null).toBeNull()
+    expect(coin.gameId).toBeTruthy()
+  })
+
+  it('la entrada de instantáneo del rival empieza con el instantáneo en su mano y la pila vacía', () => {
+    const opp = entry(entries, 'anim:spell-cast-opp').game
+    const oppPlayer = opp?.players?.find((p) => !p.controlled)
+    expect(oppPlayer).toBeTruthy()
+    expect(oppPlayer!.handCount ?? 0).toBeGreaterThan(0)
+    expect(Object.keys(opp?.stack ?? {})).toHaveLength(0)
+  })
+
+  it('los Lightning Bolt de la galería usan una impresión real (M10 146), no el 2XM 129', () => {
+    for (const id of ['anim:stack-trail', 'anim:spell-cast-own', 'anim:spell-cast-opp']) {
+      const game = entry(entries, id).game
+      const bolts = [...Object.values(game?.myHand ?? {}), ...Object.values(game?.stack ?? {})].filter((c) => c.name === 'Lightning Bolt')
+      for (const card of bolts) expect(card.expansionSetCode, `${id} ${card.id}`).toBe('M10')
+    }
   })
 
   it('la búsqueda filtrada declara solo parte de las candidatas como elegibles', () => {

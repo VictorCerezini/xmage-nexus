@@ -2,11 +2,12 @@ import type { Dispatch, SetStateAction } from 'react'
 import type { GameTypeInfo } from '../../net/commands'
 import type { LlmProvider } from '../../net/types'
 import type { Deck } from '../decks'
-import type { CreateTab, DraftTiming, SeatConfig, TableCategory, TournamentCategory, WizardStep } from './constants'
+import type { CreateKind, CreateTab, DraftTiming, SeatConfig, TableCategory, TournamentCategory, WizardStep } from './constants'
 import type { LlmSeatChoice } from './llmSeats'
 
 /** Everything the Create Table wizard tabs read and change (see `useCreateTableForm`). */
 export interface CreateTableForm {
+  kind: CreateKind
   wizardSteps: WizardStep[]
   activeTab: CreateTab
   setActiveTab: (t: CreateTab) => void
@@ -20,7 +21,6 @@ export interface CreateTableForm {
   setTableCategory: (v: TableCategory) => void
   tournamentCategory: TournamentCategory
   setTournamentCategory: (v: TournamentCategory) => void
-  applyMode: (cat: TableCategory) => void
   applyPreset: (key: string) => void
   gameTypes: GameTypeInfo[]
   deckTypes: string[]
@@ -135,6 +135,7 @@ export interface CreateTableForm {
   compatibilityError: string | null
   validateStep: (tab: CreateTab) => string | null
   submit: () => Promise<void>
+  resetToDefaults: () => void
   runDemoTable: () => Promise<void>
   /** model seats fit this table (a match, not a tournament or draft) */
   llmSeatsAllowed: boolean

@@ -16,8 +16,12 @@ async function openSeatsStep(page: Page, tableName: string) {
   await expect(page.getByRole('heading', { name: /Nueva mesa|Crear Mesa|Create Table/i })).toBeVisible()
   await page.getByPlaceholder(/Modern Casual Bo3/).fill(tableName)
   for (let i = 0; i < 3; i++) await page.getByRole('button', { name: NEXT }).click()
+  await page.getByTestId('seat-node-1').click()
   await expect(page.getByTestId('seat-type-0')).toBeVisible()
 }
+
+const pickSeatType = (page: Page, value: string) =>
+  page.getByTestId('seat-type-0').locator(`[data-seat-type="${value}"]`).click()
 
 async function createTable(page: Page) {
   await page.getByRole('button', { name: NEXT }).click()
@@ -26,8 +30,8 @@ async function createTable(page: Page) {
 }
 
 const llmOptionValues = (page: Page) =>
-  page.getByTestId('seat-type-0').locator('option').evaluateAll((opts) =>
-    (opts as HTMLOptionElement[]).map((o) => o.value).filter((v) => v.startsWith('llm:')))
+  page.getByTestId('seat-type-0').locator('[data-seat-type^="llm:"]').evaluateAll((chips) =>
+    chips.map((c) => `${c.getAttribute('data-seat-type')} ${c.textContent}`))
 
 const newBuffers = (): CaptureBuffers => ({ frames: [], sent: [], pageErrors: [] })
 
@@ -39,19 +43,22 @@ test.describe('Model seats', () => {
       await login(page, 'e2e')
       await openSeatsStep(page, TABLE.llmSeats)
 
-      await expect.poll(() => llmOptionValues(page)).toEqual(['llm:chatgpt_subscription', 'llm:openrouter_free'])
+      await expect.poll(() => llmOptionValues(page)).toEqual(['llm:chatgpt_subscription ChatGPT', 'llm:openrouter_free OpenRouter'])
       await expect(page.getByTestId('create-llm-unavailable')).toContainText('claude_subscription (Claude Code is not signed in)')
 
-      await page.getByTestId('seat-type-0').selectOption('llm:openrouter_free')
+      await pickSeatType(page, 'llm:openrouter_free')
+      await expect(page.getByTestId('seat-node-1')).toContainText('OpenRouter · Free Model A')
       await expect(page.getByText(/42/).first()).toBeVisible()
       await expect(page.getByTestId('seat-llm-effort-0')).toBeDisabled()
 
-      await page.getByTestId('seat-type-0').selectOption('llm:chatgpt_subscription')
+      await pickSeatType(page, 'llm:chatgpt_subscription')
       await expect(page.getByTestId('seat-llm-model-0')).toHaveValue('gpt-6-luna')
       await expect(page.getByTestId('seat-llm-effort-0')).toHaveValue('medium')
       await page.getByTestId('seat-llm-model-0').selectOption('gpt-6-astra')
       await expect(page.getByTestId('seat-llm-effort-0')).toHaveValue('high')
       await page.getByTestId('seat-llm-effort-0').selectOption('ultra')
+      await expect(page.getByTestId('seat-node-1')).toContainText('ChatGPT · GPT-6 Astra')
+      await expect(page.getByTestId('seat-type-0').locator('[data-seat-type="llm:chatgpt_subscription"]')).toHaveAttribute('aria-checked', 'true')
 
       await createTable(page)
       const create = buffers.sent.find((f) => f?.action === 'createTable') as { args?: { playerTypes?: string[]; llmSeats?: Array<Record<string, unknown>> } } | undefined
@@ -77,8 +84,8 @@ test.describe('Model seats', () => {
       installCapture(page, buffers)
       await login(page, 'e2e')
       await openSeatsStep(page, TABLE.llmSeats)
-      await expect.poll(() => llmOptionValues(page)).toContain('llm:chatgpt_subscription')
-      await page.getByTestId('seat-type-0').selectOption('llm:chatgpt_subscription')
+      await expect.poll(() => llmOptionValues(page)).toContain('llm:chatgpt_subscription ChatGPT')
+      await pickSeatType(page, 'llm:chatgpt_subscription')
       await createTable(page)
 
       const badge = page.getByTestId('staging-llm-1')
@@ -108,7 +115,7 @@ test.describe('Model seats', () => {
       await expect.poll(() => buffers.sent.some((f) => f?.action === 'getLlmProviders')).toBe(true)
       expect(await llmOptionValues(page)).toEqual([])
       await expect(page.getByTestId('create-llm-refresh')).toHaveCount(0)
-      await page.getByTestId('seat-type-0').selectOption('COMPUTER_MAD')
+      await page.getByTestId('seat-type-0').getByRole('radio', { name: /Mad/ }).click()
       await createTable(page)
       const create = buffers.sent.find((f) => f?.action === 'createTable') as { args?: { llmSeats?: unknown } } | undefined
       expect(create?.args?.llmSeats).toBeUndefined()

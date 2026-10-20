@@ -19,6 +19,37 @@
   </tr>
 </table>
 
+## What's new in 0.5.0
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/v0.5.0/spell-cast.gif" alt="A spell rises to the centre of the board, holds, then flies to the stack"></td>
+    <td width="50%"><img src="docs/media/v0.5.0/permanent-enter.gif" alt="A legendary creature enters the battlefield with lift, hold and drop"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Spell cast</b>: it lifts to the centre, holds, then flies to the stack</td>
+    <td align="center"><b>Permanents entering</b>: lift, hold and drop, with a ring for legendary and mythic cards</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/v0.5.0/counter-change.gif" alt="A +1/+1 counter badge pulses and ticks up"></td>
+    <td><img src="docs/media/v0.5.0/equip-move.gif" alt="An equipment flies from one creature to another"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Counters and loyalty</b>: the badge pulses and ticks when the count changes</td>
+    <td align="center"><b>Equipment</b>: it flies to its new host when you re-equip</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/v0.5.0/create-table.gif" alt="The redesigned create-table wizard, step by step"></td>
+    <td><img src="docs/media/v0.5.0/ranking.gif" alt="The public ranking with Constructed and Limited tabs and the match history"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Create table</b>: the redesigned wizard, in six steps</td>
+    <td align="center"><b>Public ranking</b>: ratings by format and recent matches</td>
+  </tr>
+</table>
+
+Also new: the coin flip that shows who plays first, an Arena-style stack column with a projectile for targeted spells, mill and discard flights from the library, a keyword icon style setting (Coins or Outline), and the help wiki redesign.
+
 ## Play
 
 | Way | How |
@@ -166,7 +197,7 @@ Then start the stack with model seats and open the web client:
 node scripts/play-vs-llm.mjs
 ```
 
-It keeps a running server and Vite, restarts the proxy with `--llm` and opens `http://localhost:5173`. In **Create Table → Multiplayer**, set a seat's type to a provider under **Language models**, then pick its model, reasoning level and deck. The waiting room shows the model joining, then its model and reasoning level. `node scripts/ctl.mjs start|restart [target] --llm` does the same through the stack scripts; a proxy restarted without `--llm` offers no model seats.
+It keeps a running server and Vite, restarts the proxy with `--llm` and opens `http://localhost:5173`. In **Create Table → Multiplayer**, pick a seat on the table and choose a provider under **Language models** as its type, then pick its model, reasoning level and deck. The waiting room shows the model joining, then its model and reasoning level. `node scripts/ctl.mjs start|restart [target] --llm` does the same through the stack scripts; a proxy restarted without `--llm` offers no model seats.
 
 - The XMage server must be built from the engine branch `llm-seats-engine`: the bridge needs its short IDs and game events.
 - Each game spends your own quota. A 1v1 against the Mad AI took 1 to 2 minutes (about 9 with `glm-5.3-flash`) and 0.3M to 3.4M input tokens, most of them cached except on OpenRouter. OpenRouter's free models allow 50 requests a day (a 1v1 took 29), shown in the seat picker.
