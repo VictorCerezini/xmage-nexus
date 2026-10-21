@@ -302,7 +302,7 @@ public class BridgeClient {
                             if (targetTableId != null && !targetTableId.equals(table.getTableId())) {
                                 continue;
                             }
-                            if (!BridgeSeatSelection.canJoin(table.getSeats(), requestedSeat)) {
+                            if (!BridgeSeatSelection.canJoin(table.getSeats(), requestedSeat, System.currentTimeMillis() - startTime)) {
                                 continue;
                             }
                             // Check for empty human seats

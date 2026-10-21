@@ -31,28 +31,50 @@ class BridgeSeatSelectionTest {
     @Test
     void waitsForTheHostInsteadOfTakingItsSeat() {
         List<SeatView> seats = List.of(empty(PlayerType.HUMAN), empty(PlayerType.HUMAN));
-        assertFalse(BridgeSeatSelection.canJoin(seats, 2));
-        assertTrue(BridgeSeatSelection.canJoin(seats, null));
+        assertFalse(BridgeSeatSelection.canJoin(seats, 2, 0));
+        assertTrue(BridgeSeatSelection.canJoin(seats, null, 0));
     }
 
     @Test
     void multipleBridgesJoinInConfiguredOrder() throws Exception {
         List<SeatView> before = List.of(occupied(), empty(PlayerType.HUMAN), empty(PlayerType.HUMAN));
-        assertTrue(BridgeSeatSelection.canJoin(before, 2));
-        assertFalse(BridgeSeatSelection.canJoin(before, 3));
+        assertTrue(BridgeSeatSelection.canJoin(before, 2, 0));
+        assertFalse(BridgeSeatSelection.canJoin(before, 3, 0));
         List<SeatView> after = List.of(occupied(), occupied(), empty(PlayerType.HUMAN));
-        assertTrue(BridgeSeatSelection.canJoin(after, 3));
+        assertTrue(BridgeSeatSelection.canJoin(after, 3, 0));
+    }
+
+    @Test
+    void aFriendInThisSeatSendsTheModelToTheNextOpenOne() throws Exception {
+        // host in 1, a friend joined before the model and the server gave them seat 2
+        List<SeatView> seats = List.of(occupied(), occupied(), empty(PlayerType.HUMAN));
+        assertTrue(BridgeSeatSelection.canJoin(seats, 2, 0));
+    }
+
+    @Test
+    void anEmptySeatBeforeThisOneIsOnlyWaitedForAWhile() throws Exception {
+        // seat 2 is a friend who has not come yet: the model sits there rather than time out
+        List<SeatView> seats = List.of(occupied(), empty(PlayerType.HUMAN), empty(PlayerType.HUMAN));
+        assertFalse(BridgeSeatSelection.canJoin(seats, 3, BridgeSeatSelection.KEEP_ORDER_MS - 1));
+        assertTrue(BridgeSeatSelection.canJoin(seats, 3, BridgeSeatSelection.KEEP_ORDER_MS));
+    }
+
+    @Test
+    void aFullTableHasNoSeatAtAnyWait() throws Exception {
+        List<SeatView> seats = List.of(occupied(), occupied());
+        assertFalse(BridgeSeatSelection.canJoin(seats, 2, 0));
+        assertFalse(BridgeSeatSelection.canJoin(seats, 2, Long.MAX_VALUE));
     }
 
     @Test
     void nativeComputerSeatsDoNotBlockAnAvailableHumanSeat() throws Exception {
         List<SeatView> seats = List.of(occupied(), empty(PlayerType.COMPUTER_MAD), empty(PlayerType.HUMAN));
-        assertTrue(BridgeSeatSelection.canJoin(seats, 3));
+        assertTrue(BridgeSeatSelection.canJoin(seats, 3, 0));
     }
 
     @Test
     void rejectsASeatOutsideTheTable() {
         assertThrows(IllegalArgumentException.class,
-                () -> BridgeSeatSelection.canJoin(List.of(empty(PlayerType.HUMAN)), 2));
+                () -> BridgeSeatSelection.canJoin(List.of(empty(PlayerType.HUMAN)), 2, 0));
     }
 }
