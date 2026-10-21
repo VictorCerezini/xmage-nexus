@@ -170,6 +170,12 @@ fn manifest_spec() -> String {
     std::env::var("NEXUS_MANIFEST").unwrap_or_else(|_| DEFAULT_MANIFEST_URL.to_string())
 }
 
+fn fetch_manifest() -> Option<ComponentsManifest> {
+    fetch::download_text(&manifest_spec(), Duration::from_secs(20))
+        .ok()
+        .and_then(|text| ComponentsManifest::parse(&text).ok())
+}
+
 fn target_tag() -> String {
     std::env::var("NEXUS_TARGET").unwrap_or_else(|_| current_target())
 }
@@ -430,13 +436,20 @@ fn error_code(message: &str) -> String {
 
 fn bootstrap_or_update(app: &AppHandle) -> Result<(), String> {
     let skip = *app.state::<Bootstrap>().skip_update.lock().unwrap();
+    emit_state(app, "checking", None, None);
+    let remote = fetch_manifest();
     if !skip {
-        if let Some(info) = check_for_update(app)? {
+        // newer components than this app mean its update is out: the daily check could leave
+        // them running in this old app for up to a day
+        let newer = remote
+            .as_ref()
+            .is_some_and(|m| m.is_newer_than(&app.package_info().version.to_string()));
+        if let Some(info) = check_for_update(app, newer)? {
             emit_state(app, "update-available", Some("app"), Some(info));
             return Ok(());
         }
     }
-    bootstrap(app)
+    bootstrap(app, remote)
 }
 
 const UPDATE_CHECK_INTERVAL_SECS: u64 = 24 * 3600;
@@ -466,8 +479,8 @@ fn mark_update_checked(app: &AppHandle) {
     }
 }
 
-fn check_for_update(app: &AppHandle) -> Result<Option<String>, String> {
-    if !update_check_due(app) {
+fn check_for_update(app: &AppHandle, components_newer: bool) -> Result<Option<String>, String> {
+    if !components_newer && !update_check_due(app) {
         eprintln!("update check skipped (recently checked)");
         return Ok(None);
     }
@@ -505,7 +518,7 @@ fn check_for_update(app: &AppHandle) -> Result<Option<String>, String> {
     }
 }
 
-fn bootstrap(app: &AppHandle) -> Result<(), String> {
+fn bootstrap(app: &AppHandle, remote: Option<ComponentsManifest>) -> Result<(), String> {
     let processes = app.state::<Processes>();
     kill_all(&processes);
     emit_state(app, "checking", None, None);
@@ -524,9 +537,6 @@ fn bootstrap(app: &AppHandle) -> Result<(), String> {
         return Err("plataforma no soportada por el instalador".to_string());
     }
 
-    let remote = fetch::download_text(&manifest_spec(), Duration::from_secs(20))
-        .ok()
-        .and_then(|text| ComponentsManifest::parse(&text).ok());
     let release = match (&remote, installed_release(&paths)) {
         (Some(m), _) if layout::missing_components(m, &target, &paths).is_empty() => m.release.clone(),
         (Some(m), _) => {
