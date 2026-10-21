@@ -989,6 +989,7 @@ public class ProxyClient implements MageClient, CommandContext {
                             || TournamentCommands.handle(action, conn, requestId, args, this)
                             || GameCommands.handle(action, conn, requestId, args, this)
                             || OnlineDeckCommands.handle(action, conn, requestId, args, this)
+                            || SavedDeckCommands.handle(action, conn, requestId, args, this)
                             || LlmCommands.handle(action, conn, requestId, args, this);
                     if (!handled) {
                         gateway.send(conn, ProxyProtocol.resultJson(action, requestId, false, ProxyProtocol.ERR_UNKNOWN_ACTION, "Unknown action: " + action));

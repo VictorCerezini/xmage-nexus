@@ -132,4 +132,16 @@ describe('ImportDeckDialog wizard', () => {
     const option = [...select.options].find((o) => o.value === detected)
     expect(option?.textContent).toContain('✓')
   })
+
+  it('on a page that may not read the clipboard, Paste points to Ctrl+V in the box', () => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    render(<ImportDeckDialog onImport={vi.fn()} onClose={vi.fn()} />)
+    screen.getByTestId('import-paste-btn').focus()
+
+    fireEvent.click(screen.getByTestId('import-paste-btn'))
+
+    expect(screen.getByTestId('import-paste-by-hand').textContent).toContain('Ctrl+V')
+    expect(document.activeElement).toBe(document.querySelector('textarea'))
+    expect(document.querySelector('.deck-import-error')).toBeNull()
+  })
 })

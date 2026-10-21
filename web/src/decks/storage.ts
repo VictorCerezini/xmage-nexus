@@ -1,7 +1,18 @@
 import { createStore, get as idbGet, set as idbSet, del as idbDel, keys as idbKeys } from 'idb-keyval'
 import { CUSTOM_DECKS_STORAGE_KEY, loadSavedCustomDecks, type Deck } from '../lobby/decks'
+import { getGateway } from '../net/commands'
+import { friendsJoin } from '../state/friendsJoin'
+import { HostDeckStorage, type SendCommand } from './hostDeckStorage'
 import type { DeckV2 } from './types'
 import { makeDeckId } from './types'
+
+const sendToProxy: SendCommand = async (action, args) => {
+  try {
+    return await getGateway().send(action, args)
+  } catch {
+    return { type: 'result', action, ok: false, error: 'not connected', errorCode: 'NOT_CONNECTED' }
+  }
+}
 
 const IDB_DB_NAME = 'mage-nexus'
 const IDB_STORE_NAME = 'decks-v2'
@@ -281,7 +292,8 @@ export function getDeckStorage(): DeckStorage {
       singleton = new MemoryDeckStorage()
       return singleton
     }
-    singleton = new IdbDeckStorage()
+    // a friend's page: the host keeps the decks, this browser would lose them
+    singleton = friendsJoin() ? new HostDeckStorage(sendToProxy, () => new IdbDeckStorage()) : new IdbDeckStorage()
     return singleton
   } catch {
     singleton = new MemoryDeckStorage()

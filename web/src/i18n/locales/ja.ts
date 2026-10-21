@@ -1699,6 +1699,7 @@ export const ja: TranslationSchema = {
     import_url_detected: 'URLを検出しました — インポート時にデッキを取得します',
     import_recognized: '✓ 認識: {mainCount}枚メイン + {sideCount}枚サイドボード',
     import_waiting: 'カードリスト待ち…',
+    import_paste_by_hand: 'Ctrl+V（Mac は ⌘V）を押して、ここにリストを貼り付けてください',
     import_step_source: 'ソース',
     import_step_setup: 'セットアップ',
     import_step_review: '確認',

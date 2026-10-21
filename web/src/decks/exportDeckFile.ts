@@ -1,6 +1,7 @@
 import { exportDck, exportArena, exportTxt, exportDek } from './parseDck'
 import type { DeckV2 } from './types'
 import { downloadBlob } from '../utils/download'
+import { copyText } from '../utils/clipboard'
 
 export type DeckExportKind = 'dck' | 'arena' | 'txt' | 'dek'
 
@@ -17,8 +18,7 @@ export async function downloadDeckFile(deck: DeckV2, kind: DeckExportKind, copie
       : kind === 'dek'
         ? `${deck.name}.dek`
         : `${deck.name}-plain.txt`
-  let copied = false
-  try { await navigator.clipboard.writeText(text); copied = true } catch {}
+  const copied = await copyText(text)
   downloadBlob(new Blob([text], { type: 'text/plain' }), filename)
   if (copied) {
     const btn = document.activeElement as HTMLElement | null

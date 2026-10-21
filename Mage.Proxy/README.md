@@ -307,6 +307,15 @@ the host's server accepts other machines (`serverAddress` is not loopback in its
   port and asks there for the WebSocket one, then skips the server picker.
 - `--llm` and `--friendsServer` together stop the proxy at startup (exit code 2):
   model seats stay on the host's own loopback proxy.
+- Friends' decks are kept on the host, under the name each one logged in with:
+  in the browser they would be tied to the host's address, lost with another
+  browser or computer, a private window or cleared site data. `listSavedDecks`
+  answers that player's decks, `saveDeck {deck}` stores one (the web client's
+  own JSON, keyed by its `id`), `deleteSavedDeck {id}` removes one. Files go in
+  `saved-decks/` in the working folder, at most 200 decks per name, 256 KB per
+  deck and 100 MB for everyone. Whoever logs in with a name gets its decks, the
+  same trust the game gives a name on a server without passwords. Other proxies
+  answer these as unknown actions and the web client keeps decks in the browser.
 
 ### Deck Management
 

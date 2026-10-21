@@ -1699,6 +1699,7 @@ export const zhs: TranslationSchema = {
     import_url_detected: '已检测到链接 — 导入时将获取该套牌',
     import_recognized: '✓ 已识别: {mainCount}张主牌 + {sideCount}张备牌',
     import_waiting: '等待卡牌列表…',
+    import_paste_by_hand: '现在按 Ctrl+V（Mac 上为 ⌘V）把列表粘贴到这里',
     import_step_source: '来源',
     import_step_setup: '设置',
     import_step_review: '检查',

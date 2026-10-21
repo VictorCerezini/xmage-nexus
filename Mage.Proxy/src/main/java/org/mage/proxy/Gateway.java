@@ -78,12 +78,19 @@ public class Gateway extends WebSocketServer {
         this.simRoster = SimRoster.fromConfig(config);
         this.llmRuntime = LlmRuntime.fromConfig(config);
         this.llmCatalog = llmRuntime == null ? null : new LlmCatalog(llmRuntime);
+        // in the working folder, next to the card db: the launcher gives the friends proxy its own
+        this.savedDecks = config.isFriendsMode()
+                ? new SavedDecks(java.nio.file.Paths.get(SAVED_DECKS_DIR).toAbsolutePath())
+                : null;
         setReuseAddr(true);
     }
+
+    static final String SAVED_DECKS_DIR = "saved-decks";
 
     private final SimRoster simRoster;
     private final LlmRuntime llmRuntime;
     private final LlmCatalog llmCatalog;
+    private final SavedDecks savedDecks;
 
     LlmRuntime llmRuntime() {
         return llmRuntime;
@@ -91,6 +98,11 @@ public class Gateway extends WebSocketServer {
 
     LlmCatalog llmCatalog() {
         return llmCatalog;
+    }
+
+    /** Friends' decks kept on the host; null unless this is the friends proxy. */
+    SavedDecks savedDecks() {
+        return savedDecks;
     }
     private final java.util.concurrent.ScheduledExecutorService rosterTimer =
             java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {

@@ -1692,6 +1692,7 @@ export const en = {
     import_url_detected: 'Online URL detected — the deck will be fetched on import',
     import_recognized: '✓ Recognized: {mainCount} main + {sideCount} sideboard',
     import_waiting: 'Waiting for card list…',
+    import_paste_by_hand: 'Now press Ctrl+V (⌘V on a Mac) to paste the list here',
     import_step_source: 'Source',
     import_step_setup: 'Setup',
     import_step_review: 'Review',

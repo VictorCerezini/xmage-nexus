@@ -6,6 +6,7 @@ import { addLog } from '../state/state'
 import { recordError } from '../system/errorLog'
 import { buildReport, reportToMarkdown } from '../system/report'
 import { downloadBlob } from '../utils/download'
+import { copyText } from '../utils/clipboard'
 
 interface Props {
   children: ReactNode
@@ -40,10 +41,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     const draft = buildReport('bug', `Page crashed: ${this.state.error?.message ?? 'unknown'}`)
     const markdown = reportToMarkdown(draft)
     addLog('system', 'report copied to the clipboard')
-    void navigator.clipboard
-      ?.writeText(markdown)
-      .then(() => this.setState({ copied: true }))
-      .catch(() => this.setState({ copied: false }))
+    void copyText(markdown).then((copied) => this.setState({ copied }))
   }
 
   private downloadReport() {

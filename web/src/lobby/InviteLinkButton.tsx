@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../state/store'
 import { useTranslation } from '../i18n'
 import Button from '../ui/Button'
+import { copyText } from '../utils/clipboard'
 import { buildDeepLink } from './deepLink'
 
 /** Botones "copiar enlace de invitación" (join + watch) para la sala de espera. */
@@ -19,22 +20,7 @@ export default function InviteLinkButton({ tableId }: { tableId: string | undefi
       serverHost: conn?.serverHost,
       serverPort: conn?.port,
     })}`
-    let ok = false
-    try {
-      await navigator.clipboard.writeText(url)
-      ok = true
-    } catch {
-      try {
-        const ta = document.createElement('textarea')
-        ta.value = url
-        document.body.appendChild(ta)
-        ta.select()
-        ok = document.execCommand('copy')
-        ta.remove()
-      } catch {
-        ok = false
-      }
-    }
+    const ok = await copyText(url)
     if (ok) {
       setCopyFailed((cur) => (cur === kind ? null : cur))
       setCopied(kind)

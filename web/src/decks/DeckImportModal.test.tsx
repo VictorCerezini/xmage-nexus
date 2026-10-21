@@ -88,4 +88,18 @@ describe('DeckImportModal', () => {
     const textarea = screen.getByPlaceholderText(/Importar mazo|Import deck/i) as HTMLTextAreaElement
     expect(textarea.value).toContain('Lightning Bolt')
   })
+
+  it('on a page that may not read the clipboard, Paste points to Ctrl+V in the box', () => {
+    // a friend's page at the host's http address: the browser gives it no navigator.clipboard
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    render(<DeckImportModal deckName="Burn" onImport={vi.fn()} onClose={vi.fn()} />)
+    const textarea = screen.getByPlaceholderText(/Importar mazo|Import deck/i)
+    screen.getByTestId('import-paste-btn').focus()
+
+    fireEvent.click(screen.getByTestId('import-paste-btn'))
+
+    expect(screen.getByTestId('import-paste-by-hand').textContent).toContain('Ctrl+V')
+    expect(document.activeElement).toBe(textarea)
+    expect(document.querySelector('.deck-import-error')).toBeNull()
+  })
 })

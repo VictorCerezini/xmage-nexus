@@ -10,6 +10,7 @@ import { useTranslation } from '../i18n'
 import { addLog, getState } from '../state/state'
 import { sendReport } from '../net/commands'
 import { downloadBlob } from '../utils/download'
+import { copyText } from '../utils/clipboard'
 import { buildReport, githubIssueUrl, isLocalProxy, reportToMarkdown, type ReportKind } from '../system/report'
 import './ReportDialog.css'
 
@@ -73,17 +74,12 @@ export default function ReportDialog({ initialText = '', kind = 'bug', onClose }
     const built = draft()
     const markdown = reportToMarkdown(built)
     setDump(markdown)
-    try {
-      await navigator.clipboard.writeText(markdown)
-      setStatus({ phase: 'copied' })
-    } catch {
-      // no clipboard (http, permissions): the text is on screen to select by hand
-      setStatus({ phase: 'idle' })
-    }
+    // not copied (permissions): the text is on screen to select by hand
+    setStatus({ phase: (await copyText(markdown)) ? 'copied' : 'idle' })
   }
 
   const openGithub = () => {
-    void navigator.clipboard?.writeText(reportToMarkdown(draft())).catch(() => undefined)
+    void copyText(reportToMarkdown(draft()))
   }
 
   const showGithub = localProxy || (status.phase === 'sent' && !status.stored)

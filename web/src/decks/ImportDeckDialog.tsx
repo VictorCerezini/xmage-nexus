@@ -1,5 +1,6 @@
 import CloseButton from '../ui/CloseButton'
 import { useId, useMemo, useRef, useState } from 'react'
+import { canReadClipboard } from '../utils/clipboard'
 import { parseAnyDeck } from './parseDck'
 import { loadDeckFromOnlineSource } from './onlineDeckService'
 import type { DeckFormat, DeckV2 } from './types'
@@ -88,6 +89,8 @@ export function ImportDeckDialog({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pasteByHand, setPasteByHand] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [busy, setBusy] = useState(false)
 
   const isOnlineUrl = ONLINE_URL_PATTERN.test(text.trim())
@@ -102,6 +105,13 @@ export function ImportDeckDialog({
   const totalCount = mainCount + sideCount
 
   const handlePaste = async () => {
+    if (!canReadClipboard()) {
+      // a friend's page is plain http, where the page may not read the clipboard but Ctrl+V into the box works
+      setError(null)
+      setPasteByHand(true)
+      textareaRef.current?.focus()
+      return
+    }
     try {
       const clip = await navigator.clipboard.readText()
       if (typeof clip === 'string' && clip.trim()) {
@@ -357,6 +367,7 @@ export function ImportDeckDialog({
         <label className="ui-field-label" htmlFor={textareaId}>{t('decks', 'import_textarea_label')}</label>
         <div className="deck-import-textarea-wrap">
           <textarea
+            ref={textareaRef}
             id={textareaId}
             className="deck-import-textarea"
             placeholder={t('decks', 'import_textarea_placeholder')}
@@ -407,6 +418,8 @@ export function ImportDeckDialog({
               <div className="import-badge warning">
                 <Icon name="alert" size={13} /> {t('errors', 'deck_parse_failed')}
               </div>
+            ) : pasteByHand ? (
+              <span className="import-hint-text" data-testid="import-paste-by-hand">{t('decks', 'import_paste_by_hand')}</span>
             ) : (
               <span className="import-hint-text">{t('decks', 'import_waiting')}</span>
             )}

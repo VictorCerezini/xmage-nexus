@@ -1694,6 +1694,7 @@ export const fr: TranslationSchema = {
     import_url_detected: 'URL en ligne détectée — le deck sera récupéré à l’importation',
     import_recognized: '✓ Reconnues: {mainCount} principal + {sideCount} réserve',
     import_waiting: 'En attente de la liste de cartes…',
+    import_paste_by_hand: 'Appuyez maintenant sur Ctrl+V (⌘V sur Mac) pour coller la liste ici',
     import_step_source: 'Source',
     import_step_setup: 'Configuration',
     import_step_review: 'Vérification',

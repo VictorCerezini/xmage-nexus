@@ -1694,6 +1694,7 @@ export const it: TranslationSchema = {
     import_url_detected: 'URL online rilevato — il mazzo verrà scaricato all’importazione',
     import_recognized: '✓ Riconosciute: {mainCount} principali + {sideCount} sideboard',
     import_waiting: 'In attesa della lista carte…',
+    import_paste_by_hand: 'Ora premi Ctrl+V (⌘V su Mac) per incollare qui la lista',
     import_step_source: 'Origine',
     import_step_setup: 'Configurazione',
     import_step_review: 'Revisione',

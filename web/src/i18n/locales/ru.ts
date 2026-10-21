@@ -1694,6 +1694,7 @@ export const ru: TranslationSchema = {
     import_url_detected: 'Обнаружена ссылка — колода будет загружена при импорте',
     import_recognized: '✓ Распознано: {mainCount} основных + {sideCount} сайдборда',
     import_waiting: 'Ожидание списка карт…',
+    import_paste_by_hand: 'Теперь нажмите Ctrl+V (⌘V на Mac), чтобы вставить список сюда',
     import_step_source: 'Источник',
     import_step_setup: 'Настройка',
     import_step_review: 'Проверка',

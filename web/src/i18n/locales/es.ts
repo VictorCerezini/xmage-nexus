@@ -1694,6 +1694,7 @@ export const es: TranslationSchema = {
     import_url_detected: 'URL detectada — el mazo se descargará al importar',
     import_recognized: '✓ Reconocidas: {mainCount} principales + {sideCount} banquillo',
     import_waiting: 'Esperando lista de cartas…',
+    import_paste_by_hand: 'Ahora pulsa Ctrl+V (⌘V en Mac) para pegar la lista aquí',
     import_step_source: 'Origen',
     import_step_setup: 'Configuración',
     import_step_review: 'Revisión',

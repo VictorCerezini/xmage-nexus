@@ -25,6 +25,7 @@ import { ManaPip } from './ArenaManaSymbols'
 import { useTranslation } from '../i18n'
 import { alertDialog, confirmDialog } from '../ui/confirmDialog'
 import { downloadBlob } from '../utils/download'
+import { copyText } from '../utils/clipboard'
 import './DecksGallery.css'
 
 function inferDeckColors(cards: DeckCard[]): ('W' | 'U' | 'B' | 'R' | 'G')[] {
@@ -307,7 +308,7 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
   const handleExport = async (fmt: 'dck' | 'arena' | 'plain' | 'dek') => {
     if (!selected) return
     const text = fmt === 'dck' ? exportDck(selected) : fmt === 'arena' ? exportArena(selected) : fmt === 'dek' ? exportDek(selected) : exportTxt(selected)
-    try { await navigator.clipboard.writeText(text) } catch {}
+    await copyText(text)
     const ext = fmt === 'dck' ? 'dck' : fmt === 'arena' ? 'txt' : fmt === 'dek' ? 'dek' : 'plain.txt'
     downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), `${selected.name.replace(/[^a-z0-9\-_ ]/gi, '_')}.${ext}`)
   }

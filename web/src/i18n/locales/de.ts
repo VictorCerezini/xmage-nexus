@@ -1694,6 +1694,7 @@ export const de: TranslationSchema = {
     import_url_detected: 'Online-URL erkannt — das Deck wird beim Import abgerufen',
     import_recognized: '✓ Erkannt: {mainCount} Hauptdeck + {sideCount} Sideboard',
     import_waiting: 'Warte auf Kartenliste…',
+    import_paste_by_hand: 'Jetzt Strg+V (⌘V auf dem Mac) drücken, um die Liste hier einzufügen',
     import_step_source: 'Quelle',
     import_step_setup: 'Einrichtung',
     import_step_review: 'Prüfung',

@@ -1694,6 +1694,7 @@ export const pt: TranslationSchema = {
     import_url_detected: 'URL online detectada — o baralho será baixado ao importar',
     import_recognized: '✓ Reconhecidas: {mainCount} principais + {sideCount} sideboard',
     import_waiting: 'Aguardando lista de cartas…',
+    import_paste_by_hand: 'Agora pressione Ctrl+V (⌘V no Mac) para colar a lista aqui',
     import_step_source: 'Origem',
     import_step_setup: 'Configuração',
     import_step_review: 'Revisão',

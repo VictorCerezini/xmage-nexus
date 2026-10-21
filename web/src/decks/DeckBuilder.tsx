@@ -41,6 +41,7 @@ import DeckServerIssues from './DeckServerIssues'
 import DeckFormatIssues from './DeckFormatIssues'
 import { createHoverPreviewStore, HoverPreviewLayer } from './hoverPreviewStore'
 import { useEventCallback } from '../utils/useEventCallback'
+import { copyText } from '../utils/clipboard'
 import './DeckBuilder.css'
 
 export default function DeckBuilder({ deckId, onClose }: { deckId: string; onClose: () => void }) {
@@ -611,14 +612,7 @@ export default function DeckBuilder({ deckId, onClose }: { deckId: string; onClo
           deck={deck}
           onClose={() => setShowInspector(false)}
           onEdit={() => setShowInspector(false)}
-          onCopy={async () => {
-            try {
-              await navigator.clipboard.writeText(exportTxt(deck))
-              return true
-            } catch {
-              return false
-            }
-          }}
+          onCopy={() => copyText(exportTxt(deck))}
         />
       )}
     </div>
