@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import InviteLinkButton from './InviteLinkButton'
 import { setLanguage } from '../i18n'
+import { setState } from '../state/store'
+import { setHostFriendsPage } from '../state/hostFriendsPage'
 
 afterEach(() => {
   cleanup()
@@ -42,5 +44,20 @@ describe('InviteLinkButton', () => {
     await waitFor(() => {
       expect(getByTestId('invite-copy-watch').textContent).toContain('¡Enlace copiado!')
     })
+  })
+
+  it('invita a la página de amigos del anfitrión, que ya es este servidor', async () => {
+    setHostFriendsPage({ httpPort: 8778, addresses: [{ name: 'Radmin VPN', address: '26.10.20.30' }] })
+    setState({ conn: { serverHost: 'localhost', port: 17171 } } as never)
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    try {
+      const { getByTestId } = render(<InviteLinkButton tableId="table-1" />)
+      fireEvent.click(getByTestId('invite-copy-join'))
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('http://26.10.20.30:8778/#join=table-1'))
+    } finally {
+      setHostFriendsPage(null)
+      setState({ conn: null } as never)
+    }
   })
 })

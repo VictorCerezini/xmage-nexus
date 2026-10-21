@@ -1,0 +1,49 @@
+.friends-link-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--ok-line);
+  border-radius: var(--r-md);
+  background: var(--ok-surface);
+}
+
+.friends-link-icon {
+  flex: none;
+  color: var(--ok);
+}
+
+.friends-link-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.friends-link-label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--fg-1);
+}
+
+.friends-link-hint {
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+}
+
+.friends-link-url {
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-sm);
+  background: var(--veil-2);
+  font-size: var(--fs-sm);
+  color: var(--fg-hi);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.friends-link-network {
+  max-width: 100%;
+  padding-block: var(--sp-1);
+  font-size: var(--fs-xs);
+}

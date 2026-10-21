@@ -25,6 +25,7 @@ import { LobbyMobileNav } from './LobbySidebar'
 import FloatingChat from './FloatingChat'
 import TableCard from './TableCard'
 import ActiveTablesBar from './ActiveTablesBar'
+import FriendsLinkBar from './FriendsLinkBar'
 import './FloatingChat.css'
 import TournamentBracketModal from './TournamentBracketModal'
 import { useTableActions } from './useTableActions'
@@ -234,6 +235,7 @@ export default function LobbyScreen() {
           <div key={deckBuilderId ? 'deck-builder' : activeTab} className={`lobby-tab-view${activeTab === 'decks' ? '' : ' is-animated'}`}>
             {activeTab === 'tables' && (
               <div className="lobby-tables-view">
+                <FriendsLinkBar />
                 <section className="panel tables-panel">
                   <div className="tables-panel-header">
                     <div className="tables-header-title-row">

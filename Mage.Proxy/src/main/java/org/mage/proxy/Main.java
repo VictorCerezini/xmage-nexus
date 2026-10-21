@@ -1,5 +1,7 @@
 package org.mage.proxy;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -7,8 +9,18 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executors;
 
 /**
@@ -137,11 +149,91 @@ public class Main {
         return "{\"wsPort\":" + config.getWsPort() + "}\n";
     }
 
+    /**
+     * The host's own app asks too, from this machine, to show the host the link to send: it is
+     * also told the page's port and the addresses a friend could open it at. Only this machine
+     * is told them, a friend's page gets {@link #friendsBody}.
+     */
+    static String hostFriendsBody(Config config, List<String[]> addresses) {
+        JsonObject body = new JsonObject();
+        body.addProperty("wsPort", config.getWsPort());
+        body.addProperty("httpPort", config.getHttpPort());
+        JsonArray list = new JsonArray();
+        for (String[] address : addresses) {
+            JsonObject entry = new JsonObject();
+            entry.addProperty("name", address[0]);
+            entry.addProperty("address", address[1]);
+            list.add(entry);
+        }
+        body.add("addresses", list);
+        return body + "\n";
+    }
+
+    /** The desktop app's page (Windows, then macOS and Linux): no other page may read the host's answer. */
+    static final Set<String> DESKTOP_ORIGINS = new HashSet<>(Arrays.asList(
+            "http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"));
+
+    /** The origin the answer may be read from, or null: only the desktop app's page, asking from this machine. */
+    static String readableBy(boolean fromThisMachine, String origin) {
+        return fromThisMachine && origin != null && DESKTOP_ORIGINS.contains(origin) ? origin : null;
+    }
+
+    /** This machine's addresses on the networks that are up, with each network's name (a VPN such as Radmin VPN, the home network). */
+    static List<String[]> shareableAddresses() {
+        List<String[]> found = new ArrayList<>();
+        try {
+            for (NetworkInterface nic : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!nic.isUp() || nic.isLoopback()) {
+                    continue;
+                }
+                String name = nic.getDisplayName() != null ? nic.getDisplayName() : nic.getName();
+                for (InetAddress address : Collections.list(nic.getInetAddresses())) {
+                    if (shareable(address)) {
+                        found.add(new String[]{name, address.getHostAddress()});
+                    }
+                }
+            }
+        } catch (SocketException ignored) {
+            // no list: the app shows no link rather than a wrong one
+        }
+        return found;
+    }
+
+    /** An address another machine could reach and a person could type: IPv4, not loopback nor self-assigned (169.254). */
+    static boolean shareable(InetAddress address) {
+        return address instanceof Inet4Address && !address.isLoopbackAddress() && !address.isLinkLocalAddress()
+                && !address.isAnyLocalAddress() && !address.isMulticastAddress();
+    }
+
+    /**
+     * Asked from this machine and at its loopback address: a name that resolves to it (DNS
+     * rebinding) would make another site's page look like this machine's.
+     */
+    static boolean askedByThisMachine(InetAddress remote, String hostHeader) {
+        if (!remote.isLoopbackAddress() || hostHeader == null) {
+            return false;
+        }
+        String host = hostHeader.trim().toLowerCase(java.util.Locale.ROOT);
+        int port = host.lastIndexOf(':');
+        if (port > host.lastIndexOf(']')) {
+            host = host.substring(0, port);
+        }
+        return host.equals("127.0.0.1") || host.equals("localhost") || host.equals("[::1]");
+    }
+
     private static void serveFriends(HttpExchange exchange, Config config) {
-        byte[] bytes = friendsBody(config).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        boolean fromThisMachine = askedByThisMachine(exchange.getRemoteAddress().getAddress(),
+                exchange.getRequestHeaders().getFirst("Host"));
+        String body = fromThisMachine ? hostFriendsBody(config, shareableAddresses()) : friendsBody(config);
+        byte[] bytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
         exchange.getResponseHeaders().add("Cache-Control", "no-store");
         exchange.getResponseHeaders().add("X-Content-Type-Options", "nosniff");
+        String reader = readableBy(fromThisMachine, exchange.getRequestHeaders().getFirst("Origin"));
+        if (reader != null) {
+            exchange.getResponseHeaders().add("Access-Control-Allow-Origin", reader);
+            exchange.getResponseHeaders().add("Vary", "Origin");
+        }
         try {
             exchange.sendResponseHeaders(200, bytes.length);
             try (OutputStream os = exchange.getResponseBody()) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { HOST_FRIENDS_INFO_URL } from '../state/hostFriendsPage'
 
 const SRC = join(__dirname, '..')
 const TAURI_CONF = join(SRC, '..', '..', 'launcher', 'src-tauri', 'tauri.conf.json')
@@ -35,5 +36,9 @@ describe('desktop CSP (launcher tauri.conf.json)', () => {
       }
     }
     expect([...new Set(missing)], 'add these origins to connect-src or the desktop app blocks them').toEqual([])
+  })
+
+  it('lets the host app ask its friends proxy where friends can reach it', () => {
+    expect(connectSrc()).toContain(new URL(HOST_FRIENDS_INFO_URL).origin)
   })
 })

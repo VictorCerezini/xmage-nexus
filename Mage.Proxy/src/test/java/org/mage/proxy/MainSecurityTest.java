@@ -1,14 +1,20 @@
 package org.mage.proxy;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,6 +22,47 @@ class MainSecurityTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void onlyTheHostsOwnAppIsToldWhereFriendsCanReachIt() throws Exception {
+        Config config = Config.parse(new String[]{"--friendsServer", "127.0.0.1:17171", "--wsPort", "8777", "--httpPort", "8778"});
+        JsonObject body = JsonParser.parseString(Main.hostFriendsBody(config,
+                Collections.singletonList(new String[]{"Radmin \"VPN\"", "26.10.20.30"}))).getAsJsonObject();
+        assertEquals(8777, body.get("wsPort").getAsInt());
+        assertEquals(8778, body.get("httpPort").getAsInt());
+        JsonObject first = body.getAsJsonArray("addresses").get(0).getAsJsonObject();
+        assertEquals("Radmin \"VPN\"", first.get("name").getAsString());
+        assertEquals("26.10.20.30", first.get("address").getAsString());
+
+        InetAddress loopback = InetAddress.getByName("127.0.0.1");
+        assertTrue(Main.askedByThisMachine(loopback, "127.0.0.1:8778"));
+        assertTrue(Main.askedByThisMachine(InetAddress.getByName("::1"), "[::1]:8778"));
+        assertTrue(Main.askedByThisMachine(loopback, "localhost"));
+        assertFalse(Main.askedByThisMachine(InetAddress.getByName("26.10.20.30"), "127.0.0.1:8778"), "a friend");
+        assertFalse(Main.askedByThisMachine(loopback, "26.10.20.30:8778"), "the page at the shared address");
+        assertFalse(Main.askedByThisMachine(loopback, "rebind.example:8778"), "a name that resolves here");
+        assertFalse(Main.askedByThisMachine(loopback, null));
+
+        assertEquals("http://tauri.localhost", Main.readableBy(true, "http://tauri.localhost"));
+        assertEquals("tauri://localhost", Main.readableBy(true, "tauri://localhost"));
+        assertNull(Main.readableBy(true, "https://attacker.example"));
+        assertNull(Main.readableBy(true, "http://127.0.0.1:8778"), "same origin needs no permission");
+        assertNull(Main.readableBy(true, null));
+        assertNull(Main.readableBy(false, "http://tauri.localhost"), "not asked by this machine");
+    }
+
+    @Test
+    void friendsAreOnlyGivenAddressesTheyCanReach() throws Exception {
+        assertTrue(Main.shareable(InetAddress.getByName("26.10.20.30")));
+        assertTrue(Main.shareable(InetAddress.getByName("192.168.0.12")));
+        for (String no : new String[]{"127.0.0.1", "169.254.10.20", "0.0.0.0", "224.0.0.1", "::1", "fe80::1", "2001:db8::1"}) {
+            assertFalse(Main.shareable(InetAddress.getByName(no)), no);
+        }
+        for (String[] address : Main.shareableAddresses()) {
+            assertNotNull(address[0]);
+            assertTrue(Main.shareable(InetAddress.getByName(address[1])), address[1]);
+        }
+    }
 
     @Test
     void resolvesOnlyFilesInsideWebDirectory() throws IOException {
