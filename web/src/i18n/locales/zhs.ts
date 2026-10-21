@@ -44,6 +44,7 @@ export const zhs: TranslationSchema = {
   },
   login: {
     subtitle: 'XMage 现代高性能网页客户端',
+    friends_joining: '正在加入 {host} 主持的游戏',
     tagline_1: '横置、重置、获胜',
     tagline_2: '牌桌正在等你',
     tagline_3: '洗牌，开战',

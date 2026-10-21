@@ -290,6 +290,24 @@ seat killed before it sends `disconnect` leaves in its grace period), and
 holds after a restart forgets those 10 minutes. A new seat logging in as a player the server still holds in a game
 would be reattached to that game instead of its own. Each seat writes to `.run/llm/<tableId>-seat-<n>/`.
 
+### Friends mode (`--friendsServer host:port`)
+
+The desktop launcher runs a second proxy for the people a host plays with, while
+the host's server accepts other machines (`serverAddress` is not loopback in its
+`config.xml`): `--bind 0.0.0.0 --webDir <copy of the web build> --friendsServer
+127.0.0.1:<server port>` on ports 8777 (WebSocket) and 8778 (http). A friend opens
+`http://<host address>:8778` in a browser; nothing needs installing.
+
+- Every `connect` logs in to `host:port`, whatever server the page names, so
+  this proxy never opens sessions on other servers.
+- Besides the usual local origins, the WebSocket accepts the page it serves when
+  that page was opened at one of this machine's own IP addresses (any LAN or VPN
+  address, checked against the network interfaces; names are never resolved).
+- `GET /friends.json` answers `{"wsPort": <n>}`: the page was opened on the http
+  port and asks there for the WebSocket one, then skips the server picker.
+- `--llm` and `--friendsServer` together stop the proxy at startup (exit code 2):
+  model seats stay on the host's own loopback proxy.
+
 ### Deck Management
 
 | Action | Args | Description |

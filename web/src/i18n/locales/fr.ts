@@ -44,6 +44,7 @@ export const fr: TranslationSchema = {
   },
   login: {
     subtitle: 'Client web moderne et performant pour XMage',
+    friends_joining: 'Vous rejoignez la partie hébergée sur {host}',
     tagline_1: 'Engager, dégager, gagner',
     tagline_2: 'Ta table t’attend',
     tagline_3: 'Mélange et joue',

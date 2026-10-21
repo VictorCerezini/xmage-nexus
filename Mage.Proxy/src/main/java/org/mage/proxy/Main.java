@@ -51,6 +51,10 @@ public class Main {
             System.out.println("[proxy]   model seats       : on, catalog " + gateway.llmRuntime().catalog()
                     + ", at most " + gateway.llmRuntime().maxSeats() + " at once");
         }
+        if (config.isFriendsMode()) {
+            System.out.println("[proxy]   friends mode      : every login goes to " + config.getFriendsServerHost()
+                    + ":" + config.getFriendsServerPort() + ", no model seats");
+        }
 
         StatsService stats = config.isStatsServiceEnabled() ? StatsService.forProxy(config, gateway) : null;
         if (stats != null) {
@@ -92,6 +96,9 @@ public class Main {
         if (!config.getAdminToken().isEmpty()) {
             server.createContext("/admin/status", exchange -> serveAdmin(exchange, gateway, config.getAdminToken()));
         }
+        if (config.isFriendsMode()) {
+            server.createContext(FRIENDS_PATH, exchange -> serveFriends(exchange, config));
+        }
         server.start();
     }
 
@@ -111,6 +118,34 @@ public class Main {
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(bytes);
                 }
+            }
+        } catch (IOException ignored) {
+        } finally {
+            exchange.close();
+        }
+    }
+
+    /** Where the page a friends-mode proxy serves asks how to reach it. */
+    static final String FRIENDS_PATH = "/friends.json";
+
+    /**
+     * The page cannot know the WebSocket port: it was opened on the http one. Only the port is
+     * told, the page connects to the address it was opened at, and the server is the proxy's to
+     * pick ({@link Gateway#toFriendsServer}).
+     */
+    static String friendsBody(Config config) {
+        return "{\"wsPort\":" + config.getWsPort() + "}\n";
+    }
+
+    private static void serveFriends(HttpExchange exchange, Config config) {
+        byte[] bytes = friendsBody(config).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().add("Cache-Control", "no-store");
+        exchange.getResponseHeaders().add("X-Content-Type-Options", "nosniff");
+        try {
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
             }
         } catch (IOException ignored) {
         } finally {
@@ -285,11 +320,13 @@ public class Main {
      * The bundled web client is code this proxy serves to every player, so the browser is told not
      * to sniff a response, not to embed it elsewhere, and only ever to run its own scripts.
      * Fingerprinted build assets may be cached forever; {@code index.html} and the splash may not,
-     * or a deploy would keep serving the old client.
+     * or a deploy would keep serving the old client. Its fonts come from Google Fonts, the same two
+     * hosts the desktop app's own policy allows.
      */
     static final String CONTENT_SECURITY_POLICY =
             "default-src 'self'; connect-src 'self' ws: wss: http: https:; "
-                    + "img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; "
+                    + "img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                    + "font-src 'self' https://fonts.gstatic.com data:; "
                     + "script-src 'self'; media-src 'self' data: blob:";
 
     private static void applySecurityHeaders(HttpExchange exchange, String name) {

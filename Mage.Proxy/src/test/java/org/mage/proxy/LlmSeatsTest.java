@@ -267,6 +267,9 @@ class LlmSeatsTest {
         IllegalStateException origin = assertThrows(IllegalStateException.class,
                 () -> LlmRuntime.fromConfig(Config.parse(new String[]{"--llm", "on", "--allowedOrigins", "https://play.example.com"})));
         assertTrue(origin.getMessage().contains("https://play.example.com"));
+        IllegalStateException friends = assertThrows(IllegalStateException.class,
+                () -> LlmRuntime.fromConfig(Config.parse(new String[]{"--llm", "on", "--friendsServer", "127.0.0.1:17171"})));
+        assertTrue(friends.getMessage().contains("--friendsServer"));
         assertTrue(LlmRuntime.isLoopbackHost("127.0.0.1"));
         assertTrue(LlmRuntime.isLoopbackHost("localhost"));
         assertTrue(LlmRuntime.isLoopbackHost("::1"));

@@ -3,6 +3,7 @@ import { normalizePrioritySound, type PrioritySoundMode } from '../audio/priorit
 import type { DeckJson } from '../net/types'
 import type { ConstructState, DraftState } from './slices/limited'
 import { mergePhaseStops } from '../game/phaseStops'
+import { friendsConnection, friendsJoin } from './friendsJoin'
 
 export interface ConnectionInfo {
   /** Host del proxy WebSocket (ws://wsHost:proxyPort). */
@@ -126,9 +127,15 @@ function readConn(): ConnectionInfo | null {
   return null
 }
 
+/** On a friend's page the player is kept and the connection is always the host's. */
+function followFriendsPage(conn: ConnectionInfo): ConnectionInfo {
+  const join = friendsJoin()
+  return join ? { ...conn, ...friendsConnection(join) } : conn
+}
+
 export function loadConn(): ConnectionInfo | null {
   const conn = readConn()
-  return conn ? followBuildTunnel(conn) : null
+  return conn ? followFriendsPage(followBuildTunnel(conn)) : null
 }
 
 export function saveConn(conn: ConnectionInfo | null) {

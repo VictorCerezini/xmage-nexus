@@ -18,6 +18,7 @@ import { SETUP_CONN_EVENT, openSetupWizard } from '../setup/setupFlag'
 import { parseAutoConnect } from './autoConnect'
 import { PUBLIC_RANKING_HASH } from './publicRankingRoute'
 import type { ConnectionInfo } from '../state/persistence'
+import { friendsConnection, friendsJoin } from '../state/friendsJoin'
 import ManaPips from './ManaPips'
 import { usePointerVars } from './usePointerVars'
 import './LoginScreen.css'
@@ -73,10 +74,15 @@ export default function LoginScreen() {
   const { t, tError, lang } = useTranslation()
   const phase = useStore((s) => s.phase)
   const error = useStore((s) => s.error)
-  const [proxyHost, setProxyHost] = useState(import.meta.env.VITE_DEFAULT_PROXY_HOST ?? 'localhost')
-  const [proxyPort, setProxyPort] = useState(Number(import.meta.env.VITE_DEFAULT_PROXY_PORT) || 8787)
-  const [serverHost, setServerHost] = useState(BAKED_SERVER_HOST)
-  const [port, setPort] = useState(import.meta.env.VITE_DEFAULT_SERVER_PORT ?? '17171')
+  // a friend's page joins its host: no server to pick, and a saved connection is already the host's
+  const [friends] = useState(() => {
+    const join = friendsJoin()
+    return join ? friendsConnection(join) : null
+  })
+  const [proxyHost, setProxyHost] = useState(friends?.wsHost ?? import.meta.env.VITE_DEFAULT_PROXY_HOST ?? 'localhost')
+  const [proxyPort, setProxyPort] = useState(friends?.proxyPort ?? (Number(import.meta.env.VITE_DEFAULT_PROXY_PORT) || 8787))
+  const [serverHost, setServerHost] = useState(friends?.serverHost ?? BAKED_SERVER_HOST)
+  const [port, setPort] = useState(friends ? String(friends.port) : import.meta.env.VITE_DEFAULT_SERVER_PORT ?? '17171')
   const [username, setUsername] = useState(import.meta.env.DEV ? 'player1' : '')
   const [password, setPassword] = useState(import.meta.env.DEV ? 'password' : '')
   const [flagName, setFlagName] = useState(() => loadConn()?.flagName ?? guessDefaultFlag())
@@ -280,8 +286,15 @@ export default function LoginScreen() {
           </div>
         )}
 
+        {friends && (
+          <div className="login-invite-banner" data-testid="login-friends-banner">
+            <span className="invite-icon"><Icon name="users" size={14} /></span>
+            <span>{t('login', 'friends_joining', { host: friends.wsHost })}</span>
+          </div>
+        )}
+
         {/* Server Preset Selector */}
-        <div className="login-presets-container">
+        {!friends && <div className="login-presets-container">
           <span className="login-presets-title">{t('login.server_target')}</span>
           <Tabs
             variant="segmented"
@@ -295,7 +308,7 @@ export default function LoginScreen() {
               { id: 'custom', icon: 'settings', label: t('login.server_custom'), title: t('login.server_custom') },
             ]}
           />
-        </div>
+        </div>}
 
         {/* User Identity Section */}
         <div className="login-user-section">
@@ -349,7 +362,7 @@ export default function LoginScreen() {
         </div>
 
         {/* Network Connection Configuration Box */}
-        <details className="login-network-box">
+        {!friends && <details className="login-network-box">
           <summary className="login-network-header">
             <span className="network-box-title" title={t('login.network_config')}>{t('login.network_config')}</span>
             <span className="network-box-hint">{serverHost}:{port}</span>
@@ -398,7 +411,7 @@ export default function LoginScreen() {
               </Field>
             </div>
           </div>
-        </details>
+        </details>}
 
         {error && (
           <div className="error-box">

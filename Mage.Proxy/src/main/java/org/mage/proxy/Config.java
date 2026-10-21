@@ -56,6 +56,10 @@ public class Config {
             config.values.put(name, value);
             i++;
         }
+        if (config.isFriendsMode()) {
+            // refused before anything listens, like the flags above
+            config.getFriendsServerPort();
+        }
         return config;
     }
 
@@ -124,6 +128,43 @@ public class Config {
             }
         }
         return out;
+    }
+
+    /**
+     * Friends mode ({@code --friendsServer host:port}): the second proxy a host opens to the people
+     * they play with. Every login goes to that one XMage server whatever the page asks for, so the
+     * proxy cannot be used to reach other servers, and the page this proxy serves may connect from
+     * any of this machine's own addresses (a VPN or LAN address the launcher cannot know in
+     * advance). Empty when the mode is off.
+     */
+    public String getFriendsServer() {
+        return get("friendsServer", "").trim();
+    }
+
+    public boolean isFriendsMode() {
+        return !getFriendsServer().isEmpty();
+    }
+
+    public String getFriendsServerHost() {
+        String value = getFriendsServer();
+        return value.substring(0, friendsServerColon(value));
+    }
+
+    public int getFriendsServerPort() {
+        String value = getFriendsServer();
+        try {
+            return Integer.parseInt(value.substring(friendsServerColon(value) + 1));
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("--friendsServer needs host:port, got " + value);
+        }
+    }
+
+    private static int friendsServerColon(String value) {
+        int colon = value.lastIndexOf(':');
+        if (colon <= 0 || colon == value.length() - 1) {
+            throw new IllegalArgumentException("--friendsServer needs host:port, got " + value);
+        }
+        return colon;
     }
 
     public String getAdminToken() {

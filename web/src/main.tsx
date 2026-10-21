@@ -4,6 +4,7 @@ import App from './App'
 import ErrorBoundary from './ui/ErrorBoundary'
 import { preloadInitialLocale } from './i18n'
 import { installErrorCapture } from './system/errorLog'
+import { loadFriendsJoin } from './state/friendsJoin'
 import './styles.css'
 
 installErrorCapture()
@@ -17,6 +18,8 @@ async function start() {
     const { seedDemoSession } = await import('./demo/boot')
     await seedDemoSession()
   }
+  // before the first render: the reload reconnect and the login both read the answer
+  await loadFriendsJoin()
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ErrorBoundary>

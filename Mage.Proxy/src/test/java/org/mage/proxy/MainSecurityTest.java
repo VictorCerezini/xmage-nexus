@@ -79,4 +79,12 @@ class MainSecurityTest {
         assertTrue(csp.contains("default-src 'self'"));
         assertTrue(!csp.contains("unsafe-eval"));
     }
+
+    @Test
+    void theWebClientsFontsMayLoad() {
+        // index.html links Google Fonts: blocked, every page this proxy serves fell back to system fonts
+        String csp = Main.CONTENT_SECURITY_POLICY;
+        assertTrue(csp.contains("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;"), csp);
+        assertTrue(csp.contains("font-src 'self' https://fonts.gstatic.com data:;"), csp);
+    }
 }

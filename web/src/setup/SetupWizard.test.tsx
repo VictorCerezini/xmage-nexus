@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import SetupWizard from './SetupWizard'
 import { isSetupDone } from './setupFlag'
 import { loadConn } from '../state/persistence'
+import { setFriendsJoin } from '../state/friendsJoin'
 
 const mockStorage: Record<string, string> = {}
 
@@ -98,6 +99,25 @@ describe('SetupWizard', () => {
     expect(saved?.username).toBe('nuevo')
     expect(saved?.serverHost).toBe('beta.xmage.today')
     expect(seen).toHaveLength(1)
+  })
+
+  it("a friend's page skips the server step and saves the host's connection", () => {
+    setFriendsJoin({ wsHost: '26.10.20.30', wsPort: 8777 })
+    try {
+      render(<SetupWizard onClose={() => {}} />)
+      next()
+      fireEvent.change(screen.getByTestId('setup-username'), { target: { value: 'friend' } })
+      next()
+      expect(screen.queryByTestId('setup-preset-official')).toBeNull()
+      expect(screen.getByTestId('settings-layout-arena')).toBeTruthy()
+      next(2)
+      expect(screen.getByTestId('setup-counter').textContent).toContain('5')
+      fireEvent.click(screen.getByTestId('setup-enter'))
+      setFriendsJoin(null)
+      expect(loadConn()).toMatchObject({ wsHost: '26.10.20.30', proxyPort: 8777, username: 'friend' })
+    } finally {
+      setFriendsJoin(null)
+    }
   })
 
   it('custom server preset reveals network fields', () => {

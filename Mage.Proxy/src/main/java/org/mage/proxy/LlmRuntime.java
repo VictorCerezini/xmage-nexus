@@ -40,6 +40,10 @@ final class LlmRuntime {
         if (!config.isLlmEnabled()) {
             return null;
         }
+        if (config.isFriendsMode()) {
+            throw new IllegalStateException("--llm cannot run with --friendsServer: the proxy friends join"
+                    + " never seats models, they spend this machine's subscriptions");
+        }
         if (!isLoopbackHost(config.getBindAddress())) {
             throw new IllegalStateException("--llm needs the proxy bound to loopback, not --bind "
                     + config.getBindAddress() + ": model seats spend this machine's subscriptions");

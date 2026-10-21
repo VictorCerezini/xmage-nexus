@@ -42,6 +42,7 @@ export const en = {
   },
   login: {
     subtitle: 'Modern high-performance web client for XMage',
+    friends_joining: 'Joining the game hosted at {host}',
     tagline_1: 'Tap, untap, win',
     tagline_2: 'Your table is waiting',
     tagline_3: 'Shuffle up and play',

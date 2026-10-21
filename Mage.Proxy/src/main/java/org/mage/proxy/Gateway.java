@@ -292,6 +292,9 @@ public class Gateway extends WebSocketServer {
             send(conn, ProxyProtocol.resultJson("ping", pingRequestId, true, null, "pong"));
             return;
         }
+        if (config.isFriendsMode()) {
+            message = toFriendsServer(message, config.getFriendsServerHost(), config.getFriendsServerPort());
+        }
         ProxyClient pc = byConn.get(conn);
         if (pc != null && !pc.isReleased()) {
             pc.onClientMessage(conn, message);
@@ -488,9 +491,15 @@ public class Gateway extends WebSocketServer {
      * a "virtual host" {@code http://tauri.localhost}, the same local process
      * with a different host, so it is accepted explicitly besides "localhost"
      * itself.
+     * <p>
+     * In friends mode the page this proxy serves is also accepted when it was opened at one of
+     * this machine's own addresses, which is how a friend reaches it over a LAN or a VPN.
      */
     boolean originAllowed(String origin) {
         if (origin == null || origin.isEmpty()) {
+            return true;
+        }
+        if (config.isFriendsMode() && isOwnPageOrigin(origin, config.getHttpPort())) {
             return true;
         }
         Set<String> allowed = config.getAllowedOrigins();
@@ -511,6 +520,56 @@ public class Gateway extends WebSocketServer {
                     || h.equals("tauri.localhost") || h.equals("ipc.localhost");
         } catch (Exception ex) {
             return false;
+        }
+    }
+
+    private static final java.util.regex.Pattern IPV4_LITERAL = java.util.regex.Pattern.compile(
+            "((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)");
+
+    /**
+     * The page served on {@code httpPort}, opened at an address of this machine: plain http, that
+     * port, and an IP literal held by a local interface. A name is never resolved, so a DNS name
+     * pointed at this machine (DNS rebinding) does not pass.
+     */
+    static boolean isOwnPageOrigin(String origin, int httpPort) {
+        try {
+            URI uri = new URI(origin);
+            String host = uri.getHost();
+            if (host == null || uri.getPort() != httpPort || !"http".equalsIgnoreCase(uri.getScheme())) {
+                return false;
+            }
+            String literal = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+            if (!IPV4_LITERAL.matcher(literal).matches() && !literal.contains(":")) {
+                return false;
+            }
+            java.net.InetAddress address = java.net.InetAddress.getByName(literal);
+            return address.isLoopbackAddress() || java.net.NetworkInterface.getByInetAddress(address) != null;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
+     * A friends-mode {@code connect} always logs in to the host's own server: the page's host and
+     * port are replaced, so the proxy friends reach is never a way to open sessions elsewhere.
+     * Anything else, including JSON that does not parse, goes on unchanged.
+     */
+    static String toFriendsServer(String message, String host, int port) {
+        if (!message.contains("\"connect\"")) {
+            return message;
+        }
+        try {
+            JsonObject cmd = JsonParser.parseString(message).getAsJsonObject();
+            if (!cmd.has("action") || !"connect".equals(cmd.get("action").getAsString())) {
+                return message;
+            }
+            JsonObject args = cmd.has("args") && cmd.get("args").isJsonObject() ? cmd.getAsJsonObject("args") : new JsonObject();
+            args.addProperty("host", host);
+            args.addProperty("port", port);
+            cmd.add("args", args);
+            return cmd.toString();
+        } catch (Exception ex) {
+            return message;
         }
     }
 

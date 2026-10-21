@@ -10,6 +10,7 @@ import CountryFlag from '../lobby/CountryFlag'
 import { guessDefaultFlag } from '../lobby/defaultFlag'
 import { sortedFlags, countryName, type ServerPreset } from '../lobby/flags'
 import { loadConn, saveConn, type ConnectionInfo } from '../state/persistence'
+import { friendsConnection, friendsJoin } from '../state/friendsJoin'
 import { markSetupDone, SETUP_CONN_EVENT } from './setupFlag'
 import './SetupWizard.css'
 import Field from '../ui/Field'
@@ -27,6 +28,11 @@ interface ServerDraft {
 }
 
 function initialServerDraft(): ServerDraft {
+  const join = friendsJoin()
+  if (join) {
+    const friends = friendsConnection(join)
+    return { preset: 'custom', proxyHost: friends.wsHost, proxyPort: friends.proxyPort, serverHost: friends.serverHost, port: String(friends.port) }
+  }
   const saved = loadConn()
   const base: ServerDraft = {
     preset: 'local',
@@ -66,8 +72,10 @@ export default function SetupWizard({ onClose }: { onClose: () => void }) {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
   const [server, setServer] = useState<ServerDraft>(initialServerDraft)
   const [identityError, setIdentityError] = useState(false)
+  // a friend's page has no server to pick: it joins the host that served it
+  const [steps] = useState(() => (friendsJoin() ? STEPS.filter((s) => s !== 'server') : STEPS))
 
-  const stepId = STEPS[step]
+  const stepId = steps[step]
   const isLast = stepId === 'done'
   // U4-2: el servidor público (beta) no usa contraseñas; el campo se
   // deshabilita, se limpia y no viaja en la conexión guardada.
@@ -99,7 +107,7 @@ export default function SetupWizard({ onClose }: { onClose: () => void }) {
 
   const finish = () => {
     if (!username.trim()) {
-      setStep(STEPS.indexOf('identity'))
+      setStep(steps.indexOf('identity'))
       setIdentityError(true)
       return
     }
@@ -136,7 +144,7 @@ export default function SetupWizard({ onClose }: { onClose: () => void }) {
       kickerIcon="sparkles"
       kickerLabel={t('setup', 'title')}
       title={t('setup', stepId === 'language' ? 'welcome_title' : stepId === 'done' ? 'done_title' : `step_${stepId}` as 'step_language')}
-      topRight={<span className="setup-counter" data-testid="setup-counter">{t('setup', 'step_of', { current: step + 1, total: STEPS.length })}</span>}
+      topRight={<span className="setup-counter" data-testid="setup-counter">{t('setup', 'step_of', { current: step + 1, total: steps.length })}</span>}
       closeInCorner
     >
       <div className="setup-body">

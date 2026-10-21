@@ -74,10 +74,16 @@ fn default_http() -> u16 {
     8788
 }
 
+/// The proxy friends open in their browser (http://<host address>:8778). Not in the contract:
+/// the launcher alone decides to run it, from the same proxy component.
+const FRIENDS_WS_PORT: u16 = 8777;
+const FRIENDS_HTTP_PORT: u16 = 8778;
+
 struct Processes {
     server: Mutex<Option<Child>>,
     proxy: Mutex<Option<Child>>,
     proxy_xdhs: Mutex<Option<Child>>,
+    proxy_friends: Mutex<Option<Child>>,
 }
 
 struct Bootstrap {
@@ -243,7 +249,12 @@ fn hide_console(cmd: &mut Command) {
 }
 
 fn kill_all(processes: &State<Processes>) {
-    for slot in [&processes.server, &processes.proxy, &processes.proxy_xdhs] {
+    for slot in [
+        &processes.server,
+        &processes.proxy,
+        &processes.proxy_xdhs,
+        &processes.proxy_friends,
+    ] {
         if let Ok(mut guard) = slot.lock() {
             if let Some(mut child) = guard.take() {
                 let _ = child.kill();
@@ -329,6 +340,49 @@ fn start_proxy(
         .stderr(append_log(&paths.logs.join(log_name)));
     hide_console(&mut cmd);
     cmd.spawn().map_err(|e| format!("proxy: {e}"))
+}
+
+/// Copies the game page the app carries out to a folder (once per build) and starts the proxy
+/// friends join from the main proxy component, on its own ports, workdir and card database.
+fn start_friends_proxy(
+    app: &AppHandle,
+    paths: &layout::Paths,
+    java: &Path,
+    release: &str,
+    contract: &Contract,
+) -> Result<Child, String> {
+    let web = layout::friends_web_dir(paths);
+    let resolver = app.asset_resolver();
+    let index = resolver
+        .get("index.html".to_string())
+        .ok_or("the app carries no game page")?
+        .bytes;
+    let version = app.package_info().version.to_string();
+    if !layout::friends_page_current(&web, &version, &index) {
+        let files = resolver.iter().filter_map(|(name, _)| {
+            let name = name.into_owned();
+            resolver.get(name.clone()).map(|asset| (name, asset.bytes))
+        });
+        layout::write_friends_page(&web, &version, files)
+            .map_err(|e| format!("friends page: {e}"))?;
+    }
+    let friends = ContractProxy {
+        main_class: contract.proxy.main_class.clone(),
+        jar: contract.proxy.jar.clone(),
+        add_opens: contract.proxy.add_opens.clone(),
+        ws_port: FRIENDS_WS_PORT,
+        http_port: FRIENDS_HTTP_PORT,
+    };
+    start_proxy(
+        paths,
+        java,
+        release,
+        "proxy",
+        &friends,
+        "proxy-friends.log",
+        &paths.root.join("proxy-friends"),
+        &layout::friends_proxy_args(&web, contract.server.port),
+    )
 }
 
 fn run_bootstrap(app: AppHandle) {
@@ -600,6 +654,19 @@ fn bootstrap(app: &AppHandle) -> Result<(), String> {
         }
     }
 
+    // The proxy friends open in their browser, only while hosting. Best-effort like XDHS, and
+    // nothing waits for it: its first card database must not hold up the host's own window.
+    if layout::server_open_to_network(
+        &layout::server_data_dir(&paths)
+            .join("config")
+            .join("config.xml"),
+    ) {
+        match start_friends_proxy(app, &paths, &java, &release, &contract) {
+            Ok(child) => *processes.proxy_friends.lock().unwrap() = Some(child),
+            Err(e) => eprintln!("[bootstrap] friends proxy unavailable: {e} (continuing)"),
+        }
+    }
+
     if !wait_port_or_exit(&processes.proxy, contract.proxy.http_port, 120) {
         kill_all(&processes);
         return Err(format!("ERR_PROXY_START|{}", paths.logs.display()));
@@ -817,6 +884,7 @@ fn main() {
             server: Mutex::new(None),
             proxy: Mutex::new(None),
             proxy_xdhs: Mutex::new(None),
+            proxy_friends: Mutex::new(None),
         })
         .manage(Bootstrap::initial())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

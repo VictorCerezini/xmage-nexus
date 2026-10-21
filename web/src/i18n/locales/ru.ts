@@ -44,6 +44,7 @@ export const ru: TranslationSchema = {
   },
   login: {
     subtitle: 'Современный высокопроизводительный веб-клиент для XMage',
+    friends_joining: 'Вы присоединяетесь к игре на {host}',
     tagline_1: 'Тап, антап, победа',
     tagline_2: 'Твой стол ждёт',
     tagline_3: 'Перемешай и играй',
