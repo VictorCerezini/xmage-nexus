@@ -232,15 +232,15 @@ async function submitTournament(f: SubmitTableForm, io: SubmitTableIO): Promise<
         ...(finalMyDeck ? { deck: finalMyDeck, deckType, gameType } : {}),
         password: password.trim() || undefined,
       })
-      if (finalMyDeck && f.myDeck) {
-        setMyDeck(f.myDeck)
-      }
       if (!join.ok) {
         const code = join.errorCode
         const raw = join.error || code || t('errors','join_table_failed')
         setError(tError(raw, 'joinTournamentTable', code) ?? raw)
         discardTable(tableId)
         return
+      }
+      if (finalMyDeck) {
+        setMyDeck(finalMyDeck)
       }
     }
   }
@@ -388,7 +388,6 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
         gameType,
         password: password.trim() || undefined,
       })
-      setMyDeck(myDeck)
       if (!join.ok) {
         const code = join.errorCode
         const raw = join.error || code || t('errors','join_table_failed')
@@ -396,6 +395,7 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
         discardTable(tableId)
         return
       }
+      setMyDeck(finalMyDeck)
     }
   }
   io.onClose()

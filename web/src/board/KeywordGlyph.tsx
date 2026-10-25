@@ -1,15 +1,11 @@
-import type { ReactNode } from 'react'
+import { createElement, type CSSProperties, type ReactNode } from 'react'
 import type { KeywordIconSet } from './cardOverlays'
+import { resolveKeywordGlyph, type SolidKeyword } from './glyphs'
+import type { GlyphNode } from './glyphs/types'
+import { useSettings } from '../state/store'
+import './KeywordCoin.css'
 
-export const GLYPH_KEYWORDS = ['haste', 'deathtouch', 'flying', 'lifelink', 'trample', 'indestructible', 'hexproof'] as const
-
-export type GlyphKeyword = (typeof GLYPH_KEYWORDS)[number]
-
-export function isGlyphKeyword(id: string): id is GlyphKeyword {
-  return (GLYPH_KEYWORDS as readonly string[]).includes(id)
-}
-
-const SOLID: Record<GlyphKeyword, ReactNode> = {
+const SOLID: Record<SolidKeyword, ReactNode> = {
   haste: <path d="M13.5 1.5 4 13.5h6.5L9 22.5l10-12.5h-6.6z" />,
   deathtouch: (
     <path
@@ -37,7 +33,7 @@ const SOLID: Record<GlyphKeyword, ReactNode> = {
   ),
 }
 
-const OUTLINE: Record<GlyphKeyword, ReactNode> = {
+const OUTLINE: Record<SolidKeyword, ReactNode> = {
   haste: <path d="M13.5 2 4.5 13.5h6.5L10 22l9.5-12H13z" />,
   deathtouch: (
     <>
@@ -83,14 +79,41 @@ const OUTLINE: Record<GlyphKeyword, ReactNode> = {
   ),
 }
 
-export default function KeywordGlyph({ keyword, set }: { keyword: GlyphKeyword; set: KeywordIconSet }) {
+function camelAttr(name: string): string {
+  return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
+}
+
+function renderNode([tag, attrs]: GlyphNode, index: number) {
+  const props: Record<string, string | number> = { key: index }
+  for (const [name, value] of Object.entries(attrs)) props[camelAttr(name)] = value
+  return createElement(tag, props)
+}
+
+const STROKE_PROPS = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const
+
+export default function KeywordGlyph({ id, category, set }: { id: string; category: string; set: KeywordIconSet }) {
+  const spec = resolveKeywordGlyph(id, category)
+  if (spec.kind === 'abbr') return <span className="kw-coin-abbr" aria-hidden="true">{spec.text}</span>
+  if (spec.kind === 'nodes' || spec.kind === 'fallback') return <svg {...STROKE_PROPS}>{spec.nodes.map(renderNode)}</svg>
   return set === 'outline' ? (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {OUTLINE[keyword]}
-    </svg>
+    <svg {...STROKE_PROPS}>{OUTLINE[spec.id]}</svg>
   ) : (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      {SOLID[keyword]}
+      {SOLID[spec.id]}
     </svg>
+  )
+}
+
+export function KeywordCoin({ id, category, size, set, className }: { id: string; category: string; size?: number; set?: KeywordIconSet; className?: string }) {
+  const settings = useSettings()
+  const iconSet = set ?? settings.keywordIcons
+  return (
+    <span
+      className={`kw-coin icons-${iconSet} cat-${category} kw-${id}${className ? ` ${className}` : ''}`}
+      style={size ? ({ '--kw-size': `${size}px` } as CSSProperties) : undefined}
+      aria-hidden="true"
+    >
+      <KeywordGlyph id={id} category={category} set={iconSet} />
+    </span>
   )
 }

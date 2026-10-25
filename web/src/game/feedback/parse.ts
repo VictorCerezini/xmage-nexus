@@ -68,7 +68,7 @@ export function parseFeedback(
       const blockers = stringList(options.possibleBlockers)
       if (attackers.length > 0 || blockers.length > 0) {
         const attacking = attackers.length > 0
-        return prompt(
+        const fp = prompt(
           method,
           gameId,
           attacking ? t('game', 'declare_attackers') : t('game', 'declare_blockers'),
@@ -83,6 +83,8 @@ export function parseFeedback(
           undefined,
           attacking && typeof options.specialButton === 'string',
         )
+        if (attacking) fp.isDeclaringAttackers = true
+        return fp
       }
       // GAME_SELECT de prioridad: sin diálogo (el tablero queda interactivo)
       return null
@@ -203,7 +205,7 @@ export function parseFeedback(
         choices = [...choices].sort((a, b) => (sortRank(a) ?? Number.MAX_SAFE_INTEGER) - (sortRank(b) ?? Number.MAX_SAFE_INTEGER))
       }
       return prompt(method, gameId, t('game', 'choose_option'), stringValue(choice.message) ?? message, 'string', choices, bounds,
-        undefined, undefined, true, subMessageOf(choice), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, choice.required !== false, subMessageOf(choice), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         choiceHints(asRecord(choice.hintData)), choice.specialEnabled === true, choice.searchEnabled !== false)
     }
     case 'GAME_CHOOSE_PILE': {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatSeatHistory, isDirectTournamentJoin, isUserInGame } from './lobbyUtils'
+import { formatSeatHistory, getMyActiveTables, isDirectTournamentJoin, isMyTable, isUserInGame, tableOwnerName } from './lobbyUtils'
 import type { TableView } from '../net/types'
 
 function table(over: Partial<TableView>): TableView {
@@ -30,20 +30,20 @@ function table(over: Partial<TableView>): TableView {
 }
 
 describe('isDirectTournamentJoin', () => {
-  it('torneo limitado sin password entra directo', () => {
+  it('LBY-7: a limited tournament without a password is joined directly', () => {
     expect(isDirectTournamentJoin(table({ isTournament: true, gameType: 'Booster Draft' }))).toBe(true)
     expect(isDirectTournamentJoin(table({ isTournament: true, gameType: 'Sealed Deck' }))).toBe(true)
   })
 
-  it('torneo construido pide mazo en el diálogo', () => {
+  it('LBY-7: a constructed tournament asks for a deck in the dialog', () => {
     expect(isDirectTournamentJoin(table({ isTournament: true, gameType: 'Constructed - Modern' }))).toBe(false)
   })
 
-  it('torneo con password pide mazo en el diálogo', () => {
+  it('LBY-7: a tournament with a password asks for a deck in the dialog', () => {
     expect(isDirectTournamentJoin(table({ isTournament: true, gameType: 'Booster Draft', passworded: true }))).toBe(false)
   })
 
-  it('mesa normal nunca entra directo', () => {
+  it('LBY-7: a regular table is never joined directly', () => {
     expect(isDirectTournamentJoin(table({ isTournament: false, gameType: 'Booster Draft' }))).toBe(false)
   })
 })
@@ -79,3 +79,30 @@ describe('formatSeatHistory', () => {
   })
 })
 
+
+describe('isMyTable owner match', () => {
+  it("does not count another player's table as mine just because its name contains the user", () => {
+    const joanna = table({ tableId: 'j', controllerName: 'joanna' })
+    expect(isMyTable(joanna, 'ann')).toBe(false)
+    expect(getMyActiveTables([joanna], 'ann')).toEqual([])
+  })
+
+  it('recognizes the owner by exact name, ignoring case and surrounding spaces', () => {
+    const mine = table({ tableId: 'm', controllerName: 'Ann' })
+    expect(isMyTable(mine, 'ann')).toBe(true)
+    expect(isMyTable(mine, ' ANN ')).toBe(true)
+    expect(getMyActiveTables([mine], 'ann')).toEqual([mine])
+  })
+
+  it('uses the first controllerName entry as the owner, like TableCard', () => {
+    const shared = table({ tableId: 's', controllerName: 'ann, joanna' })
+    expect(isMyTable(shared, 'ann')).toBe(true)
+    expect(isMyTable(shared, 'joanna')).toBe(false)
+  })
+})
+
+describe('tableOwnerName', () => {
+  it('returns the first controller name, trimmed', () => {
+    expect(tableOwnerName(table({ controllerName: ' host , guest ' }))).toBe('host')
+  })
+})

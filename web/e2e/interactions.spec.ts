@@ -1,12 +1,10 @@
 import { fakeOnly } from './support/fake-mode'
-import { TABLE } from '../fixtures/table-names'
-import { DECK } from '../fixtures/deck-names'
 import { test, expect } from './fixtures'
 fakeOnly()
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { startGame } from './support/start-game'
+import { quickStartGame } from './support/start-game'
 import { withFakeServer } from './support/fake-backend'
 import { allInteractionsScenario } from '../fixtures/scenarios/allInteractions'
 import { parsedLen, waitFrame } from './support/frames'
@@ -17,11 +15,8 @@ test('interacciones completas de MTG: GAME_ASK, GAME_CHOOSE_COLOR, GAME_CHOOSE_P
   fs.mkdirSync(SHOTS_DIR, { recursive: true })
 
   await withFakeServer(() => allInteractionsScenario(), async () => {
-    const { pageErrors } = await startGame(page, {
+    const { pageErrors } = await quickStartGame(page, {
       prefix: 'int',
-      tableName: TABLE.allInteractions,
-      deck: DECK.advanced,
-      simDeck: DECK.advanced,
       skipAsks: true,
     })
 
@@ -69,7 +64,7 @@ test('interacciones completas de MTG: GAME_ASK, GAME_CHOOSE_COLOR, GAME_CHOOSE_P
     // ─────────────────────────────────────────────────────────────
     // 4. GAME_TARGET con CardGrid (Tutor / Búsqueda en biblioteca)
     // ─────────────────────────────────────────────────────────────
-    await waitFrame(page, (f) => f.method === 'GAME_TARGET' && f.data?.cardsView1, 'GAME_TARGET CardGrid tutor', 15_000, cursor)
+    await waitFrame(page, (f) => f.method === 'GAME_TARGET' && !!f.data?.cardsView1, 'GAME_TARGET CardGrid tutor', 15_000, cursor)
     const cardGrid = page.locator('.card-grid')
     await expect(cardGrid, 'cuadrícula CardGrid visible').toBeVisible({ timeout: 15_000 })
     await page.waitForTimeout(300)

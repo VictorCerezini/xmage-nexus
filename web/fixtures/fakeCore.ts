@@ -381,8 +381,8 @@ export interface FakeSocketHandle {
 }
 
 class FakeConnection implements FakeConn {
-  private seq = 0
   username?: string
+  private answering: { requestId: string | number; answered: boolean } | null = null
   constructor(
     readonly id: number,
     private readonly ws: FakeSocket,
@@ -404,19 +404,30 @@ class FakeConnection implements FakeConn {
   }
 
   event(method: string, data: unknown, objectId: string | null = null): void {
-    const obj = { type: 'event', method, messageId: ++this.seq, objectId, data }
+    const obj = { type: 'event', method, messageId: this.server.nextMessageId(), objectId, data }
     this.delayed(() => this.raw(obj))
   }
 
   broadcast(method: string, data: unknown, objectId: string | null = null): void {
-    const obj = { type: 'event', method, messageId: ++this.seq, objectId, data }
+    const obj = { type: 'event', method, messageId: this.server.nextMessageId(), objectId, data }
     this.delayed(() => {
       this.raw(obj)
       this.server.broadcast(obj, this.id)
     })
   }
 
+  beginRequest(requestId: string | number): void {
+    this.answering = { requestId, answered: false }
+  }
+
+  endRequest(): boolean {
+    const answered = this.answering?.answered ?? false
+    this.answering = null
+    return answered
+  }
+
   ok(requestId: string | number, action: string, data?: unknown): void {
+    this.markAnswered(requestId)
     const obj = { type: 'result', action, requestId, ok: true, data }
     if (this.echoDelayMs > 0 && DELAYED_RESULT_ACTIONS.test(action)) {
       this.delayed(() => this.raw(obj))
@@ -426,7 +437,12 @@ class FakeConnection implements FakeConn {
   }
 
   fail(requestId: string | number, action: string, error: string, errorCode?: string): void {
+    this.markAnswered(requestId)
     this.raw({ type: 'result', action, requestId, ok: false, error, errorCode })
+  }
+
+  private markAnswered(requestId: string | number): void {
+    if (this.answering?.requestId === requestId) this.answering.answered = true
   }
 
   lobby(tables: TableView[], users: UsersView[] = []): void {
@@ -448,6 +464,7 @@ export class FakeServerCore {
   private conns = new Set<FakeConnection>()
   private cleanups: (() => void)[] = []
   private scenarioInstance: Scenario | null = null
+  private messageSeq = 0
 
   constructor(
     private readonly makeScenario: () => Scenario,
@@ -496,16 +513,25 @@ export class FakeServerCore {
           return
         }
       }
+      conn.beginRequest(requestId)
       try {
         scenario.onAction?.(conn, action, args, requestId)
       } catch (err) {
         console.error(`[fake] handler for "${action}" failed: ${(err as Error).message}`)
         conn.fail(requestId, action, `fixture error: ${(err as Error).message}`)
+        conn.endRequest()
         return
       }
-      conn.ok(requestId, action, DEFAULT_RESULTS[action])
+      if (!conn.endRequest()) conn.ok(requestId, action, DEFAULT_RESULTS[action])
     }
     return { message, close }
+  }
+
+  /** Session messageId (one server-wide counter, like the proxy's): the client orders a
+   *  game's events by it, so an event emitted from another connection must never look
+   *  older than the ones before it. */
+  nextMessageId(): number {
+    return ++this.messageSeq
   }
 
   broadcast(obj: unknown, exceptId?: number): void {

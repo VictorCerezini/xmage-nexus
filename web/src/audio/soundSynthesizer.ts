@@ -433,5 +433,110 @@ export function synthesizeSound(ctx: AudioContext, key: SoundKey): AudioBuffer {
       }
       return buf
     }
+
+    case 'shuffle': {
+      const duration = 0.62
+      const buf = makeBuffer(ctx, duration)
+      const data = buf.getChannelData(0)
+      const sr = ctx.sampleRate
+      const onePole = (hz: number) => 1 - Math.exp((-2 * Math.PI * hz) / sr)
+      // Riffle: card edges slipping off the thumb, spacing shrinking from 28 ms to 11 ms.
+      const flicks: Array<{ at: number; amp: number; decay: number }> = []
+      for (let at = 0.03, n = 0; at < 0.4; n++) {
+        flicks.push({ at, amp: 0.55 + Math.random() * 0.45, decay: 140 + Math.random() * 80 })
+        at += 0.028 - 0.017 * Math.min(1, n / 18) + (Math.random() - 0.5) * 0.004
+      }
+      const settleAt = 0.44
+      const lpFlick = onePole(2000)
+      const hpFlick = onePole(450)
+      const lpBed = onePole(900)
+      const lpTap = onePole(420)
+      let f1 = 0
+      let f2 = 0
+      let fLow = 0
+      let fHigh = 0
+      let bed1 = 0
+      let bed = 0
+      let tap1 = 0
+      let tapNoise = 0
+      let next = 0
+      let current = -1
+      let peak = 0
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr
+        while (next < flicks.length && flicks[next].at <= t) current = next++
+        const white = Math.random() * 2 - 1
+        let flick = 0
+        if (current >= 0) {
+          const f = flicks[current]
+          const dt = t - f.at
+          const env = Math.min(1, dt / 0.0008) * Math.exp(-dt * f.decay)
+          flick = white * env * f.amp
+        }
+        f1 += lpFlick * (flick - f1)
+        f2 += lpFlick * (f1 - f2)
+        fLow += lpFlick * (f2 - fLow)
+        fHigh += hpFlick * (fLow - fHigh)
+        const swell = t < 0.42 ? Math.sin(Math.PI * Math.min(1, t / 0.42)) ** 0.5 : 0
+        bed1 += lpBed * (white - bed1)
+        bed += lpBed * (bed1 - bed)
+        let settle = 0
+        if (t >= settleAt) {
+          const dt = t - settleAt
+          tap1 += lpTap * (white - tap1)
+          tapNoise += lpTap * (tap1 - tapNoise)
+          settle = tapNoise * Math.exp(-dt * 38) * 5 + Math.sin(2 * Math.PI * 105 * dt) * Math.exp(-dt * 28) * 0.22
+        }
+        const v = (fLow - fHigh) * swell * 6 + bed * swell * 0.25 + settle
+        data[i] = v
+        peak = Math.max(peak, Math.abs(v))
+      }
+      const fadeFrom = Math.floor(sr * (duration - 0.04))
+      const gain = peak > 0 ? 0.5 / peak : 0
+      for (let i = 0; i < data.length; i++) {
+        const fade = i > fadeFrom ? Math.max(0, 1 - (i - fadeFrom) / (data.length - fadeFrom)) : 1
+        data[i] *= gain * fade
+      }
+      return buf
+    }
+
+    case 'dice_roll': {
+      const duration = 1.1
+      const buf = makeBuffer(ctx, duration)
+      const data = buf.getChannelData(0)
+      const sr = ctx.sampleRate
+      // Bounces on the table: each clack quieter and closer to the previous one, then a short rattle.
+      const clacks: Array<{ at: number; amp: number; hz: number }> = []
+      let at = 0.12
+      let gap = 0.2
+      let amp = 1
+      while (at < 0.95 && amp > 0.08) {
+        clacks.push({ at, amp, hz: 1700 + Math.random() * 900 })
+        at += gap
+        gap *= 0.62
+        amp *= 0.72
+      }
+      const lp = 1 - Math.exp((-2 * Math.PI * 3200) / sr)
+      let low = 0
+      let peak = 0
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr
+        let v = 0
+        for (const c of clacks) {
+          if (t < c.at) break
+          const dt = t - c.at
+          if (dt > 0.08) continue
+          v += Math.sin(2 * Math.PI * c.hz * dt) * Math.exp(-dt * 90) * c.amp * 0.6
+          v += Math.sin(2 * Math.PI * 180 * dt) * Math.exp(-dt * 60) * c.amp * 0.5
+          v += (Math.random() * 2 - 1) * Math.exp(-dt * 700) * c.amp * 0.5
+        }
+        low += lp * (v - low)
+        data[i] = low
+        peak = Math.max(peak, Math.abs(low))
+      }
+      const gain = peak > 0 ? 0.55 / peak : 0
+      for (let i = 0; i < data.length; i++) data[i] *= gain
+      return buf
+    }
   }
 }

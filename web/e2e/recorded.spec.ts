@@ -1,14 +1,14 @@
-import { DECK } from '../fixtures/deck-names'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from './fixtures'
 import { fakeOnly } from './support/fake-mode'
-import { startGame } from './support/start-game'
+import { quickStartGame } from './support/start-game'
 import { withFakeServer } from './support/fake-backend'
 import { playableInSceneByName } from './support/scene'
 import { expectStackCount, openDrawerTab } from './support/game-screen'
-import { replayRecordedScenario, REPLAY_TABLE_NAME } from '../fixtures/scenarios/replay-recorded'
+import { mutatePileOf } from './support/frames'
+import { replayRecordedScenario } from '../fixtures/scenarios/replay-recorded'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const manifest = JSON.parse(
@@ -29,11 +29,7 @@ test.describe('Recorded real frames (anti-drift smoke)', { tag: '@recorded' }, (
   for (const entry of replayable) {
     test(`${entry.mechanic} (${entry.file}) renderiza sin errores`, async ({ page }) => {
       await withFakeServer(() => replayRecordedScenario(entry.file), async () => {
-        const { pageErrors } = await startGame(page, {
-          prefix: `rec-${entry.mechanic}`,
-          tableName: REPLAY_TABLE_NAME,
-          deck: DECK.advanced,
-        })
+        const { pageErrors } = await quickStartGame(page, { prefix: `rec-${entry.mechanic}` })
 
         expect(pageErrors).toEqual([])
 
@@ -70,16 +66,22 @@ test.describe('Recorded real frames (anti-drift smoke)', { tag: '@recorded' }, (
 
         if (entry.assert === 'hasMutatedPermanent') {
           await expect(page.locator('.player-zone .card-mutate-pile')).toBeVisible()
-          await expect(page.locator('.player-zone .card-mutate-pile .mutate-part')).toHaveCount(2)
+          const pile = mutatePileOf((JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'recorded', entry.file), 'utf8')) as { gameView: Record<string, unknown> }).gameView)
+          expect(pile, `${entry.file}: el frame debe tener una pila mutada`).not.toBeNull()
+          expect(pile!.under).toHaveLength(pile!.cards - 1)
+          await expect(page.locator('.player-zone .card-mutate-pile .mutate-part')).toHaveCount(pile!.under.length)
         }
         if (entry.assert === 'hasNonMutatedCreature') {
           await expect(page.locator('.player-zone .card-slot[data-card-name="Elvish Mystic"]')).toBeVisible()
         }
         if (entry.assert === 'hasCounterOnStack') {
           await expectStackCount(page, 2)
-          await page.locator('.stack-zone .stack-tl-entry').first().hover()
           const preview = page.locator('.stack-zone .floating-card-preview')
-          await expect(preview).toBeVisible({ timeout: 10_000 })
+          await expect(async () => {
+            await page.mouse.move(0, 0)
+            await page.locator('.stack-zone .stack-tl-entry').first().hover()
+            await expect(preview).toBeVisible({ timeout: 2_000 })
+          }).toPass({ timeout: 20_000 })
           const box = await preview.boundingBox()
           const viewport = page.viewportSize()
           expect(box, 'el preview de la pila tiene caja').not.toBeNull()
@@ -93,16 +95,17 @@ test.describe('Recorded real frames (anti-drift smoke)', { tag: '@recorded' }, (
           await expect(marquee).toBeVisible()
           const stackPanel = page.locator('[data-testid="game-drawer"] .stack-zone')
           await expect(stackPanel).toBeVisible()
-          const pw = await marquee.boundingBox()
-          const stack = await stackPanel.boundingBox()
-          expect(pw).not.toBeNull()
-          expect(stack).not.toBeNull()
-          const overlaps =
-            pw!.x < stack!.x + stack!.width &&
-            stack!.x < pw!.x + pw!.width &&
-            pw!.y < stack!.y + stack!.height &&
-            stack!.y < pw!.y + pw!.height
-          expect(overlaps, 'la pila no tapa el planeswalker').toBe(false)
+          await expect.poll(async () => {
+            const pw = await marquee.boundingBox()
+            const stack = await stackPanel.boundingBox()
+            if (!pw || !stack) return 'missing'
+            const overlaps =
+              pw.x < stack.x + stack.width &&
+              stack.x < pw.x + pw.width &&
+              pw.y < stack.y + stack.height &&
+              stack.y < pw.y + pw.height
+            return overlaps ? 'overlap' : 'clear'
+          }, { message: 'la pila no tapa el planeswalker', timeout: 5_000 }).toBe('clear')
         }
         if (entry.assert === 'hasTokens') {
           await expect(page.locator('.player-zone .card-slot[data-card-name="Goblin Token"]')).toHaveCount(2)

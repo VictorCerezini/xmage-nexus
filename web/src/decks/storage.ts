@@ -4,7 +4,6 @@ import { getGateway } from '../net/commands'
 import { friendsJoin } from '../state/friendsJoin'
 import { HostDeckStorage, type SendCommand } from './hostDeckStorage'
 import type { DeckV2 } from './types'
-import { makeDeckId } from './types'
 
 const sendToProxy: SendCommand = async (action, args) => {
   try {
@@ -107,11 +106,20 @@ function lsSaveAll(decks: DeckV2[]): void {
   }
 }
 
+function hash32(text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(36)
+}
+
 function legacyToV2(decks: Deck[]): DeckV2[] {
   const now = Date.now()
-  return decks.map((d) => ({
+  return decks.map((d, i) => ({
     ...d,
-    id: makeDeckId(),
+    id: d.id || `legacy-${hash32(JSON.stringify([i, d.name, d.cards]))}`,
     format: (d.cards.reduce((s, c) => s + c.amount, 0) >= 99 ? 'Commander' : 'Freeform') as DeckV2['format'],
     colors: [],
     favorite: false,
@@ -216,22 +224,31 @@ export interface DeckStorage {
   count(): Promise<number>
 }
 
+function newestById(...sources: DeckV2[][]): DeckV2[] {
+  const byId = new Map<string, DeckV2>()
+  for (const d of sources.flat()) {
+    const prev = byId.get(d.id)
+    if (!prev || d.updatedAt > prev.updatedAt) byId.set(d.id, d)
+  }
+  return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
 class IdbDeckStorage implements DeckStorage {
   async list(): Promise<DeckV2[]> {
     await migrateIfNeeded()
+    let fromIdb: DeckV2[] = []
     try {
-      return await idbList()
-    } catch {
-      return lsList()
-    }
+      fromIdb = await idbList()
+    } catch {}
+    return newestById(fromIdb, lsList())
   }
   async get(id: string): Promise<DeckV2 | null> {
     await migrateIfNeeded()
+    let fromIdb: DeckV2 | null = null
     try {
-      const v = await idbGetOne(id)
-      if (v) return v
+      fromIdb = await idbGetOne(id)
     } catch {}
-    return lsList().find((d) => d.id === id) ?? null
+    return newestById(fromIdb ? [fromIdb] : [], lsList().filter((d) => d.id === id))[0] ?? null
   }
   async put(deck: DeckV2): Promise<void> {
     await migrateIfNeeded()

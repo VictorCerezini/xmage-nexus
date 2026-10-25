@@ -8,7 +8,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import { cleanupUser, registerHelper } from '../cleanup'
 import { HumanHelper } from '../wshelper'
-import { parsedLen } from './frames'
+import { captureFrame, parsedLen } from './frames'
 import { FAKE_MODE } from '../dual'
 import { getFakePort } from './fake-port'
 
@@ -29,14 +29,14 @@ export function installCapture(page: Page, buffers: CaptureBuffers, maxFrames = 
     // (OOM: ~4GB en un minuto); se guardan solo los últimos MAX_FRAMES, ya
     // parseados (re-parsear en cada poll también agotaba el heap)
     ws.on('framereceived', (e) => {
+      let frame: Record<string, unknown> | null = null
       try {
-        const f = JSON.parse(String(e.payload)) as Record<string, unknown>
-        f.__t = Date.now()
-        buffers.frames.push(f)
+        frame = JSON.parse(String(e.payload)) as Record<string, unknown>
+        frame.__t = Date.now()
       } catch {
-        buffers.frames.push(null)
+        frame = null
       }
-      if (buffers.frames.length > maxFrames) buffers.frames.splice(0, buffers.frames.length - maxFrames)
+      captureFrame(buffers.frames, frame, maxFrames)
     })
     ws.on('framesent', (e) => {
       try {
@@ -280,9 +280,14 @@ export interface StartGameOptions extends CreateTableOptions {
   autoKeepMulligan?: boolean
 }
 
-/** Monta la partida (login → mesa → Sim → arranque), arranca el HumanHelper
- *  (desarrollo de tierras, descartes y asks por WS) y devuelve la sesión. */
-export async function startGame(page: Page, opts: StartGameOptions = {}): Promise<GameSession> {
+interface SessionStart {
+  username: string
+  buffers: CaptureBuffers
+}
+
+/** Login and session settings (frame capture, mulligan auto-keep). Shared by `startGame`
+ *  and `quickStartGame`; only the way the game is reached differs. */
+async function beginSession(page: Page, opts: StartGameOptions): Promise<SessionStart> {
   const prefix = opts.prefix ?? 'e2e'
   // El servidor limita el username a 14 chars y el login lo recorta (maxLength):
   // el helper debe usar EXACTAMENTE el mismo nombre para compartir sesión.
@@ -304,6 +309,13 @@ export async function startGame(page: Page, opts: StartGameOptions = {}): Promis
       store?.setSetting?.('autoSubmitSideboard', true)
     })
   }
+  return { username, buffers }
+}
+
+/** Mounts the game (login → table → Sim → start), starts the HumanHelper
+ *  (land drops, discards and asks over WS) and returns the session. */
+export async function startGame(page: Page, opts: StartGameOptions = {}): Promise<GameSession> {
+  const { username, buffers } = await beginSession(page, opts)
   const tableName = opts.tableName ?? `${username}-t`
   await createTable(page, tableName, opts)
   await waitTableReady(page, tableName)
@@ -314,5 +326,31 @@ export async function startGame(page: Page, opts: StartGameOptions = {}): Promis
   await helper.start()
   await startMatch(page, tableName)
   await helper.waitGameId(20_000)
+  return { page, ...buffers, username, helper, cursor: () => parsedLen(page) }
+}
+
+/** Like `startGame` without the table-creation UI. In fake mode the FixtureServer gets
+ *  START_MATCH from the helper's WS connection (the message the client sends on Start)
+ *  and emits START_GAME + GAME_INIT. The fake never reads deck/simDeck/deckType/sim, so
+ *  passing them throws (use `startGame`); tableName is ignored. Scenarios that begin at
+ *  createTable (draft, tournament) and matches with winsNeeded > 1 need `startGame` too.
+ *  In real mode it delegates to `startGame` unchanged, options included. */
+export async function quickStartGame(page: Page, opts: StartGameOptions = {}): Promise<GameSession> {
+  if (!FAKE_MODE) return startGame(page, opts)
+  if ((opts.winsNeeded ?? 1) > 1) throw new Error('quickStartGame: winsNeeded > 1 needs the table dialog (use startGame)')
+  const tableOnly = (['deck', 'simDeck', 'deckType', 'sim'] as const).filter((key) => opts[key] !== undefined)
+  if (tableOnly.length > 0) {
+    throw new Error(`quickStartGame: the fake mode ignores ${tableOnly.join(', ')} (they belong to the table dialog): use startGame or drop them`)
+  }
+  const { username, buffers } = await beginSession(page, opts)
+  const helper = new HumanHelper(username, 'x', { skipCombat: opts.skipCombat, skipAsks: opts.skipAsks })
+  registerHelper(helper)
+  await helper.start()
+  if (!(await helper.raw('startMatch', {}))) throw new Error('quickStartGame: the FixtureServer rejected startMatch')
+  await helper.waitGameId(20_000)
+  await expect(page.getByTestId('game-status')).toBeVisible({ timeout: 20_000 })
+  // the pointer still rests where the login's Connect button was: park it off the board
+  // so no card preview opens under it before the test acts
+  await page.mouse.move(0, 0)
   return { page, ...buffers, username, helper, cursor: () => parsedLen(page) }
 }

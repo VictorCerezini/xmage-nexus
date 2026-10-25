@@ -25,6 +25,12 @@ export interface FlightRecord {
   fromCompact?: boolean
   /** The clone lands on a compact art-crop tile: it ends as that landscape art crop. */
   toCompact?: boolean
+  /** The clone leaves a hidden zone face down and turns face up halfway. */
+  reveal?: boolean
+  /** The clone leaves face up and turns face down halfway, into a hidden zone. */
+  conceal?: boolean
+  /** A CSS colour the flight glows in (a control change wears the new controller's seat colour). */
+  tint?: string
 }
 
 /** Entrada al campo: subida al centro, pausa y caída (ver FlyingCardOverlay). */
@@ -32,8 +38,10 @@ export const ENTER_FLIGHT_MS = 1100
 /** Fracción de ENTER_FLIGHT_MS en la que la carta toca el suelo. */
 export const ENTER_LAND_AT = 0.8
 export const CAST_FLIGHT_MS = 900
+/** The clone lands this long after its flight duration elapses (its settle pause). */
+const FLIGHT_LAND_LAG_MS = 120
 
-export type FlightVariant = 'destroy' | 'exile' | 'heavy' | 'land' | 'enter'
+export type FlightVariant = 'destroy' | 'exile' | 'heavy' | 'land' | 'enter' | 'phase' | 'sacrifice' | 'copy' | 'control' | 'command' | 'tuck' | 'mutate' | 'animate'
 
 export type FlightTrail = 'gold'
 
@@ -137,6 +145,11 @@ export interface FlightOptions {
   fromCompact?: boolean
   /** The destination is a compact art-crop tile. Defaults to probing `toSelector` in the DOM. */
   toCompact?: boolean
+  /** The card leaves a hidden zone (library, an opponent's hand): it starts face down and turns face up halfway. */
+  reveal?: boolean
+  /** The card goes into a hidden zone (a library): it starts face up and turns face down halfway. */
+  conceal?: boolean
+  tint?: string
 }
 
 /** Whether the element a selector matches is (or sits inside) a compact art-crop tile. */
@@ -265,6 +278,7 @@ export function startCardFlight(
         existing.card = card
         if (options?.variant) existing.variant = options.variant
         if (options?.trail) existing.trail = options.trail
+        if (options?.tint) existing.tint = options.tint
         existing.duration = Math.min(age + Math.round(scaledDuration * 0.8), age + 1200)
         existing.timers?.forEach((t) => clearTimeout(t))
         existing.timers = scheduleFlightTimers(existing)
@@ -299,6 +313,9 @@ export function startCardFlight(
     lift: options?.lift,
     fromCompact: fromCompact || undefined,
     toCompact: toCompact || undefined,
+    reveal: (options?.reveal === true && card.faceDown !== true) || undefined,
+    conceal: (options?.conceal === true && options?.reveal !== true && card.faceDown !== true) || undefined,
+    tint: options?.tint,
   }
 
   activeFlights = [...activeFlights, record]
@@ -327,18 +344,29 @@ export function startCardFlight(
   return flightId
 }
 
+function landingDelayOf(record: FlightRecord, now: number): number {
+  return Math.max(0, record.startTime + record.duration + FLIGHT_LAND_LAG_MS - now)
+}
+
+/** Ms until the clone of a tracked flight lands, or null once it is no longer tracked. */
+export function flightLandingDelay(flightId: string): number | null {
+  const record = activeFlights.find((f) => f.flightId === flightId)
+  return record ? landingDelayOf(record, performance.now()) : null
+}
+
 /** Timers de backstop + limpieza de un vuelo. Se guardan en el record para
  *  poder reprogramarlos al encadenar un redirect en ráfaga. */
 function scheduleFlightTimers(record: FlightRecord): Array<ReturnType<typeof setTimeout>> {
-  const { flightId, duration } = record
+  const { flightId } = record
+  const landIn = landingDelayOf(record, performance.now())
   return [
-    setTimeout(() => markFlightLanded(flightId), duration + 120),
+    setTimeout(() => markFlightLanded(flightId), landIn),
     // El clon permanece montado durante el fade-out posterior al aterrizaje.
     setTimeout(() => {
       activeFlights = activeFlights.filter((f) => f.flightId !== flightId)
       landedListeners.delete(flightId)
       notify()
-    }, duration + 240),
+    }, landIn + 120),
   ]
 }
 

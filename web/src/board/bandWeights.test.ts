@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PermanentView } from '../net/types'
-import { bandFill, bandShares, BAND_FR_EMPTY, BAND_FR_FULL } from './bandWeights'
+import { bandFill, bandShares, permanentKind, BAND_FR_EMPTY, BAND_FR_FULL } from './bandWeights'
 
 function perm(types: string[], over: Partial<PermanentView> = {}): PermanentView {
   return { name: 'X', manaValue: 0, cardTypes: types, ...over } as PermanentView
@@ -22,8 +22,19 @@ describe('bandFill', () => {
     expect(bandFill({ host, aura }, false)).toEqual({ creatures: true, permanents: false })
   })
 
+  it('draws a land that is a creature (Dryad Arbor, an animated Mutavault) with the creatures', () => {
+    expect(bandFill({ a: perm(['LAND', 'CREATURE']) }, false)).toEqual({ creatures: true, permanents: false })
+    expect(permanentKind(perm(['ARTIFACT', 'CREATURE']))).toBe('creatures')
+  })
+
   it('docks sagas and planeswalkers into the creatures band', () => {
     expect(bandFill({ a: perm(['PLANESWALKER']) }, false)).toEqual({ creatures: true, permanents: false })
+  })
+
+  it('BRD-2: a marquee column does not fill the creatures band', () => {
+    expect(bandFill({ a: perm(['PLANESWALKER']) }, false, true)).toEqual({ creatures: false, permanents: false })
+    expect(bandFill({ a: perm(['SAGA']) }, false, true)).toEqual({ creatures: false, permanents: false })
+    expect(bandFill({ a: perm(['PLANESWALKER']), b: perm(['CREATURE']) }, false, true)).toEqual({ creatures: true, permanents: false })
   })
 })
 

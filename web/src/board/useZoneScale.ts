@@ -6,6 +6,7 @@ const MAX_CARD_W = 240
 const MAX_PLAYER_CARD_W = 280
 const MAX_COMPACT_CARD_W = 190
 const MAX_COMPACT_PLAYER_CARD_W = 230
+const MAX_UNLAID_OUT_FRAMES = 30
 
 /**
  * Galería de estados (dev): congela el alto de la fila de estado que usa la
@@ -21,12 +22,18 @@ export function galleryPinnedStatusH(): number | null {
   return Number.isFinite(value) && value > 0 ? value : null
 }
 
+export function layoutSize(el: HTMLElement): { width: number; height: number } {
+  if (el.offsetWidth > 0 && el.offsetHeight > 0) return { width: el.offsetWidth, height: el.offsetHeight }
+  const rect = el.getBoundingClientRect()
+  return { width: rect.width, height: rect.height }
+}
+
 interface ZoneScale {
   cardW: number
   ref: React.RefCallback<HTMLDivElement> & React.RefObject<HTMLDivElement | null>
 }
 
-export function useZoneScale(cardAspect = CLASSIC_CARD_ASPECT, bandShare = 0.5): ZoneScale {
+export function useZoneScale(cardAspect = CLASSIC_CARD_ASPECT, bandShare = 0.5, maxCardW = Infinity): ZoneScale {
   const [el, setEl] = useState<HTMLDivElement | null>(null)
   const nodeRef = useRef<HTMLDivElement | null>(null)
   const [cardW, setCardW] = useState(120)
@@ -41,12 +48,15 @@ export function useZoneScale(cardAspect = CLASSIC_CARD_ASPECT, bandShare = 0.5):
     if (!el) return
 
     let rafId: number | null = null
+    let unlaidOutFrames = 0
 
     const measure = () => {
-      const rect = el.getBoundingClientRect()
+      const rect = layoutSize(el)
       if (rect.height <= 0 || rect.width <= 0) {
-        // Element not yet laid out by browser — re-check on next animation frame
-        if (rafId === null) {
+        // Element not yet laid out by browser — re-check on a few animation frames;
+        // the ResizeObserver below measures again once it gets a size.
+        if (rafId === null && unlaidOutFrames < MAX_UNLAID_OUT_FRAMES) {
+          unlaidOutFrames++
           rafId = requestAnimationFrame(() => {
             rafId = null
             measure()
@@ -54,6 +64,7 @@ export function useZoneScale(cardAspect = CLASSIC_CARD_ASPECT, bandShare = 0.5):
         }
         return
       }
+      unlaidOutFrames = 0
 
       // Measure the status bar (InfoBar + Hand + ResourceBar) or fallback based on mode
       const statusRow = el.querySelector(
@@ -89,7 +100,7 @@ export function useZoneScale(cardAspect = CLASSIC_CARD_ASPECT, bandShare = 0.5):
         ? (isPlayerZone ? MAX_COMPACT_PLAYER_CARD_W : MAX_COMPACT_CARD_W)
         : (isPlayerZone ? MAX_PLAYER_CARD_W : MAX_CARD_W)
 
-      const w = Math.max(MIN_CARD_W, Math.min(maxW, fromHeight))
+      const w = Math.max(MIN_CARD_W, Math.min(maxW, maxCardW, fromHeight))
       setCardW(Math.round(w))
     }
 
@@ -132,7 +143,7 @@ export function useZoneScale(cardAspect = CLASSIC_CARD_ASPECT, bandShare = 0.5):
       ro?.disconnect()
       mo?.disconnect()
     }
-  }, [el, cardAspect, bandShare])
+  }, [el, cardAspect, bandShare, maxCardW])
 
   return { cardW, ref: refCallback }
 }

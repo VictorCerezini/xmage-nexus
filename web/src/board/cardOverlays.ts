@@ -35,6 +35,14 @@ export const KEYWORD_ICON_SETS: readonly KeywordIconSet[] = ['coins', 'outline']
 export function normalizeKeywordIconSet(value: unknown): KeywordIconSet {
   return KEYWORD_ICON_SETS.includes(value as KeywordIconSet) ? (value as KeywordIconSet) : 'coins'
 }
+
+export type KeywordAuraMode = 'off' | 'subtle' | 'vivid'
+
+export const KEYWORD_AURA_MODES: readonly KeywordAuraMode[] = ['off', 'subtle', 'vivid']
+
+export function normalizeKeywordAuraMode(value: unknown): KeywordAuraMode {
+  return KEYWORD_AURA_MODES.includes(value as KeywordAuraMode) ? (value as KeywordAuraMode) : 'subtle'
+}
 export type CardRender = 'image' | 'rendered'
 
 export const CARD_RENDERS: readonly CardRender[] = ['image', 'rendered']
@@ -67,4 +75,17 @@ export function normalizeBoardFill(value: unknown): boolean {
 
 export function normalizeStackCaption(value: unknown): boolean {
   return typeof value === 'boolean' ? value : true
+}
+
+export function normalizeBoardSpotlight(value: unknown): boolean {
+  return value === true
+}
+
+export const SPOTLIGHT_PANEL_MIN = 15
+export const SPOTLIGHT_PANEL_MAX = 35
+export const SPOTLIGHT_PANEL_DEFAULT = 22
+
+export function normalizeBoardSpotlightPanel(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return SPOTLIGHT_PANEL_DEFAULT
+  return Math.min(SPOTLIGHT_PANEL_MAX, Math.max(SPOTLIGHT_PANEL_MIN, Math.round(value)))
 }

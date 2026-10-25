@@ -158,7 +158,7 @@ describe('useTableActions.handleJoinWithDeck', () => {
     reset()
   })
 
-  it('rechaza con el error traducido (lo enseña el diálogo, no el lobby)', async () => {
+  it('LBY-7: rejects with the translated error (the dialog shows it, not the lobby)', async () => {
     vi.mocked(cmds.joinTable).mockReset().mockResolvedValue({ ok: false, error: 'table full' } as any)
     const { result } = renderHook(() => useTableActions({ username: 'player1' } as any))
     const deck = { name: 'd', cards: [], sideboard: [] } as any
@@ -186,7 +186,7 @@ describe('useTableActions.watchTable', () => {
     vi.mocked(cmds.watchTable).mockReset().mockResolvedValue({ ok: true } as any)
   })
 
-  it('mesa de torneo: no entra al staging (el cuadro lo abre SHOW_TOURNAMENT)', async () => {
+  it('LBY-8: a tournament table does not enter the waiting room (SHOW_TOURNAMENT opens the bracket)', async () => {
     const { result } = renderHook(() => useTableActions({ username: 'player1' } as any))
     await act(async () => {
       await result.current.watchTable(tourTable())
@@ -196,7 +196,7 @@ describe('useTableActions.watchTable', () => {
     expect(getState().phase).not.toBe('spectating_pending')
   })
 
-  it('partida normal: sigue entrando al staging de espectador', async () => {
+  it('LBY-8: a regular match enters the spectator waiting room', async () => {
     const { result } = renderHook(() => useTableActions({ username: 'player1' } as any))
     await act(async () => {
       await result.current.watchTable(matchTable())
@@ -252,33 +252,42 @@ describe('useTableActions.joinHuman', () => {
     vi.mocked(cmds.joinTournamentTable).mockReset().mockResolvedValue({ ok: true } as any)
   })
 
-  it('full table: error and no dialog', () => {
+  it('LBY-7: full table: error and no dialog', () => {
     const { result } = renderHook(() => useTableActions({ username: 'me' } as any))
     act(() => result.current.joinHuman(matchTable({ seats: [{ playerName: 'a', playerType: 'HUMAN' }] })))
     expect(getState().error).toBeTruthy()
     expect(result.current.joiningTable).toBeNull()
   })
 
-  it('regular match: opens the deck dialog with the remembered password', () => {
+  it('LBY-7: only AI seats free: error and no dialog, nothing sent', async () => {
+    vi.mocked(cmds.joinTable).mockClear()
     const { result } = renderHook(() => useTableActions({ username: 'me' } as any))
-    act(() => result.current.joinHuman(matchTable(), 'secret'))
+    act(() => result.current.joinHuman(matchTable()))
+    expect(getState().error).toBe(t('errors.table_no_seats'))
+    expect(result.current.joiningTable).toBeNull()
+    expect(cmds.joinTable).not.toHaveBeenCalled()
+  })
+
+  it('LBY-7: regular match: opens the deck dialog with the remembered password', () => {
+    const { result } = renderHook(() => useTableActions({ username: 'me' } as any))
+    act(() => result.current.joinHuman(matchTable({ seats: [{ playerName: 'player1', playerType: 'HUMAN' }, { playerName: '', playerType: 'HUMAN' }] }), 'secret'))
     expect(result.current.joiningTable?.tableId).toBe('t-match')
     expect(result.current.joinPassword).toBe('secret')
     expect(cmds.joinTournamentTable).not.toHaveBeenCalled()
   })
 
-  it('limited tournament without password: joins directly, without a deck', async () => {
+  it('LBY-7: limited tournament without password: joins directly, without a deck', async () => {
     const { result } = renderHook(() => useTableActions({ username: 'me' } as any))
-    await act(async () => { result.current.joinHuman(draftTourTable()) })
+    await act(async () => { result.current.joinHuman(draftTourTable({ seats: [{ playerName: 'player1', playerType: 'HUMAN' }, { playerName: '', playerType: 'HUMAN' }] })) })
     expect(cmds.joinTournamentTable).toHaveBeenCalledWith({ tableId: 't-draft', playerName: 'me', playerType: 'HUMAN', skill: 1 })
     expect(result.current.joiningTable).toBeNull()
     expect(result.current.notice).toBe(t('lobby.waiting_players'))
     expect(result.current.busyTable).toBeNull()
   })
 
-  it('limited tournament with password: goes through the dialog', () => {
+  it('LBY-7: limited tournament with password: goes through the dialog', () => {
     const { result } = renderHook(() => useTableActions({ username: 'me' } as any))
-    act(() => result.current.joinHuman(draftTourTable({ passworded: true })))
+    act(() => result.current.joinHuman(draftTourTable({ passworded: true, seats: [{ playerName: 'player1', playerType: 'HUMAN' }, { playerName: '', playerType: 'HUMAN' }] })))
     expect(result.current.joiningTable?.tableId).toBe('t-draft')
     expect(cmds.joinTournamentTable).not.toHaveBeenCalled()
   })
@@ -286,12 +295,12 @@ describe('useTableActions.joinHuman', () => {
   it('direct tournament join rejected or failed: shows the error and frees the table', async () => {
     vi.mocked(cmds.joinTournamentTable).mockResolvedValueOnce({ ok: false, error: 'table full' } as any)
     const { result } = renderHook(() => useTableActions({ username: 'me' } as any))
-    await act(async () => { result.current.joinHuman(draftTourTable()) })
+    await act(async () => { result.current.joinHuman(draftTourTable({ seats: [{ playerName: 'player1', playerType: 'HUMAN' }, { playerName: '', playerType: 'HUMAN' }] })) })
     expect(getState().error).toBe('La mesa ya está completa')
     expect(result.current.busyTable).toBeNull()
 
     vi.mocked(cmds.joinTournamentTable).mockRejectedValueOnce(new Error('ws closed'))
-    await act(async () => { result.current.joinHuman(draftTourTable()) })
+    await act(async () => { result.current.joinHuman(draftTourTable({ seats: [{ playerName: 'player1', playerType: 'HUMAN' }, { playerName: '', playerType: 'HUMAN' }] })) })
     expect(getState().error).toBeTruthy()
     expect(result.current.busyTable).toBeNull()
   })
@@ -305,7 +314,7 @@ describe('useTableActions.handleJoinWithDeck (sending)', () => {
 
   it('sends the XMage-prepared deck and closes the dialog', async () => {
     const { result } = renderHook(() => useTableActions({ username: 'me' } as any))
-    act(() => result.current.joinHuman(matchTable(), 'pw'))
+    act(() => result.current.joinHuman(matchTable({ seats: [{ playerName: 'player1', playerType: 'HUMAN' }, { playerName: '', playerType: 'HUMAN' }] }), 'pw'))
     const deck = { name: 'd', cards: [{ cardName: 'Forest', setCode: '', cardNumber: '', amount: 60 }], sideboard: [] } as any
     await act(async () => { await result.current.handleJoinWithDeck(matchTable(), deck, 'pw') })
 
@@ -378,7 +387,7 @@ describe('useTableActions: start/watch/remove errors', () => {
     expect(result.current.busyTable).toBeNull()
   })
 
-  it('watchTable rejected or failed does not enter staging', async () => {
+  it('LBY-8: watchTable rejected or failed does not enter staging', async () => {
     vi.mocked(cmds.watchTable).mockReset().mockResolvedValueOnce({ ok: false } as any).mockRejectedValueOnce(new Error('ws closed'))
     const { result } = renderHook(() => useTableActions({ username: 'me' } as any))
     await act(async () => { await result.current.watchTable(matchTable()) })

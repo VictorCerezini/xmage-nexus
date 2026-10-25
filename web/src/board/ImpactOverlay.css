@@ -264,3 +264,1247 @@ html.fx-off .board-shell.fx-quake-2 {
   0% { opacity: 0.95; scale: 1; }
   100% { opacity: 0; scale: 2.8; }
 }
+
+.fx-shard,
+.fx-droplet,
+.fx-heal-mote {
+  width: calc(10px * var(--s));
+  height: calc(10px * var(--s));
+  translate: -50% -50%;
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.15, 0.7, 0.3, 1) both;
+}
+
+.fx-countered-flash {
+  width: 120%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb) / 0.9) 0%, rgb(var(--mana-u-rgb) / 0.55) 32%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: fxHitFlash calc(var(--fx-dur) * 0.6) ease-out both;
+}
+
+.fx-countered-crack {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  background:
+    linear-gradient(62deg, transparent 47%, rgb(var(--mana-w-rgb) / 0.95) 49%, transparent 51%),
+    linear-gradient(-38deg, transparent 46%, rgb(var(--mana-u-rgb) / 0.9) 48.5%, transparent 51%),
+    linear-gradient(8deg, transparent 47.5%, rgb(var(--mana-w-rgb) / 0.8) 49.5%, transparent 51.5%);
+  filter: drop-shadow(0 0 6px rgb(var(--mana-u-rgb) / 0.9));
+  animation: fxCrack var(--fx-dur) cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes fxCrack {
+  0% { opacity: 0; clip-path: circle(0% at 50% 50%); }
+  22% { opacity: 1; clip-path: circle(75% at 50% 50%); }
+  70% { opacity: 1; }
+  100% { opacity: 0; scale: 1.08; }
+}
+
+.fx-shard {
+  width: calc(9px * var(--s));
+  height: calc(16px * var(--s));
+  clip-path: polygon(50% 0%, 100% 38%, 64% 100%, 0% 70%);
+  background: linear-gradient(160deg, rgb(var(--mana-w-rgb)) 0%, rgb(var(--mana-u-rgb) / 0.85) 70%);
+  box-shadow: 0 0 8px rgb(var(--mana-u-rgb) / 0.9);
+  animation-timing-function: cubic-bezier(0.1, 0.8, 0.25, 1);
+}
+
+.fx-transform-sweep {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  background: linear-gradient(100deg, transparent 20%, rgb(var(--mana-w-rgb) / 0.85) 48%, rgb(var(--gold-rgb) / 0.6) 54%, transparent 80%);
+  background-size: 260% 100%;
+  mix-blend-mode: screen;
+  animation: fxTransformSweep var(--fx-dur) ease-in-out both;
+}
+
+@keyframes fxTransformSweep {
+  0% { opacity: 0; background-position: 100% 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; background-position: 0% 0; }
+}
+
+.fx-transform-ring {
+  width: 110%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 2px solid rgb(var(--mana-w-rgb) / 0.85);
+  box-shadow: 0 0 20px rgb(var(--gold-rgb) / 0.7), inset 0 0 14px rgb(var(--mana-w-rgb) / 0.5);
+  animation: fxRing calc(var(--fx-dur) * 0.8) cubic-bezier(0.2, 0.8, 0.3, 1) calc(var(--fx-dur) * 0.35) both;
+}
+
+.fx-bounce-swirl {
+  width: 120%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: conic-gradient(from 0deg, transparent 0deg, rgb(var(--mana-u-rgb) / 0.75) 90deg, transparent 180deg, rgb(var(--mana-w-rgb) / 0.6) 270deg, transparent 360deg);
+  mask: radial-gradient(circle, transparent 36%, rgb(var(--ink-rgb)) 40%, rgb(var(--ink-rgb)) 62%, transparent 66%);
+  filter: drop-shadow(0 0 8px rgb(var(--mana-u-rgb) / 0.8));
+  animation: fxSwirl var(--fx-dur) cubic-bezier(0.4, 0, 0.6, 1) both;
+}
+
+@keyframes fxSwirl {
+  0% { opacity: 0; scale: 1.3; rotate: 0deg; }
+  25% { opacity: 1; }
+  100% { opacity: 0; scale: 0.2; rotate: 300deg; }
+}
+
+.fx-droplet {
+  border-radius: 50% 50% 50% 0;
+  background: radial-gradient(circle at 35% 35%, rgb(var(--mana-w-rgb)) 0%, rgb(var(--mana-u-rgb) / 0.85) 55%, transparent 100%);
+  box-shadow: 0 0 8px rgb(var(--mana-u-rgb) / 0.8);
+  animation-direction: reverse;
+}
+
+.fx-heal-glow {
+  width: 140%;
+  height: 140%;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgb(var(--mana-g-rgb) / 0.55) 0%, rgb(var(--gold-rgb) / 0.25) 40%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: fxHealGlow var(--fx-dur) ease-out both;
+}
+
+@keyframes fxHealGlow {
+  0% { opacity: 0; scale: 0.7; }
+  25% { opacity: 1; scale: 1; }
+  100% { opacity: 0; scale: 1.15; }
+}
+
+.fx-flicker-implode {
+  width: 115%;
+  height: 115%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  border: 2px solid rgb(var(--mana-w-rgb) / 0.9);
+  box-shadow: 0 0 18px rgb(var(--mana-u-rgb) / 0.8), inset 0 0 16px rgb(var(--mana-w-rgb) / 0.6);
+  animation: fxFlickerImplode calc(var(--fx-dur) * 0.5) cubic-bezier(0.5, 0, 0.8, 0.4) both;
+}
+
+@keyframes fxFlickerImplode {
+  0% { opacity: 0; scale: 1.25; }
+  30% { opacity: 1; }
+  100% { opacity: 0.2; scale: 0.15; }
+}
+
+.fx-flicker-flash {
+  width: 90%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--mana-u-rgb) / 0.55) 35%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: fxHitFlash calc(var(--fx-dur) * 0.45) ease-out calc(var(--fx-dur) * 0.4) both;
+}
+
+.fx-flicker-ring {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 2px solid rgb(var(--mana-w-rgb) / 0.9);
+  box-shadow: 0 0 20px rgb(var(--mana-u-rgb) / 0.8);
+  animation: fxRing calc(var(--fx-dur) * 0.55) ease-out calc(var(--fx-dur) * 0.45) both;
+}
+
+.fx-phase-shimmer {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  background: repeating-linear-gradient(0deg, rgb(var(--mana-u-rgb) / 0.4) 0 3px, transparent 3px 7px);
+  box-shadow: 0 0 18px rgb(var(--brand-rgb) / 0.55);
+  mix-blend-mode: screen;
+  animation: fxPhaseShimmer var(--fx-dur) ease-in-out both;
+}
+
+@keyframes fxPhaseShimmer {
+  0% { opacity: 0; background-position: 0 0; }
+  25% { opacity: 1; }
+  75% { opacity: 0.8; }
+  100% { opacity: 0; background-position: 0 -42px; }
+}
+
+.fx-phase-mote {
+  width: calc(7px * var(--s));
+  height: calc(7px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb) / 0.9) 0%, rgb(var(--brand-rgb) / 0.6) 60%, transparent 100%);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.3, 0.1, 0.4, 1) both;
+}
+
+.fx-sacrifice-sigil {
+  width: 130%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background:
+    conic-gradient(from 0deg, rgb(var(--blood-rgb) / 0.85) 0deg 8deg, transparent 8deg 72deg, rgb(var(--blood-rgb) / 0.85) 72deg 80deg, transparent 80deg 144deg, rgb(var(--blood-rgb) / 0.85) 144deg 152deg, transparent 152deg 216deg, rgb(var(--blood-rgb) / 0.85) 216deg 224deg, transparent 224deg 288deg, rgb(var(--blood-rgb) / 0.85) 288deg 296deg, transparent 296deg);
+  mask: radial-gradient(circle, transparent 30%, rgb(var(--ink-rgb)) 33%, rgb(var(--ink-rgb)) 60%, transparent 63%);
+  box-shadow: 0 0 0 2px rgb(var(--blood-rgb) / 0.7);
+  filter: drop-shadow(0 0 8px rgb(var(--blood-rgb) / 0.9));
+  animation: fxSacrificeSigil var(--fx-dur) cubic-bezier(0.3, 0.7, 0.4, 1) both;
+}
+
+@keyframes fxSacrificeSigil {
+  0% { opacity: 0; scale: 1.5; rotate: -40deg; }
+  30% { opacity: 1; scale: 1; rotate: 0deg; }
+  100% { opacity: 0; scale: 0.4; rotate: 30deg; }
+}
+
+.fx-sacrifice-drain {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  background: linear-gradient(180deg, transparent 0%, rgb(var(--blood-rgb) / 0.75) 55%, rgb(var(--ink-rgb) / 0.85) 100%);
+  animation: fxSacrificeDrain var(--fx-dur) ease-in both;
+}
+
+@keyframes fxSacrificeDrain {
+  0% { opacity: 0; clip-path: inset(0 0 100% 0); }
+  35% { opacity: 1; }
+  70% { opacity: 1; clip-path: inset(0 0 0 0); }
+  100% { opacity: 0; clip-path: inset(0 0 0 0); }
+}
+
+.fx-blood-drop {
+  width: calc(7px * var(--s));
+  height: calc(11px * var(--s));
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  translate: -50% -50%;
+  background: radial-gradient(circle at 40% 35%, rgb(var(--err-rgb)) 0%, rgb(var(--blood-rgb)) 60%, rgb(var(--ink-rgb) / 0.6) 100%);
+  box-shadow: 0 0 6px rgb(var(--blood-rgb) / 0.8);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.55, 0, 0.9, 0.5) both;
+}
+
+.fx-copy-echo {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  border: 2px solid rgb(var(--mana-u-rgb) / 0.9);
+  background: rgb(var(--mana-w-rgb) / 0.15);
+  box-shadow: 0 0 16px rgb(var(--mana-u-rgb) / 0.75);
+  animation: fxCopyEcho var(--fx-dur) cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.fx-copy-echo--late {
+  animation-delay: calc(var(--fx-dur) * 0.22);
+}
+
+@keyframes fxCopyEcho {
+  0% { opacity: 0.95; scale: 1; }
+  100% { opacity: 0; scale: 1.45; }
+}
+
+.fx-ultimate-rays {
+  width: 260%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: repeating-conic-gradient(from 0deg, rgb(var(--purple-rgb) / 0.7) 0deg 5deg, transparent 5deg 22deg);
+  mask: radial-gradient(circle, rgb(var(--ink-rgb)) 10%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: fxUltimateRays var(--fx-dur) ease-out both;
+}
+
+@keyframes fxUltimateRays {
+  0% { opacity: 0; scale: 0.3; rotate: 0deg; }
+  20% { opacity: 1; }
+  100% { opacity: 0; scale: 1.3; rotate: 50deg; }
+}
+
+.fx-ultimate-core {
+  width: 140%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--purple-rgb) / 0.75) 30%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: fxHitFlash calc(var(--fx-dur) * 0.6) ease-out both;
+}
+
+.fx-ultimate-wave {
+  width: 120%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 4px solid rgb(var(--purple-rgb) / 0.9);
+  box-shadow: 0 0 30px rgb(var(--purple-rgb) / 0.8), inset 0 0 20px rgb(var(--mana-w-rgb) / 0.5);
+  animation: fxUltimateWave var(--fx-dur) cubic-bezier(0.1, 0.7, 0.3, 1) both;
+}
+
+.fx-ultimate-wave--late {
+  animation-delay: calc(var(--fx-dur) * 0.15);
+  border-width: 2px;
+}
+
+@keyframes fxUltimateWave {
+  0% { opacity: 1; scale: 0.3; }
+  100% { opacity: 0; scale: 4.2; }
+}
+
+.fx-ultimate-spark {
+  width: calc(8px * var(--s));
+  height: calc(8px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--purple-rgb) / 0.8) 60%, transparent 100%);
+  box-shadow: 0 0 12px rgb(var(--purple-rgb) / 0.9);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.1, 0.8, 0.25, 1) both;
+}
+
+.fx-eliminated-dim {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  background: radial-gradient(ellipse at 50% 50%, rgb(var(--err-rgb) / 0.35) 0%, rgb(var(--ink-rgb) / 0.75) 70%);
+  animation: fxEliminatedDim var(--fx-dur) ease-out both;
+}
+
+@keyframes fxEliminatedDim {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+.fx-eliminated-crack {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  background:
+    linear-gradient(58deg, transparent 49.2%, rgb(var(--mana-w-rgb) / 0.9) 49.6%, transparent 50.2%),
+    linear-gradient(-31deg, transparent 48.9%, rgb(var(--err-rgb) / 0.85) 49.5%, transparent 50.1%),
+    linear-gradient(104deg, transparent 49.3%, rgb(var(--mana-w-rgb) / 0.75) 49.7%, transparent 50.1%),
+    linear-gradient(-72deg, transparent 49.4%, rgb(var(--err-rgb) / 0.7) 49.8%, transparent 50.2%);
+  filter: drop-shadow(0 0 6px rgb(var(--err-rgb) / 0.8));
+  animation: fxEliminatedCrack var(--fx-dur) cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes fxEliminatedCrack {
+  0% { opacity: 0; clip-path: circle(0% at 50% 50%); }
+  25% { opacity: 1; clip-path: circle(72% at 50% 50%); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.fx-eliminated-shard {
+  background: linear-gradient(160deg, rgb(var(--mana-w-rgb) / 0.9) 0%, rgb(var(--err-rgb) / 0.8) 70%);
+  box-shadow: 0 0 8px rgb(var(--err-rgb) / 0.8);
+}
+
+/* Conceded: no crack and no shards, a white wash that drains to grey over the seat. */
+.fx-conceded-wash {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  background: radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--fg-hi) 45%, transparent) 0%, rgb(var(--ink-rgb) / 0.7) 75%);
+  animation: fxConcededWash var(--fx-dur) ease-out both;
+}
+
+@keyframes fxConcededWash {
+  0% { opacity: 0; filter: brightness(1.6); }
+  20% { opacity: 1; filter: brightness(1.3); }
+  70% { opacity: 0.85; filter: grayscale(1) brightness(0.9); }
+  100% { opacity: 0; filter: grayscale(1); }
+}
+
+.fx-heal-mote {
+  width: calc(8px * var(--s));
+  height: calc(8px * var(--s));
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--mana-g-rgb) / 0.8) 55%, transparent 100%);
+  box-shadow: 0 0 10px rgb(var(--mana-g-rgb) / 0.9), 0 0 3px rgb(var(--gold-rgb));
+  animation-timing-function: cubic-bezier(0.3, 0.1, 0.4, 1);
+}
+
+/* Board wipe: the board darkens and one wave of searing light crosses it left to right; each
+   permanent it takes dies as the wave reaches it (boardWipe.ts, WIPE_WAVE_LEAD / WIPE_WAVE_SPAN). */
+.fx-burst.fx-wipe {
+  overflow: hidden;
+  border-radius: var(--r-base);
+}
+
+.fx-burst.fx-wipe > span {
+  left: 0;
+  top: 0;
+  height: 100%;
+}
+
+.fx-wipe-dim {
+  width: 100%;
+  background: linear-gradient(90deg, rgb(var(--ash-rgb) / 0.55) 0%, rgb(var(--ink-rgb) / 0.45) 100%);
+  animation: fxWipeDim var(--fx-dur) ease-out both;
+}
+
+@keyframes fxWipeDim {
+  0% { opacity: 0; }
+  14% { opacity: 1; }
+  75% { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+
+.fx-wipe-flash {
+  width: 100%;
+  mix-blend-mode: screen;
+  background: radial-gradient(ellipse 40% 90% at 0% 50%, rgb(var(--mana-w-rgb) / 0.75) 0%, rgb(var(--gold-rgb) / 0.25) 45%, transparent 75%);
+  animation: fxWipeFlash var(--fx-dur) ease-out both;
+}
+
+@keyframes fxWipeFlash {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  32% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+.fx-wipe-wave {
+  width: 26%;
+  translate: -50% 0;
+  mix-blend-mode: screen;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgb(var(--ember-rgb) / 0.35) 30%,
+    rgb(var(--gold-rgb) / 0.7) 46%,
+    rgb(var(--mana-w-rgb) / 0.95) 50%,
+    rgb(var(--gold-rgb) / 0.55) 56%,
+    transparent 100%);
+  box-shadow: 0 0 60px 12px rgb(var(--mana-w-rgb) / 0.35);
+  filter: blur(2px);
+  animation: fxWipeWave var(--fx-dur) linear both;
+}
+
+@keyframes fxWipeWave {
+  0% { left: -14%; opacity: 0; }
+  14% { left: 0%; opacity: 1; }
+  70% { left: 100%; opacity: 1; }
+  100% { left: 114%; opacity: 0; }
+}
+
+/* Turned face up: a dark shroud closes over the card while it turns edge-on, then its face bursts
+   out lit in its own colours. */
+.fx-face-up-shroud {
+  width: 112%;
+  height: 112%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  background: radial-gradient(ellipse, rgb(var(--ink-rgb) / 0.9) 0%, rgb(var(--mana-b-rgb) / 0.6) 55%, transparent 80%);
+  box-shadow: 0 0 22px 6px rgb(var(--ink-rgb) / 0.7);
+  animation: fxFaceUpShroud var(--fx-dur) ease-in-out both;
+}
+
+@keyframes fxFaceUpShroud {
+  0% { opacity: 0; scale: 1.25; }
+  25% { opacity: 1; scale: 1; }
+  48% { opacity: 1; scale: 0.9; }
+  60% { opacity: 0; scale: 1.3; }
+  100% { opacity: 0; }
+}
+
+.fx-face-up-burst {
+  width: 150%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  mix-blend-mode: screen;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb) / 0.95) 0%, rgb(var(--reveal-rgb) / 0.6) 30%, transparent 68%);
+  animation: fxFaceUpBurst var(--fx-dur) ease-out both;
+}
+
+@keyframes fxFaceUpBurst {
+  0%, 46% { opacity: 0; scale: 0.3; }
+  58% { opacity: 1; scale: 1; }
+  100% { opacity: 0; scale: 1.35; }
+}
+
+.fx-face-up-ring {
+  width: 115%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 2px solid rgb(var(--reveal-rgb) / 0.9);
+  box-shadow: 0 0 18px rgb(var(--reveal-rgb) / 0.8), inset 0 0 12px rgb(var(--mana-w-rgb) / 0.5);
+  animation: fxRing calc(var(--fx-dur) * 0.5) cubic-bezier(0.2, 0.8, 0.3, 1) calc(var(--fx-dur) * 0.5) both;
+}
+
+.fx-face-up-mote {
+  width: calc(7px * var(--s));
+  height: calc(7px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--reveal-rgb) / 0.7) 60%, transparent 100%);
+  box-shadow: 0 0 10px rgb(var(--reveal-rgb) / 0.9);
+  animation: fxFaceUpMote var(--fx-dur) cubic-bezier(0.15, 0.7, 0.3, 1) both;
+}
+
+@keyframes fxFaceUpMote {
+  0%, 50% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  58% { opacity: 1; transform: translate(calc(var(--dx) * 0.25), calc(var(--dy) * 0.25)) scale(1.3); }
+  85% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.5); }
+}
+
+/* Poison counter: a toxic splash on the badge and green drops dripping off it. */
+.fx-poison-splash {
+  width: 160%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--toxic-rgb) / 0.85) 0%, rgb(var(--toxic-rgb) / 0.3) 40%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: fxHitFlash calc(var(--fx-dur) * 0.6) ease-out both;
+}
+
+.fx-poison-drop {
+  width: calc(6px * var(--s));
+  height: calc(9px * var(--s));
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  translate: -50% -50%;
+  background: radial-gradient(circle at 40% 35%, rgb(var(--mana-w-rgb) / 0.9) 0%, rgb(var(--toxic-rgb)) 45%, rgb(var(--mana-g-rgb) / 0.8) 100%);
+  box-shadow: 0 0 8px rgb(var(--toxic-rgb) / 0.9);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.55, 0, 0.9, 0.5) both;
+}
+
+/* Ten poison counters: a toxic cloud billows over the seat and a green shockwave rolls out. */
+.fx-poison-cloud {
+  width: 150%;
+  height: 260%;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse 45% 40% at 35% 55%, rgb(var(--toxic-rgb) / 0.7) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 45% at 65% 45%, rgb(var(--mana-g-rgb) / 0.65) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 55% at 50% 50%, rgb(var(--ink-rgb) / 0.55) 0%, transparent 75%);
+  filter: blur(6px);
+  animation: fxPoisonCloud var(--fx-dur) ease-out both;
+}
+
+@keyframes fxPoisonCloud {
+  0% { opacity: 0; scale: 0.4; }
+  25% { opacity: 1; scale: 1; }
+  70% { opacity: 0.85; scale: 1.15; }
+  100% { opacity: 0; scale: 1.3; }
+}
+
+.fx-poison-ring {
+  width: 120%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 3px solid rgb(var(--toxic-rgb) / 0.95);
+  box-shadow: 0 0 26px rgb(var(--toxic-rgb) / 0.8), inset 0 0 18px rgb(var(--toxic-rgb) / 0.5);
+  animation: fxRing calc(var(--fx-dur) * 0.6) cubic-bezier(0.1, 0.7, 0.3, 1) both;
+}
+
+/* Energy counter: a yellow bolt cracks over the badge and sparks fly off it. */
+.fx-energy-flash {
+  width: 180%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--volt-rgb) / 0.85) 0%, rgb(var(--volt-rgb) / 0.25) 40%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: fxHitFlash calc(var(--fx-dur) * 0.55) ease-out both;
+}
+
+.fx-energy-bolt {
+  width: 22px;
+  height: 34px;
+  translate: -50% -60%;
+  background: linear-gradient(180deg, rgb(var(--mana-w-rgb)) 0%, rgb(var(--volt-rgb)) 55%, rgb(var(--ember-rgb)) 100%);
+  clip-path: polygon(58% 0%, 12% 56%, 44% 56%, 30% 100%, 88% 38%, 54% 38%, 72% 0%);
+  filter: drop-shadow(0 0 6px rgb(var(--volt-rgb)));
+  animation: fxEnergyBolt var(--fx-dur) ease-out both;
+}
+
+@keyframes fxEnergyBolt {
+  0% { opacity: 0; scale: 0.4; }
+  15% { opacity: 1; scale: 1.25; }
+  30% { opacity: 0.6; scale: 1; }
+  45% { opacity: 1; scale: 1.1; }
+  100% { opacity: 0; scale: 0.9; translate: -50% -110%; }
+}
+
+.fx-energy-spark {
+  width: calc(4px * var(--s));
+  height: calc(4px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: rgb(var(--volt-rgb));
+  box-shadow: 0 0 8px 2px rgb(var(--volt-rgb) / 0.9);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.1, 0.8, 0.25, 1) both;
+}
+
+/* Control change: a tether in the new controller's seat colour seizes the permanent where it stood
+   and reels it in to its new slot, which the anchor ring marks. */
+.fx-control-grip {
+  width: 118%;
+  height: 112%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  border: 2px solid var(--tint);
+  box-shadow: 0 0 16px 2px color-mix(in srgb, var(--tint) 80%, transparent), inset 0 0 14px color-mix(in srgb, var(--tint) 55%, transparent);
+  animation: fxControlGrip var(--fx-dur) ease-out both;
+}
+
+@keyframes fxControlGrip {
+  0% { opacity: 0; scale: 1.35; }
+  22% { opacity: 1; scale: 1; }
+  32% { opacity: 1; scale: 0.96; }
+  55% { opacity: 0; scale: 0.9; }
+  100% { opacity: 0; }
+}
+
+.fx-control-tether {
+  width: var(--len);
+  height: 0;
+  transform-origin: 0 50%;
+  rotate: var(--angle);
+}
+
+.fx-control-beam {
+  position: absolute;
+  left: 0;
+  top: -2px;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--r-pill);
+  transform-origin: 100% 50%;
+  background: linear-gradient(90deg, var(--tint) 0%, color-mix(in srgb, var(--tint) 70%, var(--fg-hi)) 50%, var(--tint) 100%);
+  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--tint) 75%, transparent);
+  animation: fxControlBeam var(--fx-dur) cubic-bezier(0.55, 0, 0.25, 1) both;
+}
+
+@keyframes fxControlBeam {
+  0% { opacity: 0; scale: 0 1; animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1); }
+  10% { opacity: 1; }
+  28% { opacity: 1; scale: 1 1; animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1); }
+  92% { opacity: 1; }
+  100% { opacity: 0; scale: 0 1; }
+}
+
+.fx-control-anchor {
+  width: 46px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: calc(-50% + var(--ax)) calc(-50% + var(--ay));
+  border: 2px solid var(--tint);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--tint) 80%, transparent);
+  animation: fxControlAnchor var(--fx-dur) ease-out both;
+}
+
+@keyframes fxControlAnchor {
+  0% { opacity: 0; scale: 0.3; }
+  20% { opacity: 1; scale: 1; }
+  80% { opacity: 0.8; scale: 0.8; }
+  100% { opacity: 0; scale: 1.8; }
+}
+
+/* Back to the command zone: a column of gold light lifts off the commander where it stood and a
+   crown rises out of it. */
+.fx-command-column {
+  width: 90%;
+  height: 200%;
+  translate: -50% -78%;
+  border-radius: 50% 50% 0 0 / 30% 30% 0 0;
+  mix-blend-mode: screen;
+  background: linear-gradient(0deg, rgb(var(--gold-rgb) / 0.75) 0%, rgb(var(--gold-rgb) / 0.35) 40%, rgb(var(--mana-b-rgb) / 0.2) 70%, transparent 100%);
+  filter: blur(3px);
+  animation: fxCommandColumn var(--fx-dur) ease-out both;
+}
+
+@keyframes fxCommandColumn {
+  0% { opacity: 0; scale: 0.4 0.2; }
+  25% { opacity: 1; scale: 1 1; }
+  70% { opacity: 0.6; }
+  100% { opacity: 0; scale: 0.7 1.15; }
+}
+
+.fx-command-ring {
+  width: 115%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 3px solid rgb(var(--gold-rgb) / 0.95);
+  box-shadow: 0 0 20px rgb(var(--gold-rgb) / 0.8), inset 0 0 14px rgb(var(--mana-b-rgb) / 0.6);
+  animation: fxRing calc(var(--fx-dur) * 0.6) cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.fx-command-crown {
+  width: 46px;
+  height: 32px;
+  translate: -50% -50%;
+  background: linear-gradient(180deg, rgb(var(--mana-w-rgb)) 0%, rgb(var(--gold-rgb)) 55%, rgb(var(--ember-rgb)) 100%);
+  clip-path: polygon(0% 100%, 0% 25%, 25% 60%, 50% 0%, 75% 60%, 100% 25%, 100% 100%);
+  filter: drop-shadow(0 0 8px rgb(var(--gold-rgb)));
+  animation: fxCommandCrown var(--fx-dur) cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@keyframes fxCommandCrown {
+  0% { opacity: 0; scale: 0.3; translate: -50% -10%; }
+  25% { opacity: 1; scale: 1.15; translate: -50% -60%; }
+  70% { opacity: 1; scale: 1; translate: -50% -110%; }
+  100% { opacity: 0; scale: 0.8; translate: -50% -150%; }
+}
+
+.fx-command-mote {
+  width: calc(6px * var(--s));
+  height: calc(6px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--gold-rgb) / 0.85) 55%, transparent 100%);
+  box-shadow: 0 0 8px rgb(var(--gold-rgb) / 0.9);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.2, 0.6, 0.4, 1) both;
+}
+
+/* Put on the library: the permanent is drawn down into a cool vortex where it stood. */
+.fx-tuck-vortex {
+  width: 120%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: conic-gradient(from 0deg, transparent 0deg, rgb(var(--mana-u-rgb) / 0.6) 120deg, transparent 200deg, rgb(var(--ink-rgb) / 0.7) 300deg, transparent 360deg);
+  mask: radial-gradient(circle, transparent 30%, rgb(var(--ink-rgb)) 36%, rgb(var(--ink-rgb)) 60%, transparent 66%);
+  filter: drop-shadow(0 0 6px rgb(var(--mana-u-rgb) / 0.7));
+  animation: fxTuckVortex var(--fx-dur) cubic-bezier(0.5, 0, 0.7, 1) both;
+}
+
+@keyframes fxTuckVortex {
+  0% { opacity: 0; scale: 1.3; rotate: 0deg; }
+  25% { opacity: 1; }
+  100% { opacity: 0; scale: 0.2; rotate: -300deg; }
+}
+
+.fx-tuck-mote {
+  width: calc(5px * var(--s));
+  height: calc(5px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: rgb(var(--mana-u-rgb) / 0.9);
+  box-shadow: 0 0 6px rgb(var(--mana-u-rgb) / 0.8);
+  animation: fxImplode var(--fx-dur) cubic-bezier(0.6, 0, 0.8, 0.6) both;
+}
+
+@keyframes fxImplode {
+  0% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.2); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(0, 0) scale(0.3); }
+}
+
+/* Aura attached: a glowing thread binds the aura to its host, a ring closes round the host and its
+   frame lights up in the aura's colour. */
+.fx-attach-frame {
+  width: 112%;
+  height: 108%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  border: 2px solid rgb(var(--attach-rgb) / 0.95);
+  box-shadow: 0 0 18px 3px rgb(var(--attach-rgb) / 0.75), inset 0 0 16px rgb(var(--attach-rgb) / 0.5);
+  animation: fxAttachFrame var(--fx-dur) ease-out both;
+}
+
+@keyframes fxAttachFrame {
+  0%, 18% { opacity: 0; scale: 1.15; }
+  38% { opacity: 1; scale: 1; }
+  75% { opacity: 0.8; }
+  100% { opacity: 0; scale: 1.02; }
+}
+
+.fx-attach-ring {
+  width: 104%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 2px solid rgb(var(--attach-rgb) / 0.9);
+  box-shadow: 0 0 16px rgb(var(--attach-rgb) / 0.8);
+  animation: fxAttachRing calc(var(--fx-dur) * 0.6) cubic-bezier(0.3, 0, 0.3, 1) calc(var(--fx-dur) * 0.15) both;
+}
+
+@keyframes fxAttachRing {
+  0% { opacity: 0; scale: 1.5; }
+  30% { opacity: 1; }
+  100% { opacity: 0; scale: 0.75; }
+}
+
+.fx-attach-tether {
+  width: var(--len);
+  height: 0;
+  transform-origin: 0 50%;
+  rotate: var(--angle);
+}
+
+.fx-attach-beam {
+  position: absolute;
+  left: 0;
+  top: -1.5px;
+  width: 100%;
+  height: 3px;
+  border-radius: var(--r-pill);
+  transform-origin: 100% 50%;
+  background: linear-gradient(90deg, rgb(var(--attach-rgb)) 0%, rgb(var(--mana-w-rgb) / 0.95) 50%, rgb(var(--attach-rgb)) 100%);
+  box-shadow: 0 0 10px 2px rgb(var(--attach-rgb) / 0.8);
+  animation: fxAttachBeam var(--fx-dur) cubic-bezier(0.3, 0.7, 0.3, 1) both;
+}
+
+@keyframes fxAttachBeam {
+  0% { opacity: 0; scale: 0 1; }
+  30% { opacity: 1; scale: 1 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.fx-attach-knot {
+  width: 22px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: calc(-50% + var(--ax)) calc(-50% + var(--ay));
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--attach-rgb) / 0.8) 45%, transparent 70%);
+  animation: fxAttachKnot var(--fx-dur) ease-out both;
+}
+
+@keyframes fxAttachKnot {
+  0% { opacity: 0; scale: 0.3; }
+  15% { opacity: 1; scale: 1.4; }
+  60% { opacity: 0.7; scale: 1; }
+  100% { opacity: 0; scale: 0.6; }
+}
+
+/* Mutate: the spell merges into its host; organic ripples wobble out of it in the spell's colours. */
+.fx-mutate-flash {
+  width: 120%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  mix-blend-mode: screen;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb) / 0.85) 0%, rgb(var(--mutate-a-rgb) / 0.55) 35%, transparent 70%);
+  animation: fxHitFlash calc(var(--fx-dur) * 0.6) ease-out both;
+}
+
+.fx-mutate-ripple {
+  width: 110%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border: 3px solid rgb(var(--mutate-a-rgb) / 0.9);
+  box-shadow: 0 0 16px rgb(var(--mutate-a-rgb) / 0.7), inset 0 0 12px rgb(var(--mutate-b-rgb) / 0.6);
+  animation: fxMutateRipple var(--fx-dur) cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.fx-mutate-ripple--2 {
+  border-color: rgb(var(--mutate-b-rgb) / 0.85);
+  animation-delay: calc(var(--fx-dur) * 0.12);
+}
+
+.fx-mutate-ripple--3 {
+  animation-delay: calc(var(--fx-dur) * 0.24);
+}
+
+@keyframes fxMutateRipple {
+  0% { opacity: 0; scale: 0.35; border-radius: 42% 58% 55% 45% / 50% 40% 60% 50%; rotate: 0deg; }
+  15% { opacity: 1; }
+  50% { border-radius: 58% 42% 45% 55% / 40% 60% 40% 60%; }
+  100% { opacity: 0; scale: 1.9; border-radius: 45% 55% 60% 40% / 55% 45% 55% 45%; rotate: 40deg; }
+}
+
+.fx-mutate-mote {
+  width: calc(7px * var(--s));
+  height: calc(7px * var(--s));
+  border-radius: 50% 50% 50% 0;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--mutate-a-rgb) / 0.85) 50%, rgb(var(--mutate-b-rgb) / 0.6) 100%);
+  box-shadow: 0 0 8px rgb(var(--mutate-a-rgb) / 0.85);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.15, 0.7, 0.3, 1) both;
+}
+
+/* Becomes a creature (an animated land, a crewed vehicle): a column of light in its colour lifts it
+   off the ground into the creature band and motes rise with it. */
+.fx-animate-column {
+  width: 80%;
+  height: 170%;
+  translate: -50% -70%;
+  border-radius: 50% 50% 0 0 / 26% 26% 0 0;
+  mix-blend-mode: screen;
+  background: linear-gradient(0deg, rgb(var(--animate-rgb) / 0.8) 0%, rgb(var(--animate-rgb) / 0.35) 45%, transparent 100%);
+  filter: blur(3px);
+  animation: fxAnimateColumn var(--fx-dur) ease-out both;
+}
+
+@keyframes fxAnimateColumn {
+  0% { opacity: 0; scale: 0.5 0.2; }
+  30% { opacity: 1; scale: 1 1; }
+  100% { opacity: 0; scale: 0.8 1.2; }
+}
+
+.fx-animate-ring {
+  width: 120%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 3px solid rgb(var(--animate-rgb) / 0.9);
+  box-shadow: 0 0 20px rgb(var(--animate-rgb) / 0.75), inset 0 0 12px rgb(var(--animate-rgb) / 0.5);
+  animation: fxRing calc(var(--fx-dur) * 0.7) cubic-bezier(0.2, 0.8, 0.3, 1) calc(var(--fx-dur) * 0.2) both;
+}
+
+.fx-animate-mote {
+  width: calc(7px * var(--s));
+  height: calc(7px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--animate-rgb) / 0.9) 55%, transparent 100%);
+  box-shadow: 0 0 8px rgb(var(--animate-rgb) / 0.9);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.2, 0.6, 0.4, 1) both;
+}
+
+/* An emblem arrives in the command zone: a violet flash, two rings and gold sparks. */
+.fx-emblem-flash {
+  width: 150%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  mix-blend-mode: screen;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb) / 0.9) 0%, rgb(var(--purple-rgb) / 0.6) 30%, transparent 68%);
+  animation: fxHitFlash calc(var(--fx-dur) * 0.6) ease-out both;
+}
+
+.fx-emblem-ring {
+  width: 110%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 3px solid rgb(var(--purple-rgb) / 0.95);
+  box-shadow: 0 0 22px rgb(var(--purple-rgb) / 0.8), inset 0 0 14px rgb(var(--gold-rgb) / 0.55);
+  animation: fxEnterRing var(--fx-dur) cubic-bezier(0.15, 0.7, 0.3, 1) both;
+}
+
+.fx-emblem-ring--late {
+  border-color: rgb(var(--gold-rgb) / 0.9);
+  animation-delay: 160ms;
+}
+
+.fx-emblem-spark {
+  width: calc(8px * var(--s));
+  height: calc(8px * var(--s));
+  translate: -50% -50%;
+  clip-path: polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%);
+  background: linear-gradient(135deg, rgb(var(--mana-w-rgb)) 0%, rgb(var(--gold-rgb)) 60%);
+  filter: drop-shadow(0 0 4px rgb(var(--purple-rgb)));
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.15, 0.7, 0.3, 1) both;
+}
+
+/* A dungeon room entered: a torchlit glow and a ring round the dungeon badge, embers rising. */
+.fx-dungeon-glow {
+  width: 220%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  mix-blend-mode: screen;
+  background: radial-gradient(circle, rgb(var(--ember-rgb) / 0.75) 0%, rgb(var(--gold-rgb) / 0.35) 35%, transparent 70%);
+  animation: fxHitFlash var(--fx-dur) ease-out both;
+}
+
+.fx-dungeon-ring {
+  width: 160%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 2px solid rgb(var(--ember-rgb) / 0.95);
+  box-shadow: 0 0 16px rgb(var(--ember-rgb) / 0.8);
+  animation: fxEnterRing var(--fx-dur) cubic-bezier(0.15, 0.7, 0.3, 1) both;
+}
+
+.fx-dungeon-ember {
+  width: calc(5px * var(--s));
+  height: calc(5px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: rgb(var(--ember-rgb));
+  box-shadow: 0 0 6px rgb(var(--ember-rgb) / 0.9);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.2, 0.6, 0.4, 1) both;
+}
+
+/* Planeswalk: a planar portal swirls open where the new plane rolls in. */
+.fx-planeswalk-portal {
+  width: 180%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: conic-gradient(from 0deg, transparent 0deg, rgb(var(--mana-u-rgb) / 0.8) 80deg, rgb(var(--purple-rgb) / 0.7) 160deg, transparent 220deg, rgb(var(--mana-w-rgb) / 0.6) 300deg, transparent 360deg);
+  mask: radial-gradient(circle, transparent 24%, rgb(var(--ink-rgb)) 32%, rgb(var(--ink-rgb)) 62%, transparent 70%);
+  filter: drop-shadow(0 0 10px rgb(var(--purple-rgb) / 0.8));
+  animation: fxPlaneswalkPortal var(--fx-dur) cubic-bezier(0.3, 0, 0.5, 1) both;
+}
+
+@keyframes fxPlaneswalkPortal {
+  0% { opacity: 0; scale: 0.2; rotate: 0deg; }
+  25% { opacity: 1; scale: 1; }
+  75% { opacity: 0.9; }
+  100% { opacity: 0; scale: 1.5; rotate: 420deg; }
+}
+
+.fx-planeswalk-flash {
+  width: 130%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  mix-blend-mode: screen;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb) / 0.9) 0%, rgb(var(--mana-u-rgb) / 0.5) 35%, transparent 70%);
+  animation: fxHitFlash calc(var(--fx-dur) * 0.5) ease-out calc(var(--fx-dur) * 0.3) both;
+}
+
+.fx-planeswalk-mote {
+  width: calc(6px * var(--s));
+  height: calc(6px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb)) 0%, rgb(var(--purple-rgb) / 0.85) 60%, transparent 100%);
+  animation: fxImplode var(--fx-dur) cubic-bezier(0.6, 0, 0.8, 0.6) both;
+}
+
+/* A Kamigawa flip card turns over: a bright flash and an arc of light following the half turn. */
+.fx-flip-flash {
+  width: 120%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  mix-blend-mode: screen;
+  background: radial-gradient(circle, rgb(var(--mana-w-rgb) / 0.95) 0%, rgb(var(--flip-rgb) / 0.55) 32%, transparent 68%);
+  animation: fxHitFlash calc(var(--fx-dur) * 0.6) ease-out calc(var(--fx-dur) * 0.25) both;
+}
+
+.fx-flip-arc {
+  width: 135%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: conic-gradient(from 0deg, transparent 0deg, rgb(var(--mana-w-rgb) / 0.95) 30deg, rgb(var(--flip-rgb) / 0.6) 120deg, transparent 180deg, transparent 360deg);
+  mask: radial-gradient(circle, transparent 56%, rgb(var(--ink-rgb)) 60%, rgb(var(--ink-rgb)) 66%, transparent 70%);
+  animation: fxFlipArc var(--fx-dur) cubic-bezier(0.45, 0, 0.55, 1) both;
+}
+
+@keyframes fxFlipArc {
+  0% { opacity: 0; rotate: 0deg; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; rotate: 180deg; }
+}
+
+.fx-first-strike-slash {
+  width: max(130%, 140px);
+  height: 4px;
+  translate: -50% -50%;
+  rotate: -35deg;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--fg-hi) 0%, rgb(var(--gold-rgb)) 100%);
+  box-shadow: 0 0 12px 2px rgb(var(--gold-rgb) / 0.85), 0 0 4px var(--fg-hi);
+  animation: fxFirstStrikeSlash var(--fx-dur) cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes fxFirstStrikeSlash {
+  0% { opacity: 1; scale: 0 1; }
+  35% { opacity: 1; scale: 1 1; }
+  100% { opacity: 0; scale: 1 1; }
+}
+
+.fx-deathtouch-ring {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  border: 3px solid color-mix(in srgb, rgb(var(--purple-rgb)) 60%, rgb(var(--ink-rgb)));
+  box-shadow: 0 0 18px rgb(var(--purple-rgb) / 0.7), inset 0 0 14px rgb(var(--purple-rgb) / 0.5);
+  animation: fxDeathtouchRing var(--fx-dur) cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes fxDeathtouchRing {
+  0% { opacity: 0.9; scale: 0.4; }
+  100% { opacity: 0; scale: 1.4; }
+}
+
+.fx-deathtouch-skull {
+  width: 40%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  color: rgb(var(--purple-rgb));
+  filter: drop-shadow(0 0 6px rgb(var(--purple-rgb) / 0.8));
+  animation: fxDeathtouchSkull var(--fx-dur) cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.fx-deathtouch-skull svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes fxDeathtouchSkull {
+  0% { opacity: 0; scale: 0.6; translate: -50% -50%; }
+  30% { opacity: 1; scale: 1; translate: -50% -50%; }
+  100% { opacity: 0; scale: 1.05; translate: -50% calc(-50% - var(--rise)); }
+}
+
+.fx-deathtouch-mote {
+  width: calc(9px * var(--s));
+  height: calc(9px * var(--s));
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: rgb(var(--purple-rgb));
+  box-shadow: 0 0 8px rgb(var(--purple-rgb) / 0.9);
+  animation: fxParticle var(--fx-dur) cubic-bezier(0.15, 0.7, 0.3, 1) both;
+}
+
+.fx-lifelink-glow {
+  width: 60%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: radial-gradient(circle, rgb(var(--gold-rgb) / 0.85) 0%, rgb(var(--gold-rgb) / 0.3) 40%, transparent 70%);
+  animation: fxLifelinkGlow calc(var(--fx-dur) * 0.6) ease-out both;
+}
+
+@keyframes fxLifelinkGlow {
+  0% { opacity: 0; scale: 0.4; }
+  25% { opacity: 1; scale: 1; }
+  100% { opacity: 0; scale: 1.3; }
+}
+
+.fx-lifelink-path,
+.fx-trample-path {
+  width: var(--len);
+  height: 0;
+  transform-origin: 0 50%;
+  rotate: var(--angle);
+}
+
+.fx-lifelink-mote {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  translate: 0 -50%;
+  background: rgb(var(--gold-rgb));
+  box-shadow: 0 0 8px rgb(var(--gold-rgb) / 0.9);
+  opacity: 0;
+  animation: fxLifelinkMote calc(var(--fx-dur) * 0.47) cubic-bezier(0.3, 0, 0.4, 1) both;
+}
+
+@keyframes fxLifelinkMote {
+  0% { opacity: 0; translate: 0 -50%; }
+  15% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; translate: var(--len) -50%; }
+}
+
+.fx-trample-wave {
+  position: absolute;
+  left: 0;
+  top: -7px;
+  width: 18px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgb(var(--mana-g-rgb)) 0%, rgb(var(--mana-g-rgb) / 0.5) 50%, transparent 75%);
+  box-shadow: 0 0 14px rgb(var(--mana-g-rgb) / 0.8);
+  opacity: 0;
+  animation: fxTrampleWave calc(var(--fx-dur) * 0.34) cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes fxTrampleWave {
+  0% { opacity: 0; translate: 0 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; translate: var(--len) 0; }
+  100% { opacity: 0; translate: var(--len) 0; }
+}
+
+.fx-trample-burst {
+  width: 46px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: calc(-50% + var(--ax)) calc(-50% + var(--ay));
+  border: 3px solid rgb(var(--mana-g-rgb));
+  box-shadow: 0 0 18px rgb(var(--mana-g-rgb) / 0.8);
+  opacity: 0;
+  animation: fxTrampleBurst calc(var(--fx-dur) * 0.45) ease-out calc(var(--fx-dur) * 0.55) both;
+}
+
+@keyframes fxTrampleBurst {
+  0% { opacity: 0.9; scale: 0.3; }
+  100% { opacity: 0; scale: 1.6; }
+}
+
+.fx-indestructible-shield {
+  width: 104%;
+  height: 104%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  border: 2px solid rgb(var(--mana-c-rgb));
+  box-shadow: 0 0 16px 2px rgb(var(--mana-c-rgb) / 0.7), inset 0 0 14px rgb(var(--mana-c-rgb) / 0.45);
+  animation: fxIndestructibleShield var(--fx-dur) ease-in-out both;
+}
+
+@keyframes fxIndestructibleShield {
+  0% { opacity: 0; scale: 0.9; }
+  30% { opacity: 1; scale: 1.06; }
+  50% { opacity: 1; scale: 1; }
+  100% { opacity: 0; scale: 1; }
+}
+
+.fx-indestructible-crack {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  opacity: 0;
+  animation: fxIndestructibleCrack var(--fx-dur) linear both;
+}
+
+.fx-indestructible-crack::before,
+.fx-indestructible-crack::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, var(--fg-hi), rgb(var(--mana-c-rgb)));
+}
+
+.fx-indestructible-crack::before {
+  clip-path: polygon(44% 0%, 46% 0%, 53% 14%, 45% 30%, 56% 46%, 47% 62%, 57% 78%, 50% 100%, 48% 100%, 55% 78%, 45% 62%, 54% 46%, 43% 30%, 51% 14%);
+}
+
+.fx-indestructible-crack::after {
+  clip-path: polygon(30% 0%, 32% 0%, 40% 22%, 31% 40%, 41% 58%, 33% 76%, 40% 100%, 38% 100%, 31% 76%, 39% 58%, 29% 40%, 38% 22%);
+}
+
+@keyframes fxIndestructibleCrack {
+  0% { opacity: 0; }
+  15% { opacity: 0; }
+  45% { opacity: 1; }
+  60% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+.fx-indestructible-flash {
+  width: 100%;
+  height: 100%;
+  translate: -50% -50%;
+  border-radius: var(--r-base);
+  background: radial-gradient(circle, color-mix(in srgb, var(--fg-hi) 90%, transparent) 0%, rgb(var(--mana-c-rgb) / 0.4) 60%, transparent 100%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: fxIndestructibleFlash calc(var(--fx-dur) * 0.4) ease-out calc(var(--fx-dur) * 0.38) both;
+}
+
+@keyframes fxIndestructibleFlash {
+  0% { opacity: 0; scale: 0.9; }
+  40% { opacity: 1; scale: 1.02; }
+  100% { opacity: 0; scale: 1.1; }
+}

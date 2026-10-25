@@ -167,7 +167,7 @@ describe('clampNumPlayers', () => {
     expect(clampNumPlayers(n, opts, min, max)).toBe(expected)
   })
 
-  it('defaultSeatTypeFor: extra seats wait for humans (bots are opt-in)', () => {
+  it('LBY-5: defaultSeatTypeFor: extra seats wait for humans (bots are opt-in)', () => {
     expect(defaultSeatTypeFor(true)).toBe('HUMAN')
     expect(defaultSeatTypeFor(false)).toBe('HUMAN')
   })
@@ -197,7 +197,7 @@ describe('computeTournamentSeats / computeMatchSeats', () => {
     expect(playerTypesFinal).toEqual(['HUMAN', 'SIM'])
   })
 
-  it('match rellena con SIM y trunca sobrantes', () => {
+  it('LBY-5: a match pads with open human seats and drops the extra ones', () => {
     const { playerTypesFinal } = computeMatchSeats({
       seatConfigs: [
         { type: 'HUMAN', deckName: '', skill: 2 },
@@ -295,6 +295,64 @@ describe('builders de payload', () => {
     expect(args.limited).toBe(false)
     expect(args).not.toHaveProperty('limitedOptions')
     expect(args.quitRatio).toBe(100)
+  })
+
+  it('trims the table name in both builders (the emptiness check already trims)', () => {
+    const tournament = buildCreateTournamentArgs({
+      name: '  Draft Night  ',
+      username: 'player1',
+      tournamentType: 'Constructed Swiss',
+      gameType: 'Two Player Duel',
+      deckType: 'Constructed - Modern',
+      draft: false,
+      playerTypesFinal: ['HUMAN'],
+      password: '',
+      spectatorsAllowed: true,
+      wins: 1,
+      numberRounds: 0,
+      skillLevel: 'CASUAL',
+      rated: false,
+      rollbackTurnsAllowed: true,
+      timeLimit: 'NONE',
+      bufferTime: 'NONE',
+      minimumRating: 0,
+      quitRatio: 100,
+      bannedUsersRaw: '',
+      singleGame: false,
+    })
+    expect(tournament.name).toBe('Draft Night')
+    const match = buildCreateMatchArgs({
+      name: '  Duel  ',
+      username: 'player1',
+      gameType: 'Two Player Duel',
+      deckType: 'Constructed - Modern',
+      wins: 1,
+      playerTypesFinal: ['HUMAN'],
+      seatSkills: [2],
+      password: '',
+      skillLevel: 'CASUAL',
+      rated: false,
+      spectatorsAllowed: true,
+      rollbackTurnsAllowed: true,
+      timeLimit: 'NONE',
+      bufferTime: 'NONE',
+      freeMulligans: 0,
+      showRangeAttack: false,
+      attackOption: 'LEFT',
+      range: 'ALL',
+      minimumRating: 0,
+      quitRatio: 100,
+      edhPowerLevel: 100,
+      bannedUsersRaw: '',
+      mulliganType: 'GAME_DEFAULT',
+      customStartLifeEnabled: false,
+      customStartLife: 20,
+      customStartHandSizeEnabled: false,
+      customStartHandSize: 7,
+      planeChase: false,
+      dev: false,
+    })
+    expect(match.name).toBe('Duel')
   })
 
   it('match mapea flags y poda undefined', () => {
@@ -401,6 +459,10 @@ describe('validateDraftSets', () => {
 
   it('lista parcial → draft_sets_count_mismatch', () => {
     expect(validateDraftSets('M21, MH3', 3)).toBe('draft_sets_count_mismatch')
+  })
+
+  it('more sets than boosters → draft_sets_count_mismatch', () => {
+    expect(validateDraftSets('M21, MH3, DSK, ONE, MOM', 3)).toBe('draft_sets_count_mismatch')
   })
 
   it('cubo exento del conteo', () => {

@@ -25,6 +25,8 @@ export type SoundKey =
   | 'projectile_impact'
   | 'card_land'
   | 'coin_flip'
+  | 'shuffle'
+  | 'dice_roll'
 
 export type SoundCategory = 'game' | 'ui'
 

@@ -120,7 +120,7 @@ describe('SetupWizard', () => {
     }
   })
 
-  it('custom server preset reveals network fields', () => {
+  it('LBY-1: custom server preset reveals network fields', () => {
     render(<SetupWizard onClose={() => {}} />)
     next(2)
     expect(screen.queryByTestId('setup-server-host')).toBeNull()
@@ -128,6 +128,37 @@ describe('SetupWizard', () => {
     expect(screen.getByTestId('setup-proxy-host')).toBeTruthy()
     expect(screen.getByTestId('setup-server-host')).toBeTruthy()
     expect(screen.getByTestId('setup-port')).toBeTruthy()
+  })
+
+  it('LBY-1: saves the proxy port typed for a custom server', () => {
+    render(<SetupWizard onClose={() => {}} />)
+    next(2)
+    fireEvent.click(screen.getByTestId('setup-preset-custom'))
+    fireEvent.change(screen.getByTestId('setup-proxy-port'), { target: { value: '8800' } })
+    next(3)
+    fireEvent.click(screen.getByTestId('setup-enter'))
+    expect(loadConn()?.proxyPort).toBe(8800)
+  })
+
+  it('LBY-1: refuses an out-of-range port on a custom server instead of replacing it', () => {
+    render(<SetupWizard onClose={() => {}} />)
+    next(2)
+    fireEvent.click(screen.getByTestId('setup-preset-custom'))
+    fireEvent.change(screen.getByTestId('setup-port'), { target: { value: '99999' } })
+    next()
+    expect(screen.getByTestId('setup-preset-custom')).toBeTruthy()
+    expect(screen.getByTestId('setup-server-port-error')).toBeTruthy()
+    expect(screen.queryByTestId('setup-counter')?.textContent).toContain('3')
+  })
+
+  it('LBY-1: refuses a non-numeric proxy port', () => {
+    render(<SetupWizard onClose={() => {}} />)
+    next(2)
+    fireEvent.click(screen.getByTestId('setup-preset-custom'))
+    fireEvent.change(screen.getByTestId('setup-proxy-port'), { target: { value: 'abc' } })
+    next()
+    expect(screen.getByTestId('setup-proxy-port-error')).toBeTruthy()
+    expect(screen.getByTestId('setup-counter').textContent).toContain('3')
   })
 
   it('✕ close button closes without saving or marking setup done', () => {
@@ -159,7 +190,7 @@ describe('SetupWizard', () => {
     expect(isSetupDone()).toBe(false)
   })
 
-  it('deshabilita la contraseña con el preset oficial (beta) (U4-2)', () => {
+  it('LBY-3: disables the account password with the official (beta) preset', () => {
     render(<SetupWizard onClose={() => {}} />)
     next(2)
     fireEvent.click(screen.getByTestId('setup-preset-official'))

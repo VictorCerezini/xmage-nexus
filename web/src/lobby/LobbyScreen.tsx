@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react'
 import { useNotificationPermissionAsk } from '../game/attentionAlerts'
 import EmptyState from '../ui/EmptyState'
 import { useLobby, useStore, openStagingTable, clearError } from '../state/store'
@@ -9,7 +9,6 @@ import CreateTableDialog from './CreateTableDialog'
 import type { CreateKind } from './CreateTableDialog'
 import JoinTableDialog from './JoinTableDialog'
 import DecksGallery from '../decks/DecksGallery'
-import DeckBuilder from '../decks/DeckBuilder'
 import PlayerProfileModal from './PlayerProfileModal'
 import RankingView from './RankingView'
 import UserActionModal from './UserActionModal'
@@ -18,7 +17,7 @@ import Icon from '../ui/Icon'
 import ErrorBanner from '../ui/ErrorBanner'
 import MatchesSection from './MatchesSection'
 import { t as tStatic, translateError } from '../i18n'
-import { useTranslation } from '../i18n'
+import { useTranslation, plural } from '../i18n'
 import { setState } from '../state/state'
 import LobbyHeader from './LobbyHeader'
 import { LobbyMobileNav } from './LobbySidebar'
@@ -35,6 +34,7 @@ import { extractLobbyUsers, getMyActiveTables, withTimeout, type LobbyTab } from
 import { getIgnoredUsers } from './ignoreList'
 import SettingsModal from '../settings/SettingsModal'
 import AboutModal from '../system/AboutModal'
+import HelpWikiModal from '../game/HelpWikiModal'
 import ReportDialog from '../game/ReportDialog'
 import { useNewsBadge } from '../system/useNewsBadge'
 import './LobbyScreen.css'
@@ -43,6 +43,8 @@ import Button from '../ui/Button'
 import IconButton from '../ui/IconButton'
 import { DEMO_GO_EVENT, type DemoTarget } from '../demo/tourBus'
 import { getDeckStorage } from '../decks/storage'
+
+const DeckBuilder = lazy(() => import('../decks/DeckBuilder'))
 
 export default function LobbyScreen() {
   const { t } = useTranslation()
@@ -61,6 +63,7 @@ export default function LobbyScreen() {
   const [deckBuilderId, setDeckBuilderId] = useState<string | null>(null)
   const [createKind, setCreateKind] = useState<CreateKind | null>(null)
   const [showAbout, setShowAbout] = useState(false)
+  const [showWiki, setShowWiki] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const { unseen: unseenNews, refresh: refreshNews } = useNewsBadge()
   const [profileTarget, setProfileTarget] = useState<string | null>(null)
@@ -187,6 +190,11 @@ export default function LobbyScreen() {
     }
   }, [conn?.username, conn?.avatarId])
 
+  useEffect(() => {
+    const timer = setTimeout(() => { void import('../decks/DeckBuilder') }, 1500)
+    return () => clearTimeout(timer)
+  }, [])
+
   return (
     <div className="lobby">
       <LobbyHeader
@@ -216,6 +224,7 @@ export default function LobbyScreen() {
         onCreate={() => setCreateKind('match')}
         onCreateTournament={() => setCreateKind('tourney')}
         onOpenAbout={() => setShowAbout(true)}
+        onOpenWiki={() => setShowWiki(true)}
         hasNews={unseenNews}
       />
 
@@ -367,7 +376,9 @@ export default function LobbyScreen() {
 
             {activeTab === 'decks' && (
               deckBuilderId ? (
-                <DeckBuilder deckId={deckBuilderId} onClose={() => setDeckBuilderId(null)} />
+                <Suspense fallback={null}>
+                  <DeckBuilder deckId={deckBuilderId} onClose={() => setDeckBuilderId(null)} />
+                </Suspense>
               ) : (
                 <DecksGallery onEdit={(id) => setDeckBuilderId(id)} />
               )
@@ -433,7 +444,7 @@ export default function LobbyScreen() {
             <div className="debug-drawer-panel panel">
               <div className="debug-drawer-header">
                 <h3>{t('lobby','debug_ws_log')}</h3>
-                <span className="debug-count">{events.length === 1 ? t('game','feed_events_one') : t('game','feed_events', { count: events.length })}</span>
+                <span className="debug-count">{plural('game', 'feed_events', events.length)}</span>
               </div>
               <ul className="events-list">
                 {events.slice(-50).map((e, i) => (
@@ -519,6 +530,9 @@ export default function LobbyScreen() {
       )}
       {showReport && (
         <ReportDialog kind="feedback" onClose={() => setShowReport(false)} />
+      )}
+      {showWiki && (
+        <HelpWikiModal onClose={() => setShowWiki(false)} />
       )}
       {showAbout && (
         <AboutModal

@@ -10,7 +10,7 @@ import AvatarImage from './AvatarImage'
 import PingBadge from './PingBadge'
 import RankBadge from './RankBadge'
 import Icon from '../ui/Icon'
-import { useTranslation } from '../i18n'
+import { useTranslation, plural } from '../i18n'
 import type { LobbyTab } from './lobbyUtils'
 
 interface Props {
@@ -30,13 +30,14 @@ interface Props {
   onCreate: () => void
   onCreateTournament: () => void
   onOpenAbout: () => void
+  onOpenWiki: () => void
   hasNews: boolean
 }
 
 export default function LobbyHeader({
   conn, myUser, onlineCount, confirmDisconnect, onConfirmDisconnect,
   onOpenSettings, onOpenReport, onOpenProfile, activeTab, onTabChange,
-  tableCount, activeTableCount = 0, onGoToActiveTable, onCreate, onCreateTournament, onOpenAbout, hasNews,
+  tableCount, activeTableCount = 0, onGoToActiveTable, onCreate, onCreateTournament, onOpenAbout, onOpenWiki, hasNews,
 }: Props) {
   const { t, lang } = useTranslation()
   const navRef = useRef<HTMLElement>(null)
@@ -71,7 +72,7 @@ export default function LobbyHeader({
           <h1 className="lobby-main-heading">XMage Nexus</h1>
           <span className="conn-info">
             <span className="conn-status-dot" />
-            {conn?.serverHost}:{conn?.port} · {onlineCount} {t('lobby', onlineCount === 1 ? 'online_count_one' : 'online_count')}
+            {conn?.serverHost}:{conn?.port} · {onlineCount} {plural('lobby', 'online_count', onlineCount)}
           </span>
         </div>
       </div>
@@ -184,6 +185,9 @@ export default function LobbyHeader({
         >
           <MenuItem icon="bug" onClick={onOpenReport} data-testid="open-report">
             {t('system', 'report_title')}
+          </MenuItem>
+          <MenuItem icon="bookOpen" onClick={onOpenWiki} data-testid="open-wiki">
+            {t('wiki', 'title')}
           </MenuItem>
           <MenuItem icon="info" onClick={onOpenAbout} data-testid="open-about">
             {t('system', 'about_title')}

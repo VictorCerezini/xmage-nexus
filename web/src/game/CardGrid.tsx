@@ -4,6 +4,7 @@ import ChipButton from '../ui/ChipButton'
 import CloseButton from '../ui/CloseButton'
 import EmptyState from '../ui/EmptyState'
 import CardSlot from '../board/CardSlot'
+import PeekHint from './PeekHint'
 import Icon, { type IconName } from '../ui/Icon'
 import DialogShell from '../ui/DialogShell'
 import { stripTargetProgress, targetProgressLabel, type FeedbackPrompt } from './feedback'
@@ -61,6 +62,7 @@ export default function CardGrid({ prompt, selected, setSelected, send, busy }: 
   }
 
   const confirmMulti = () => {
+    if (selected.length === 0) return
     void send(async () => {
       let result: { ok: boolean; error?: string } = { ok: true }
       for (const value of selected) {
@@ -88,6 +90,7 @@ export default function CardGrid({ prompt, selected, setSelected, send, busy }: 
       size="lg"
       legacyBackdropClass="feedback-backdrop"
       legacyPanelClass="feedback-dialog card-grid-dialog"
+      trailing={<PeekHint />}
       kickerIcon={kickerIcon}
       kickerLabel={prompt.method === 'GAME_TARGET' ? t('dialogs','cardgrid_select_targets') : t('dialogs','cardgrid_select_cards')}
       title={<>{cardGridTitle} <Chip tone="brand" size="md">
@@ -161,7 +164,7 @@ export default function CardGrid({ prompt, selected, setSelected, send, busy }: 
           )}
           {isMulti && (
             <Button variant="primary"
-              disabled={busy || selected.length < prompt.min}
+              disabled={busy || selected.length < Math.max(prompt.min, 1)}
               onClick={confirmMulti}
             >
               {t('dialogs','cardgrid_confirm', { selected: selected.length, max: prompt.max })}

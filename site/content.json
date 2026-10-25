@@ -1,7 +1,8 @@
 {
   "project": {
     "name": "XMage Nexus",
-    "tagline": "Modern, polished web client for XMage (React 19 + TypeScript + WebSocket proxy).",
+    "tagline": "Unofficial MTG client for the XMage rules engine (React 19 + TypeScript + WebSocket proxy).",
+    "rulesEngineUrl": "https://github.com/magefree/mage",
     "version": "0.4.3",
     "repo": "Adamychen/xmage-nexus",
     "playUrl": "https://web.xmage-nexus.com",
@@ -18,7 +19,7 @@
       "Thread-pool leak fix now comes from upstream (idle thread expiry) - the nexus one-file patch is retired",
       "All 119+ golden frames re-recorded against 1.4.62 and validated (contract + replay)",
       "Components are rebuilt in this release (server + proxy 1.4.62)",
-      "Dual server flavors (beta + XDHS) keep working; XDHS still uses its own 1.5.8 engine"
+      "Dual server flavors (beta + XDHS) keep working; XDHS updated to its own 1.6.1 engine"
     ],
     "downloads": [
       { "os": "Windows", "arch": "x64", "label": "Windows (x64)", "url": "https://github.com/Adamychen/xmage-nexus/releases/latest" },
@@ -35,7 +36,7 @@
         "skip": "Saltar al contenido",
         "nav": { "demo": "Cómo jugar", "features": "Features", "formats": "Formatos", "download": "Descarga", "roadmap": "Roadmap", "status": "Status", "cta": "Descargar", "try": "Demo" },
         "hero": {
-          "eyebrow": "Cliente web moderno para XMage",
+          "eyebrow": "Cliente de MTG no oficial para el motor de reglas XMage",
           "title": "XMage en tu navegador, sin instalar Java",
           "subtitle": "Lobby en vivo, tablero con arte en alta resolución, targeting visual, audio y 9 idiomas sobre el motor probado de XMage.",
           "primaryCta": "Descargar para",
@@ -111,6 +112,7 @@
         "statusTeaserDesc": "Tests, cobertura, anti-drift y matriz de paridad actualizados automáticamente.",
         "seeStatus": "Ver dashboard técnico",
         "footerNote": "Imágenes de cartas cortesía de Scryfall. No afiliado a Wizards of the Coast. Magic: The Gathering es una marca registrada de Wizards of the Coast.",
+        "rulesEngine": "Motor de reglas por XMage",
         "health": { "all": "● Todos los sistemas operativos", "fail": "● %n capa(s) en fallo" },
         "statusPage": {
           "pageTitle": "Estado del proyecto",
@@ -131,7 +133,7 @@
         "skip": "Skip to content",
         "nav": { "demo": "How to play", "features": "Features", "formats": "Formats", "download": "Download", "roadmap": "Roadmap", "status": "Status", "cta": "Download", "try": "Demo" },
         "hero": {
-          "eyebrow": "Modern web client for XMage",
+          "eyebrow": "Unofficial MTG client for the XMage rules engine",
           "title": "XMage in your browser, no Java install",
           "subtitle": "Live lobby, HD-art battlefield, visual targeting, audio and 9 languages on top of XMage's battle-tested engine.",
           "primaryCta": "Download for",
@@ -207,6 +209,7 @@
         "statusTeaserDesc": "Tests, coverage, anti-drift and the parity matrix, updated automatically.",
         "seeStatus": "View technical dashboard",
         "footerNote": "Card images courtesy of Scryfall. Not affiliated with Wizards of the Coast. Magic: The Gathering is a trademark of Wizards of the Coast.",
+        "rulesEngine": "Rules engine by XMage",
         "health": { "all": "● All systems operational", "fail": "● %n layer(s) failing" },
         "statusPage": {
           "pageTitle": "Project status",
@@ -236,7 +239,7 @@
     { "id": 1, "name": "Web Client: login + lobby + board", "status": "done", "date": "2026-08-08", "desc": "React 19 + Vite, lobby, chat, live tables/users, HD card cache, 1v1 board + spectator." },
     { "id": 2, "name": "Full Interaction", "status": "done", "date": "2026-09-12", "desc": "London mulligan, priority loops, visual targeting, mana payment, combat UI, X-costs, modals, counters. Live 2026-09-12: tokens (Dragon Fodder), auras (Rancor), counters (Ballista X=2), planeswalkers (Jace +2/Brainstorm), equipment + evasion (Serra flying/vigilance/haste/shroud), order dialogs, Bo3 sideboard via raw WS (UI submit validated live 2026-09-18; see COMPONENT_PARITY U4/U11)." },
     { "id": 2.5, "name": "1v1 Competitive Parity", "status": "done", "date": "2026-09-12", "desc": "Card selection modals (HD CardGrid), phase stops/shortcuts (F4-F11; F1 does not exist by design), match clocks, DFCs/Sagas, interactive discard from revealed hand (Thoughtseize). Live 2026-09-12: no-clock timer hidden via isUnlimitedTime, singular pile viewer, spectator game chat, honest seat/password error paths." },
-    { "id": 3, "name": "Visual Polish, Audio & Deck Builder", "status": "done", "date": "2026-09-03", "desc": "Web Audio engine (22 sfx, 4 buses incl. adaptive generative music), VFX (donut color pie, bars, shake, spell-weight slam, hit sparks, destroy/exile/token deaths, low-life vignette, foil + 3D-tilt preview, cinematic end screen with match stats), selectable playmats (7 static + 2 animated, one tinted by colour identity), in-app deck builder (Scryfall full syntax t:creature c:red cmc<=3 o:haste, help, 9-lang, curve+donut, vertical CMC sort, plain/dck/arena export+clipboard, file drag-drop, goldfish T1-3)." },
+    { "id": 3, "name": "Visual Polish, Audio & Deck Builder", "status": "done", "date": "2026-09-03", "desc": "Web Audio engine (22 sfx, 4 buses incl. adaptive generative music), VFX (donut color pie, bars, shake, spell-weight slam, hit sparks, destroy/exile/token deaths, countered-spell shatter, transform flip, bounce swirl, life-gain motes, library riffle, flicker, monarch/initiative passing, elimination crack, dice rolls, phasing, mulligan deal, day/night sky, sacrifice, spell copies, planeswalker ultimates, revealed-card flip, mana spent flying to the stack, goad badge, library running out, blocker lunge, low-life vignette, foil + 3D-tilt preview, cinematic end screen with match stats), selectable playmats (7 static + 2 animated, one tinted by colour identity), in-app deck builder (Scryfall full syntax t:creature c:red cmc<=3 o:haste, help, 9-lang, curve+donut, vertical CMC sort, plain/dck/arena export+clipboard, file drag-drop, goldfish T1-3)." },
     { "id": 4, "name": "Desktop Packaging (Tauri)", "status": "done", "date": "2026-09-19", "desc": "Tauri launcher (Windows/macOS/Linux) with server + proxy + jlinked JRE on first run and signed auto-updater (latest.json); published as v0.1.0 (2026-09-10), v0.2.0 (2026-09-19), v0.3.0 (2026-09-27), v0.4.0 (2026-09-30), v0.4.1 (2026-10-01, beta + XDHS flavors), v0.4.2 (2026-10-02, signed macOS bundle) and v0.4.3 (2026-10-04, XMage 1.4.62-V1 with rebuilt components). Clean-machine install validation (SmartScreen/Gatekeeper) still tracked in ROADMAP §4.1 V7." },
     { "id": 5, "name": "Advanced Formats & Tournaments", "status": "done", "date": "2026-09-13", "desc": "Commander pod (PodBoard 2x2 render clamp 4 — server supports FFA 3-10 — + TurnOrderRing + CommanderDamageMatrix), Booster Draft & Sealed (8-player, DraftScreen + ConstructScreen), Swiss/SE brackets (TournamentBracket/Panel) + Replay entry from the match history (view-only; transport controls pending). Live 2026-09-13: Sealed Elimination end-to-end (audit-sealed-2, joinTournament discovery, auto-submit, 40-card game to Finished) + tournament wizard with real data (19 types). Draft picks and sealed ConstructScreen submit via web UI validated live 2026-09-14." },
     { "id": 6, "name": "Wizard Crear Mesa — cierre de gaps vs desktop NewTableDialog", "status": "done", "date": "2026-09-06", "desc": "NumPlayers (min/max del oráculo, Commander/FFA 3-10), asientos por plaza SeatConfig[] (tipo+deck), validación deck↔game (port checkMatchOptions), limited fix F8 + limited:true, wins 1-5, mulligans 0-5, persistencia mage_createTable_v1, proxy contrato extendido (mulliganType/customLife/Hand/planeChase/bannedUsers), Custom Options UI (badge Custom(n)), draft exhaustive 21 tournamentTypes + 46 draftCubes (draftCubeName), simDecks por plaza. Delta 2026-09-06: skill por plaza 1-10 (seatSkills web→SimManager→SimPlayer) + skill propia, UI de vetados y de rondas (0=auto), range/attack por flags del servidor, validación por paso, hint vivo por plaza. F11: plazas HUMAN en espera (solo-humanos, tipos normalizados a enum canónico). F6 emblemas fuera de alcance. Docs history/lobby_roadmap §F, oráculo server-state-schema.json." }
@@ -272,7 +275,7 @@
     { "category": "Presentation & Audio", "feature": "VFX & Animations", "official": "no", "nexus": "yes", "phase": "Completed" },
     { "category": "Distribution", "feature": "Desktop & Web Deployment", "official": "no", "nexus": "yes", "phase": "Completed" },
     { "category": "Distribution", "feature": "Interactive Web Demo (GitHub Pages, no install)", "official": "no", "nexus": "yes", "phase": "Completed" },
-    { "category": "Advanced Formats", "feature": "Commander / EDH (server FFA 3-10; board render clamp 4)", "official": "yes", "nexus": "yes", "phase": "Completed" },
+    { "category": "Advanced Formats", "feature": "Commander / EDH (server FFA 3-10; board render clamp 4; per-kind bands, focus on one opponent's board, and an opt-in main board with a side panel of scaled board copies)", "official": "yes", "nexus": "yes", "phase": "Completed" },
     { "category": "Advanced Formats", "feature": "Booster Draft & Sealed (8-player, Construct 40)", "official": "yes", "nexus": "yes", "phase": "Completed" },
     { "category": "Advanced Formats", "feature": "Swiss Tournament Brackets + Replay Entry (view-only)", "official": "yes", "nexus": "partial", "phase": "Completed" }
   ],
@@ -280,7 +283,8 @@
     { "name": "callbackCoverage", "status": "pass", "desc": "Every server callback has a client handler or is listed as planned.", "note": "Guard: web/src/state/callbackCoverage.test.ts" },
     { "name": "mechanicsCoverage", "status": "pass", "desc": "Every mage.view.* field the server can emit is modeled in contract.schema.json / types.generated.ts (reverse-drift).", "note": "Guard: web/src/state/mechanicsCoverage.test.ts + scripts/view-schema.mjs" },
     { "name": "engineViewCoverage", "status": "pass", "desc": "Engine state in mage.game.* not copied into mage.view.* DTOs is tracked against a baseline.", "note": "Known gaps: harnessed / monstrous / renowned / player-targeting. goad shown via cardIcons/rules (not a gap). Guard: web/src/state/engineViewCoverage.test.ts + scripts/engine-view-schema.mjs" },
-    { "name": "serverStateCoverage", "status": "pass", "desc": "CreateTable formats (gameTypes/deckTypes) are exhaustive vs Mage.Server/config/config.xml — no drift when offline/fake.", "note": "Guard: web/src/state/serverStateCoverage.test.ts + scripts/server-state-schema.mjs" }
+    { "name": "serverStateCoverage", "status": "pass", "desc": "CreateTable formats (gameTypes/deckTypes) are exhaustive vs Mage.Server/config/config.xml — no drift when offline/fake.", "note": "Guard: web/src/state/serverStateCoverage.test.ts + scripts/server-state-schema.mjs" },
+    { "name": "specCoverage", "status": "pass", "desc": "Every behaviour rule in docs/specs/ lists exactly the test files whose titles carry its id; unknown ids and stale 'none yet' markers fail.", "note": "Guard: web/src/specCoverage.test.ts (format: docs/specs/README.md)" }
   ],
   "displayGaps": {
     "PermanentView": {

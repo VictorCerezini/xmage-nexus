@@ -7,7 +7,10 @@
 
 import path from 'node:path'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { binName, ensureMageArtifacts, log, logError, PORTS, repoRoot, run, waitForPort, waitForPortDown } from './lib.mjs'
+import { enforceCoverageGate } from './coverage-gate.mjs'
+import { assertCanIsolate, cleanScriptTables, isVerifyIsolateEnabled, restartProxyAndWait } from './verify-isolate.mjs'
 
 const WEB_DIR = path.join(repoRoot, 'web')
 const STACK_HINT = 'el stack no está corriendo — ejecuta primero: node scripts/ctl.mjs start'
@@ -38,36 +41,43 @@ const VERIFY_SCRIPTS = [
 ]
 
 const LAYERS = [
-  { name: 'unit', desc: 'vitest run (web)' },
-  { name: 'coverage', desc: 'vitest run --coverage (web)' },
+  { name: 'unit', desc: 'vitest run (web); shares one run with coverage when both are selected' },
+  { name: 'coverage', desc: 'vitest run --coverage (web), coverage gate included' },
   { name: 'typecheck', desc: 'tsc -b --noEmit (web)' },
   { name: 'build', desc: 'tsc -b && vite build (web)' },
-  { name: 'java', desc: 'mvn -f Mage.Proxy/pom.xml test (con artefactos del fork en ~/.m2)' },
-  { name: 'self-test', desc: 'E2E headless (ws://127.0.0.1:8787)' },
-  { name: 'human-test', desc: 'E2E jugador humano contra IA (ws://127.0.0.1:8787)' },
-  { name: 'verify', desc: `${VERIFY_SCRIPTS.length} verify/* scripts anti-drift (multi-tenant, permisos, torneos…)` },
-  { name: 'verify-restart', desc: 'verify-reconnect (reinicia el proxy: no lo mezcles con otras capas)' },
-  { name: 'fuzz', desc: 'fuzz.mjs self-play (20 partidas por defecto: nightly, no en cada push)' },
+  { name: 'java', desc: 'mvn -f Mage.Proxy/pom.xml test (with the fork artifacts in ~/.m2)' },
+  { name: 'self-test', desc: 'headless E2E (ws://127.0.0.1:8787)' },
+  { name: 'human-test', desc: 'E2E human player vs AI (ws://127.0.0.1:8787)' },
+  { name: 'verify', desc: `${VERIFY_SCRIPTS.length} verify/* anti-drift scripts (multi-tenant, permissions, tournaments…)` },
+  { name: 'verify-restart', desc: 'verify-reconnect (restarts the proxy: do not mix it with other layers)' },
+  { name: 'fuzz', desc: 'fuzz.mjs self-play (20 games by default: nightly, not on every push)' },
   { name: 'e2e', desc: 'playwright test (web)' },
-  { name: 'i18n', desc: 'i18n coverage guard (894 claves, whitelist)' },
+  { name: 'i18n', desc: 'i18n coverage guard (894 keys, allowlist)' },
+  { name: 'scripts', desc: 'node --test over scripts/*.test.mjs (dashboard and CI helpers)' },
 ]
 const NAMES = new Set(LAYERS.map((l) => l.name))
 
 function usage() {
   console.log(`
-Uso: node scripts/test.mjs [layer...] [--skip=capas]
+Usage: node scripts/test.mjs [layer...] [--skip=layers]
 
-Capas (orden por defecto):
+Layers (default order):
 ${LAYERS.map((l) => `  ${l.name.padEnd(10)} ${l.desc}`).join('\n')}
 
-Opciones:
-  --skip=unit,typecheck   excluye capas (separadas por coma)
-  --help                  muestra esta ayuda
+  unit and coverage are one vitest run: when both are selected (the default) it runs once,
+  with coverage, and each layer reports from it; the coverage gate fails only "coverage".
 
-Ejemplos:
-  node scripts/test.mjs                  # todas las capas
-  node scripts/test.mjs typecheck        # solo typecheck
-  node scripts/test.mjs --skip=unit,e2e  # todas menos unit y e2e
+Options:
+  --skip=unit,typecheck   excludes layers (comma-separated)
+  --isolate-verify        restarts the proxy before each verify script
+                          (or set VERIFY_ISOLATE=1; refuses to mix with self-test/human-test/fuzz)
+  --help                  shows this help
+
+Examples:
+  node scripts/test.mjs                  # all layers
+  node scripts/test.mjs typecheck        # typecheck only
+  node scripts/test.mjs unit             # vitest without coverage
+  node scripts/test.mjs --skip=unit,e2e  # all except unit and e2e
 `)
 }
 
@@ -82,6 +92,8 @@ function parseArgs(args) {
     } else if (a === '--skip') {
       const next = args[++i]
       if (next) next.split(',').forEach((s) => s.trim() && opts.skip.add(s.trim()))
+    } else if (a === '--isolate-verify') {
+      // Consumed by the verify-isolate module (isVerifyIsolateEnabled re-reads raw argv).
     } else {
       opts.layers.push(a)
     }
@@ -172,6 +184,18 @@ function runVerifyScript(file) {
   return res
 }
 
+/**
+ * The shared vitest run exits non-zero both for a failing test and for a coverage gate that is
+ * not met. The unit layer only owns the first: it passes when every test passed, even if the
+ * gate failed, and the coverage layer keeps the whole exit code.
+ */
+export function vitestVerdict(vitest, layer) {
+  if (layer === 'coverage' || vitest.code === 0) return vitest
+  const out = `${vitest.stdout}\n${vitest.stderr}`
+  const gateOnly = /does not meet (?:global )?threshold/.test(out) && !/^\s*(?:Tests|Test Files)\b.*\bfailed\b|^\s*Errors\b/m.test(out)
+  return gateOnly ? { code: 0, stdout: vitest.stdout, stderr: '' } : vitest
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2))
 
@@ -197,9 +221,19 @@ async function main() {
   }
 
   log(`capas a ejecutar: ${selected.join(', ')}`)
+  if (isVerifyIsolateEnabled(process.argv.slice(2))) {
+    try {
+      assertCanIsolate(selected)
+    } catch (e) {
+      logError(e.message)
+      process.exit(1)
+    }
+  }
   const startedAt = Date.now()
   const results = []
   let fails = 0
+  const vitestCommand = selected.includes('coverage') ? 'test:coverage' : 'test'
+  let vitestRun = null
 
   // warm-up del stack antes de las capas E2E que requieren proxy (self-test/human-test):
   // la PRIMERA partida tras un arranque en frío del servidor puede perder el socket de
@@ -229,13 +263,26 @@ async function main() {
   for (const name of selected) {
     const layerStart = Date.now()
     let res = null
+    let note = ''
 
     switch (name) {
       case 'unit':
-        res = run(binName('npm'), ['--prefix', 'web', 'run', 'test'])
-        break
       case 'coverage':
-        res = run(binName('npm'), ['--prefix', 'web', 'run', 'test:coverage'])
+        if (vitestRun) note = ' (shared vitest run)'
+        vitestRun ??= run(binName('npm'), ['--prefix', 'web', 'run', vitestCommand])
+        res = vitestVerdict(vitestRun, name)
+        // Coverage no-regression gate: the vitest thresholds catch a drop below the floor, not a
+        // drift above it. Only the coverage layer owns this gate (the unit layer passes when the
+        // tests pass even if the gate failed), and only when vitest itself passed: on a failed
+        // run the summary can be partial.
+        if (name === 'coverage' && res.code === 0) {
+          const gate = enforceCoverageGate()
+          if (!gate.ok) {
+            res = { code: 1, stdout: '', stderr: gate.message }
+          } else if (gate.recordedBaseline) {
+            log(gate.message)
+          }
+        }
         break
       case 'typecheck':
         res = run(binName('npm'), ['--prefix', 'web', 'run', 'typecheck'])
@@ -299,8 +346,19 @@ async function main() {
           break
         }
         const failed = []
+        const isolate = isVerifyIsolateEnabled(process.argv.slice(2))
         for (const file of VERIFY_SCRIPTS) {
+          if (isolate) {
+            try {
+              await restartProxyAndWait()
+            } catch (e) {
+              console.log(`  ✗ ${file} — isolation restart failed: ${e.message}`)
+              failed.push(file)
+              continue
+            }
+          }
           if (runVerifyScript(file).code !== 0) failed.push(file)
+          if (isolate) cleanScriptTables(file)
         }
         res = failed.length
           ? { code: 1, stdout: '', stderr: `${failed.length} de ${VERIFY_SCRIPTS.length} verify scripts fallaron: ${failed.join(', ')}` }
@@ -328,16 +386,21 @@ async function main() {
       case 'i18n':
         res = run('node', ['scripts/i18n-coverage.mjs'])
         break
+      case 'scripts': {
+        const files = fs.readdirSync(path.join(repoRoot, 'scripts')).filter((f) => f.endsWith('.test.mjs')).sort()
+        res = run('node', ['--test', ...files.map((f) => `scripts/${f}`)], { timeoutMs: 600_000 })
+        break
+      }
     }
 
     const seconds = ((Date.now() - layerStart) / 1000).toFixed(1)
     if (res.code === 0) {
       results.push({ name, status: 'pass' })
-      console.log(`[PASS] ${name} (${seconds}s)`)
+      console.log(`[PASS] ${name} (${note ? 'shared run' : `${seconds}s`})`)
     } else {
       fails++
       results.push({ name, status: 'fail' })
-      console.log(`[FAIL] ${name} (${seconds}s)`)
+      console.log(`[FAIL] ${name} (${note ? 'shared run' : `${seconds}s`})`)
       const lines = `${res.stderr ?? ''}\n${res.stdout ?? ''}`.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
       if (lines.length) {
         console.log('  salida de error:')
@@ -352,4 +415,5 @@ async function main() {
   process.exit(fails === 0 ? 0 : 1)
 }
 
-await main()
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) await main()

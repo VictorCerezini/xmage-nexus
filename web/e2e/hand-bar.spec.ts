@@ -1,7 +1,6 @@
 import { fakeOnly } from './support/fake-mode'
-import { TABLE } from '../fixtures/table-names'
 import { test, expect } from './fixtures'
-import { startGame } from './support/start-game'
+import { quickStartGame } from './support/start-game'
 import { withFakeServer } from './support/fake-backend'
 import { dismissInfoWindows } from './support/info-windows'
 import { spellsScenario } from '../fixtures/scenarios/spells'
@@ -40,12 +39,14 @@ interface Box {
 /** Smallest visible horizontal ratio per card at the maximum overlap (token in handSizing.ts). */
 const MIN_VISIBLE_RATIO = HAND_BAR_MIN_VISIBLE_RATIO
 
+type Rect = { x: number; y: number; width: number; height: number }
+
 const RECT_OF = 'const rectOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height } };'
 
 /** Overlay: la mano flota sobre el fondo SIN consumir layout — el player-zone
  *  llega hasta el borde inferior del tablero y la barra está anclada a él. */
 async function expectOverlayLayout(page: Page): Promise<void> {
-  const boxes = await page.evaluate(`${RECT_OF}
+  const boxes = await page.evaluate<{ bar: Rect; board: Rect; zone: Rect }>(`${RECT_OF}
     (() => {
       const bar = document.querySelector('[data-testid="hand-bar"]')
       const board = bar?.closest('.game-board, .pod-board, .arena-board')
@@ -84,7 +85,7 @@ async function expectHandBarLayout(page: Page): Promise<void> {
   // (los rivales espejados en pod comparten la clase .player-zone → excluimos)
   await expect(page.locator('.player-zone:not(.mirrored) .hand-card-slot')).toHaveCount(0)
 
-  const boxes = await page.evaluate(`${RECT_OF}
+  const boxes = await page.evaluate<{ bar: Rect; board: Rect; slots: Rect[]; cards: Rect[] }>(`${RECT_OF}
     (() => {
       const bar = document.querySelector('[data-testid="hand-bar"]')
       const board = bar?.closest('.game-board, .pod-board, .arena-board')
@@ -134,11 +135,10 @@ async function expectHandBarLayout(page: Page): Promise<void> {
   await expectOverlayLayout(page)
 }
 
-test('la mano propia flota como overlay anclado al fondo sin consumir layout (standard) @fullflow @hand-bar', async ({ page }) => {
+test('HND-1, HND-2: the own hand floats as an overlay anchored to the bottom without taking layout space (standard) @fullflow @hand-bar', async ({ page }) => {
   await withFakeServer(() => spellsScenario('blaze'), async () => {
-    const { pageErrors } = await startGame(page, {
+    const { pageErrors } = await quickStartGame(page, {
       prefix: 'hb',
-      tableName: TABLE.spellsBlaze,
       skipAsks: true,
     })
     await expectHandBarLayout(page)
@@ -146,11 +146,10 @@ test('la mano propia flota como overlay anclado al fondo sin consumir layout (st
   })
 })
 
-test('hovering an own hand card grows it in place until legible, without a floating preview @fullflow @hand-bar', async ({ page }) => {
+test('HND-3: hovering an own hand card grows it in place until legible, without a floating preview @fullflow @hand-bar', async ({ page }) => {
   await withFakeServer(() => spellsScenario('blaze'), async () => {
-    const { pageErrors } = await startGame(page, {
+    const { pageErrors } = await quickStartGame(page, {
       prefix: 'hbh',
-      tableName: TABLE.spellsBlaze,
       skipAsks: true,
     })
     const slots = page.locator('[data-testid="hand-bar"] .hand-card-slot')
@@ -203,11 +202,10 @@ test('hovering an own hand card grows it in place until legible, without a float
   })
 })
 
-test('hovering a battlefield land still opens the floating preview @fullflow @hand-bar', async ({ page }) => {
+test('HND-3: hovering a battlefield land still opens the floating preview @fullflow @hand-bar', async ({ page }) => {
   await withFakeServer(mechanicsScenario, async () => {
-    const { pageErrors } = await startGame(page, {
+    const { pageErrors } = await quickStartGame(page, {
       prefix: 'hbl',
-      tableName: TABLE.mechanics,
       skipAsks: true,
     })
     // the scenario reveals a card, which latches its viewer open over the board
@@ -228,11 +226,10 @@ test('hovering a battlefield land still opens the floating preview @fullflow @ha
   })
 })
 
-test('la mano propia ocupa toda la fila inferior del pod 1v1 @fullflow @hand-bar', async ({ page }) => {
+test('HND-1: the own hand spans the whole bottom row of a 1v1 pod @fullflow @hand-bar', async ({ page }) => {
   await withFakeServer(() => spellsScenario('blaze'), async () => {
-    const { pageErrors } = await startGame(page, {
+    const { pageErrors } = await quickStartGame(page, {
       prefix: 'hbp',
-      tableName: TABLE.spellsBlaze,
       skipAsks: true,
     })
 

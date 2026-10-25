@@ -437,3 +437,194 @@
   }
 }
 
+
+/* Library running out: a steady red glow at three cards or fewer, a red
+   outline at none, and one crack-and-flash when it empties. */
+.library-stack.library-low,
+.library-chip.library-low {
+  border-color: rgb(var(--err-rgb) / 0.85);
+  box-shadow: 0 0 12px rgb(var(--err-rgb) / 0.55), 0 4px 10px var(--shade-3);
+  animation: libraryLowBreath calc(2.4s / var(--fx-speed, 1)) ease-in-out infinite;
+}
+
+.library-stack.library-low .stack-count,
+.library-chip.library-low .chip-count {
+  color: rgb(var(--err-rgb));
+}
+
+.library-stack.library-empty,
+.library-chip.library-empty {
+  border: 1.5px solid rgb(var(--err-rgb) / 0.9);
+  box-shadow: 0 0 10px rgb(var(--err-rgb) / 0.5);
+}
+
+.library-stack.library-empty .stack-count,
+.library-chip.library-empty .chip-count {
+  display: flex;
+  color: rgb(var(--err-rgb));
+}
+
+.library-stack.library-cracking,
+.library-chip.library-cracking {
+  animation: libraryCrackShake calc(0.5s / var(--fx-speed, 1)) ease-out;
+}
+
+.library-stack.library-cracking::after,
+.library-chip.library-cracking::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 56' preserveAspectRatio='none'%3E%3Cpath d='M22 0 L17 12 L25 20 L15 31 L23 40 L18 56 M17 12 L7 16 M25 20 L35 17 M15 31 L4 36 M23 40 L33 45' fill='none' stroke='white' stroke-width='1.6' stroke-linejoin='bevel'/%3E%3C/svg%3E") center / 100% 100% no-repeat,
+    radial-gradient(circle at 50% 50%, rgb(var(--err-rgb) / 0.85), transparent 70%);
+  animation: libraryCrackFlash calc(1.3s / var(--fx-speed, 1)) ease-out forwards;
+}
+
+@keyframes libraryLowBreath {
+  0%, 100% { box-shadow: 0 0 8px rgb(var(--err-rgb) / 0.4), 0 4px 10px var(--shade-3); }
+  50% { box-shadow: 0 0 16px rgb(var(--err-rgb) / 0.75), 0 4px 10px var(--shade-3); }
+}
+
+@keyframes libraryCrackShake {
+  0%, 100% { translate: 0 0; }
+  15% { translate: -3px 1px; }
+  35% { translate: 3px -1px; }
+  55% { translate: -2px 0; }
+  75% { translate: 1px 0; }
+}
+
+@keyframes libraryCrackFlash {
+  0% { opacity: 0; scale: 1.2; }
+  12% { opacity: 1; scale: 1; }
+  60% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-stack.library-low,
+  .library-chip.library-low,
+  .library-stack.library-cracking,
+  .library-chip.library-cracking {
+    animation: none;
+  }
+
+  .library-stack.library-cracking::after,
+  .library-chip.library-cracking::after {
+    display: none;
+  }
+}
+
+html.fx-off .library-stack.library-low,
+html.fx-off .library-chip.library-low,
+html.fx-off .library-stack.library-cracking,
+html.fx-off .library-chip.library-cracking {
+  animation: none !important;
+}
+
+html.fx-off .library-stack.library-cracking::after,
+html.fx-off .library-chip.library-cracking::after {
+  display: none;
+}
+
+/* Pile cards (BRD-12): library, graveyard and exile as card-shaped tiles in
+   the corner of the board. `.pile-card` is shared with the pile overlay,
+   which sets --card-w for its own cards, so the tiles pin it back. */
+.resource-pile-cards {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+.resource-pile-cards .pile-card {
+  --card-w: var(--pile-card-w, 56px);
+  position: relative;
+  width: var(--pile-card-w, 56px);
+  min-width: 0;
+  flex: 0 1 auto;
+  aspect-ratio: 63 / 88;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-card, 6px);
+  background: rgb(var(--ink-rgb) / 0.6);
+  cursor: pointer;
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.resource-pile-cards .pile-card:hover {
+  transform: translateY(-4px);
+}
+
+.pile-card .stack-back-img {
+  border-radius: var(--r-card, 6px);
+}
+
+.pile-card .pile-card-face {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  border-radius: var(--r-card, 6px);
+}
+
+.pile-card.is-empty {
+  outline: 1px dashed var(--line-3);
+  outline-offset: -1px;
+}
+
+.pile-card-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-1);
+  font-size: var(--fs-3xs);
+  font-weight: 700;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: center;
+  color: var(--fg-1);
+  opacity: 0.7;
+}
+
+.pile-card-count {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--sp-1h);
+  border-radius: var(--r-base);
+  background: rgb(var(--ink-rgb) / 0.88);
+  border: 1px solid var(--veil-6);
+  color: var(--fg-hi);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 2px 6px var(--shade-4);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.pile-card.has-playable {
+  box-shadow: 0 0 12px rgb(var(--ok-rgb) / 0.6);
+}
+
+.pile-card.target-zone::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 2px solid var(--gold-300);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 6;
+  animation: targetZoneRing 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pile-card.target-zone::after {
+    animation: none;
+  }
+}

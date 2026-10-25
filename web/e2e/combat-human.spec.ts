@@ -1,6 +1,4 @@
 import { fakeOnly } from './support/fake-mode'
-import { TABLE } from '../fixtures/table-names'
-import { DECK } from '../fixtures/deck-names'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +7,7 @@ fakeOnly()
 import type { Page } from '@playwright/test'
 import { combatHumanAttackScenario, combatHumanBlockScenario } from '../fixtures/scenarios/combatHuman'
 import { withFakeServer } from './support/fake-backend'
-import { startGame } from './support/start-game'
+import { quickStartGame } from './support/start-game'
 import {
   controlledPlayer,
   framesOf,
@@ -60,6 +58,21 @@ async function ensureCreature(page: Page, helper: HumanHelper, name: string): Pr
   throw new Error(`${name} no entró al campo a tiempo`)
 }
 
+/** Leaves my main window with exactly one pass. The helper's fallback already passes it
+ *  1.5 s after it opens (retrying past a mana payment), so a second, explicit pass on a
+ *  slow runner confirmed an empty attack and dealt the damage twice (life 18, not 19).
+ *  Pass here only when no combat window opened within the fallback's reach. */
+async function leaveMainWindow(page: Page, helper: HumanHelper): Promise<void> {
+  const opened = await waitScene(page, 'combat', (c) => c.active, 'ventana de combate', 4_000).then(() => true, () => false)
+  if (opened) return
+  helper.paused = true
+  try {
+    expect(await helper.passPriority(), 'pasar el main tras lanzar la criatura').toBeTruthy()
+  } finally {
+    helper.paused = false
+  }
+}
+
 /** Confirma las ventanas de ataque propias hasta que aparezca la de bloqueo
  *  (en real, el humano también abre ataque en sus turnos; en fake no). */
 async function confirmMyAttackWindows(page: Page): Promise<SceneCombat> {
@@ -71,23 +84,18 @@ async function confirmMyAttackWindows(page: Page): Promise<SceneCombat> {
   throw new Error('demasiadas ventanas de ataque sin llegar al bloqueo')
 }
 
-test('combate humano: el humano declara atacantes por la UI y el daño baja la vida del Sim', { tag: '@combat' }, async ({ page }) => {
+test('CMB-1, CMB-2: the human declares an attacker on the board, confirms, and the damage lowers the Sim\'s life', { tag: '@combat' }, async ({ page }) => {
   fs.mkdirSync(SHOTS_DIR, { recursive: true })
   await withFakeServer(() => combatHumanAttackScenario(), async () => {
-    const { helper, pageErrors } = await startGame(page, {
+    const { helper, pageErrors } = await quickStartGame(page, {
       prefix: 'cba',
-      tableName: TABLE.combatHumanAttack,
-      deck: DECK.combatHuman,
-      simDeck: DECK.aiLands,
       skipCombat: true,
     })
 
     // criatura propia en el campo (turno 1-2) para poder atacar
     const goblinId = await ensureCreature(page, helper, 'Raging Goblin')
 
-    // pasar el main tras lanzar la criatura (por WS: el fallback interno del
-    // helper muere si coincide con el pago de maná y la ventana quedaría abierta)
-    expect(await helper.passPriority(), 'pasar el main tras lanzar la criatura').toBeTruthy()
+    await leaveMainWindow(page, helper)
 
     // ventana de declaración de atacantes: la criatura es clicable
     let combat: SceneCombat
@@ -133,22 +141,18 @@ test('combate humano: el humano declara atacantes por la UI y el daño baja la v
   })
 })
 
-test('combate humano: el humano bloquea por la UI y el ataque del Sim no hace daño', { tag: '@combat' }, async ({ page }) => {
+test('CMB-1: the human blocks on the board and the Sim\'s attack deals no damage', { tag: '@combat' }, async ({ page }) => {
   fs.mkdirSync(SHOTS_DIR, { recursive: true })
   await withFakeServer(() => combatHumanBlockScenario(), async () => {
-    const { helper, pageErrors } = await startGame(page, {
+    const { helper, pageErrors } = await quickStartGame(page, {
       prefix: 'cbb',
-      tableName: TABLE.combatHumanBlock,
-      deck: DECK.combatHuman,
-      simDeck: DECK.blockSim,
       skipCombat: true,
     })
 
     // criatura propia en el campo para bloquear
     const blockerId = await ensureCreature(page, helper, 'Raging Goblin')
 
-    // pasar el main tras lanzar la criatura (abre MI ventana de ataque)
-    expect(await helper.passPriority(), 'pasar el main tras lanzar la criatura').toBeTruthy()
+    await leaveMainWindow(page, helper)
 
     // confirmar mis ventanas de ataque (en real el humano también puede atacar)
     // y llegar a la ventana de bloqueo del ataque del Sim
@@ -163,7 +167,8 @@ test('combate humano: el humano bloquea por la UI y el ataque del Sim no hace da
 
     // vida justo antes de bloquear (en real el Sim ya hizo 1 de daño sin
     // bloqueador en su turno 1; en fake el daño llega solo con el ataque bloqueado)
-    const lifeBefore = controlledPlayer(lastGameView(parseFrames(framesOf(page))))?.life as number
+    const lifeBefore = (controlledPlayer(lastGameView(parseFrames(framesOf(page)))) as { life?: number } | undefined)?.life as number
+    const turnBeforeBlock = Number(lastGameView(parseFrames(framesOf(page)))?.turn ?? 0)
 
     // clic en el bloqueador → bloquea al atacante
     expect(await sceneClick(page, blockerId), 'clic para declarar bloqueador').toBeTruthy()
@@ -179,19 +184,21 @@ test('combate humano: el humano bloquea por la UI y el ataque del Sim no hace da
 
     // en fake la ventana persiste (posibleBlockers sigue listando al bloqueador):
     // confirmarla con el botón; en real el helper ya confirmó el re-select vacío
-    const confirmButton = page.getByRole('button', { name: 'Confirmar bloqueadores', exact: true })
+    const confirmButton = page.getByRole('button', { name: 'Confirmar bloqueadores', exact: true }).filter({ visible: true }).first()
     if (await confirmButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
       await confirmButton.click()
     }
 
     // el ataque quedó bloqueado: mi vida NO baja al empezar mi siguiente turno
     const deadline = Date.now() + 25_000
-    while (Date.now() < deadline) {
+    let reachedNextTurn = false
+    while (Date.now() < deadline && !reachedNextTurn) {
       const view = lastGameView(parseFrames(framesOf(page)))
       const me = controlledPlayer(view)
-      if (view?.step === 'PRECOMBAT_MAIN' && me?.isActive === true) break
-      await page.waitForTimeout(250)
+      reachedNextTurn = Number(view?.turn ?? 0) > turnBeforeBlock && (me as { isActive?: boolean } | undefined)?.isActive === true
+      if (!reachedNextTurn) await page.waitForTimeout(250)
     }
+    expect(reachedNextTurn, 'el turno debería pasar a mi siguiente turno tras el bloqueo').toBeTruthy()
     const me = controlledPlayer(lastGameView(parseFrames(framesOf(page))))
     expect((me as { life?: number } | undefined)?.life, 'el bloqueo debería evitar el daño de combate').toBe(lifeBefore)
 

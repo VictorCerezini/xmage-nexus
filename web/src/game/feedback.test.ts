@@ -263,7 +263,7 @@ describe('parseFeedback', () => {
     expect(multi?.items).toEqual([{ id: 'x', label: 'First', min: 1, max: 2, defaultValue: 2 }])
   })
 
-  it('marks multi-amount cancellable only when options.canCancel is true (MultiAmountType.isCanCancel)', () => {
+  it('CMB-8: marks multi-amount cancellable only when options.canCancel is true (MultiAmountType.isCanCancel)', () => {
     const payload = {
       min: 0,
       max: 5,
@@ -280,6 +280,24 @@ describe('parseFeedback', () => {
       options: { title: 'Assign damage', header: 'Assign damage among blockers' },
     })
     expect(mandatory?.required).toBe(true)
+  })
+
+  it('CMB-11: carries the declaration direction on the prompt (GAME_SELECT possibleAttackers/possibleBlockers), not in the translated title', () => {
+    const attackers = parseFeedback('GAME_SELECT', 'game-cmb11', {
+      message: 'Declare attackers',
+      options: { possibleAttackers: ['a1'], specialButton: 'All attack' },
+    })
+    expect(attackers?.mode).toBe('combat')
+    expect(attackers?.isDeclaringAttackers).toBe(true)
+    expect(attackers?.special).toBe(true)
+
+    const blockers = parseFeedback('GAME_SELECT', 'game-cmb11', {
+      message: 'Declare blockers',
+      options: { possibleBlockers: ['b1'] },
+    })
+    expect(blockers?.mode).toBe('combat')
+    expect(blockers?.isDeclaringAttackers).toBeUndefined()
+    expect(blockers?.special).toBe(false)
   })
 
   it('keeps sourceName undefined when the ability/pile/X/multi-amount payload carries no source (no fabrication)', () => {
@@ -348,7 +366,7 @@ describe('parseFeedback', () => {
     expect(choose?.message).toBe('Search your library for a card')
   })
 
-  it('maps pile choices to booleans and mana to a controlled player', () => {
+  it('MNA-1: maps pile choices to booleans and mana to a controlled player', () => {
     const pile = parseFeedback('GAME_CHOOSE_PILE', 'game-4', { cardsView1: { a: {} }, cardsView2: { b: {}, c: {} } })
     expect(pile?.options.map((option) => option.value)).toEqual(['true', 'false'])
 
@@ -535,7 +553,7 @@ describe('parseFeedback', () => {
     expect(prompt).toMatchObject({ mode: 'integer', min: 1, max: 5 })
   })
 
-  it('maps GAME_PLAY_XMANA to a boolean (Confirmar/Cancelar)', () => {
+  it('MNA-10: maps GAME_PLAY_XMANA to a boolean (Confirm/Cancel)', () => {
     const prompt = parseFeedback('GAME_PLAY_XMANA', 'game-10', { message: 'Pay X mana?' })
     expect(prompt?.mode).toBe('boolean')
     expect(prompt?.options.map((option) => option.value)).toEqual(['true', 'false'])
@@ -646,7 +664,7 @@ describe('parseFeedback', () => {
     expect(prompt?.isPlaneswalkerAbility).toBeUndefined()
   })
 
-  it('filters out XMage server metadata from GAME_ASK (e.g. unspent mana warning)', () => {
+  it('MNA-5: filters out XMage server metadata from GAME_ASK (e.g. unspent mana warning)', () => {
     const prompt = parseFeedback('GAME_ASK', 'game-23', {
       message: 'You still have mana in your mana pool and it will be lost. Pass anyway?',
       options: {
@@ -680,6 +698,21 @@ describe('parseFeedback', () => {
       { id: 'left', label: 'Pay 2 life', value: 'true' },
       { id: 'right', label: 'Enter tapped', value: 'false' },
     ])
+  })
+
+  it('takes the required flag from the Choice (ChoiceImpl.required) and defaults to required when absent', () => {
+    const optional = parseFeedback('GAME_CHOOSE_CHOICE', 'game-5h', {
+      choice: { message: 'Choose a mode', keyChoices: { 'mode-a': 'First mode' }, required: false },
+    })
+    expect(optional?.required).toBe(false)
+    const mandatory = parseFeedback('GAME_CHOOSE_CHOICE', 'game-5i', {
+      choice: { message: 'Choose a mode', keyChoices: { 'mode-a': 'First mode' }, required: true },
+    })
+    expect(mandatory?.required).toBe(true)
+    const absent = parseFeedback('GAME_CHOOSE_CHOICE', 'game-5j', {
+      choice: { message: 'Choose a mode', keyChoices: { 'mode-a': 'First mode' } },
+    })
+    expect(absent?.required).toBe(true)
   })
 
   it('extracts choices from ChoiceImpl.choices array when keyChoices is empty (ChoiceColor)', () => {

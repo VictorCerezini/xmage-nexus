@@ -16,10 +16,15 @@ export interface StrikeSchedule {
   impactAt: Map<string, number>
 }
 
+export function strikeHitKey(attackerId: string, hit: number): string {
+  return `${attackerId}#${hit}`
+}
+
 const STRIKE_MS = 560
 const STRIKE_GAP_MS = 240
 const IMPACT_AT = 0.5
 const MAX_STRIKES = 10
+const HOLD_SAFETY_MS = 3000
 
 type StrikeKind = 'first' | 'double' | null
 
@@ -34,6 +39,12 @@ export function strikeKind(card: unknown): StrikeKind {
     if (keywords.includes('first strike')) return 'first'
   }
   return null
+}
+
+function hasTrample(card: unknown): boolean {
+  const c = card as { cardIcons?: Array<{ cardIconType?: string } | null>; rules?: unknown[] } | null | undefined
+  if ((c?.cardIcons ?? []).some((i) => String(i?.cardIconType ?? '') === 'ABILITY_TRAMPLE')) return true
+  return (c?.rules ?? []).some((line) => String(line).replace(/<[^>]+>/g, '').toLowerCase().split(/[,;.]/).map((s) => s.trim()).includes('trample'))
 }
 
 function cardOf(game: GameView, group: Record<string, unknown>, id: string): unknown {
@@ -88,12 +99,33 @@ export function planDamageStrikes(prevGame: GameView, nextGame: GameView): Strik
     const blockers = stringList(rec.blockers)
     const blocked = blockers.length > 0 || rec.isBlocked === true
     const defender = (typeof rec.defenderId === 'string' && rec.defenderId) || stringList(rec.defenders)[0] || null
-    const targetId = blockers[0] ?? (blocked ? null : defender)
-    if (!targetId) continue
     for (const attackerId of stringList(rec.attackers)) {
-      const kind = strikeKind(cardOf(source, rec, attackerId))
+      const card = cardOf(source, rec, attackerId)
+      const kind = strikeKind(card)
+      const targetId = blockers[0] ?? (blocked ? (hasTrample(card) ? defender : null) : defender)
+      if (!targetId) continue
       if (crossed.first && kind !== null) firstStrikes.push({ attackerId, targetId })
-      else if (crossed.regular && kind !== 'first') regularStrikes.push({ attackerId, targetId })
+      if (crossed.regular && kind !== 'first') regularStrikes.push({ attackerId, targetId })
+    }
+  }
+  return [...firstStrikes, ...regularStrikes]
+}
+
+export function planBlockerStrikes(prevGame: GameView, nextGame: GameView): StrikePlan[] {
+  const crossed = crossedDamage(prevGame, nextGame)
+  if (!crossed.first && !crossed.regular) return []
+  const source = (prevGame.combat ?? []).length > 0 ? prevGame : nextGame
+  const firstStrikes: StrikePlan[] = []
+  const regularStrikes: StrikePlan[] = []
+  for (const group of source.combat ?? []) {
+    const rec = group as Record<string, unknown>
+    const attackers = stringList(rec.attackers)
+    for (const blockerId of stringList(rec.blockers)) {
+      const kind = strikeKind(cardOf(source, rec, blockerId))
+      for (const attackerId of attackers) {
+        if (crossed.first && kind !== null) firstStrikes.push({ attackerId: blockerId, targetId: attackerId })
+        if (crossed.regular && kind !== 'first') regularStrikes.push({ attackerId: blockerId, targetId: attackerId })
+      }
     }
   }
   return [...firstStrikes, ...regularStrikes]
@@ -121,6 +153,26 @@ function slotElement(id: string): HTMLElement | null {
 
 const holds = new Map<string, number>()
 const impacts = new Map<string, number>()
+const impactListeners = new Set<() => void>()
+
+export function subscribeCombatImpacts(listener: () => void): () => void {
+  impactListeners.add(listener)
+  return () => { impactListeners.delete(listener) }
+}
+
+export function combatImpactUntil(id: string | null | undefined): number {
+  return (id && impacts.get(id)) || 0
+}
+
+function impactsChanged(): void {
+  impactListeners.forEach((listener) => listener())
+}
+
+function landImpacts(ids: string[]): void {
+  let changed = false
+  for (const id of ids) if (impacts.delete(id)) changed = true
+  if (changed) impactsChanged()
+}
 
 function remaining(timers: Map<string, number>, id: string | null | undefined): number {
   if (!id) return 0
@@ -216,11 +268,21 @@ const snapshots = new Map<string, Snapshot>()
 export function snapshotCombatants(game: GameView | null | undefined): void {
   if (typeof document === 'undefined') return
   const ids = new Set(combatantIds(game))
-  for (const id of [...snapshots.keys()]) if (!ids.has(id)) snapshots.delete(id)
+  for (const [id, snap] of snapshots) if (!ids.has(id) && !snap.ghost.isConnected) snapshots.delete(id)
   for (const id of ids) {
     const el = slotElement(id)
     if (el) snapshots.set(id, { ghost: buildGhost(el, el.getBoundingClientRect()), rect: el.getBoundingClientRect() })
   }
+}
+
+/** Where a combatant is drawn right now: its live slot, else its stand-in ghost during the strikes, else where it stood. */
+export function combatantRect(id: string): DOMRect | null {
+  const live = visibleRect(slotElement(id))
+  if (live) return live
+  const snap = snapshots.get(id)
+  if (!snap) return null
+  if (snap.ghost.isConnected) return visibleRect(snap.ghost.firstElementChild ?? snap.ghost)
+  return getPreviousCardPosition(id) ?? snap.rect
 }
 
 function sequenceMs(count: number, duration: number): number {
@@ -235,17 +297,21 @@ function holdCombatants(ids: Iterable<string>, ms: number): void {
 function impactSchedule(plans: StrikePlan[], duration: number): Map<string, number> {
   const gap = fxMotionDuration(STRIKE_GAP_MS)
   const impactAt = new Map<string, number>()
+  const hitsBy = new Map<string, number>()
   plans.slice(0, MAX_STRIKES).forEach((plan, i) => {
     const hit = i * gap + Math.round(duration * IMPACT_AT)
     if (!impactAt.has(plan.targetId)) impactAt.set(plan.targetId, hit)
     if (!impactAt.has(plan.attackerId)) impactAt.set(plan.attackerId, hit)
+    const n = hitsBy.get(plan.attackerId) ?? 0
+    hitsBy.set(plan.attackerId, n + 1)
+    if (n > 0) impactAt.set(strikeHitKey(plan.attackerId, n), hit)
   })
   return impactAt
 }
 
 function holdUntilImpact(impactAt: Map<string, number>): void {
-  const now = Date.now()
-  impactAt.forEach((ms, id) => impacts.set(id, now + ms))
+  const until = Date.now() + HOLD_SAFETY_MS
+  impactAt.forEach((ms, id) => impacts.set(id, until + ms))
 }
 
 export function primeCombatHolds(prevGame: GameView | null | undefined, nextGame: GameView | null | undefined): void {
@@ -261,7 +327,9 @@ export function primeCombatHolds(prevGame: GameView | null | undefined, nextGame
 export function clearCombatSnapshots(): void {
   snapshots.clear()
   holds.clear()
+  const hadImpacts = impacts.size > 0
   impacts.clear()
+  if (hadImpacts) impactsChanged()
 }
 
 export function strikeVector(from: DOMRect, to: DOMRect): { dx: number; dy: number } {
@@ -312,18 +380,25 @@ function runStrike(
     { duration, fill: 'forwards' },
   )
 
-  const impact = setTimeout(() => {
+  let landed = false
+  const land = () => {
+    if (landed) return
+    landed = true
+    clearTimeout(impact)
     impactFeedback(strikeTargetElement(plan.targetId) ?? targetEl)
-  }, Math.round(duration * IMPACT_AT))
+    landImpacts([plan.targetId, plan.attackerId])
+  }
+  const impact = setTimeout(land, Math.round(duration * IMPACT_AT))
 
   let done = false
   const finish = () => {
     if (done) return
     done = true
-    clearTimeout(impact)
-    if (!live) return
-    ghost.remove()
-    if (live.isConnected) live.style.visibility = prevVisibility
+    if (live) {
+      ghost.remove()
+      if (live.isConnected) live.style.visibility = prevVisibility
+    }
+    land()
   }
   anim.finished.then(finish, finish)
   setTimeout(finish, duration + 400)
@@ -361,12 +436,14 @@ export function playDamageStrikes(plans: StrikePlan[], combatants: string[]): St
         const el = strikeTargetElement(plan.targetId) ?? standIns.get(plan.targetId)
         if (el) impactFeedback(el)
         else soundManager.play('combat_hit', 'game')
+        landImpacts([plan.targetId, plan.attackerId])
       }
     }, i * gap)
   })
   schedule.holdMs = sequenceMs(strikes.length, duration)
   holdCombatants(combatants, schedule.holdMs)
   holdUntilImpact(schedule.impactAt)
+  impactsChanged()
   setTimeout(() => standIns.forEach((ghost) => ghost.remove()), schedule.holdMs + 30)
   return schedule
 }

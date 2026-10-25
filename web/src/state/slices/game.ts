@@ -75,6 +75,8 @@ export interface GameSlice {
   /** Clave de `opponentHands` cuya mano se muestra en la barra propia (Switch
    *  Hands / Mindslaver); null = mano propia. */
   switchedHandKey: string | null
+  seatFocus: { gameId: string | null; playerId: string; combatTurn: number | null } | null
+  spotlight: { gameId: string; playerId: string; pickedIn: string | null } | null
   playableIds: string[]
   playableWindow: { turn: number; phase: string | null } | null
   combat: CombatState | null
@@ -118,6 +120,8 @@ export const initialGame: GameSlice = {
   gameId: null,
   gameChatId: null,
   switchedHandKey: null,
+  seatFocus: null,
+  spotlight: null,
   playableIds: [],
   playableWindow: null,
   combat: null,

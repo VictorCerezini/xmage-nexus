@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { act, StrictMode } from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import CardSlot from './CardSlot'
 import type { PermanentView } from '../net/types'
 import type { FeedbackPrompt } from '../game/feedback'
@@ -16,6 +16,10 @@ vi.mock('./cardPositionRegistry', () => ({
 vi.mock('../cards/cardImages', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../cards/cardImages')>()
   return { ...mod, awaitImageUrl: vi.fn(async () => 'https://img.test/art.jpg') }
+})
+
+afterEach(() => {
+  cleanup()
 })
 
 describe('CardSlot face-down permanents', () => {
@@ -137,7 +141,7 @@ describe('CardSlot', () => {
     const { container } = render(<CardSlot card={card} />)
     const badge = container.querySelector('.designation-badge.is-paired')
     expect(badge).not.toBeNull()
-    expect(badge?.getAttribute('title')).toContain('Grizzly Bears')
+    expect(badge?.getAttribute('aria-label')).toContain('Grizzly Bears')
   })
 
   it('is keyboard operable when clickable: Tab + Enter triggers the same action as click', () => {
@@ -171,7 +175,7 @@ describe('CardSlot', () => {
     expect(slot.getAttribute('tabindex')).toBeNull()
   })
 
-  it('inside the game region Space does not activate the card (Space passes priority), Enter does', () => {
+  it('KEY-2: inside the game region Space does not activate the card (Space passes priority), Enter does', () => {
     const onClick = vi.fn()
     const card = {
       id: 'kb3',
@@ -201,7 +205,7 @@ describe('CardSlot', () => {
     const badge = container.querySelector('.designation-badge.is-classlevel')
     expect(badge).not.toBeNull()
     expect(badge?.textContent).toContain('2')
-    expect(badge?.getAttribute('title')).toContain('2/3')
+    expect(badge?.getAttribute('aria-label')).toContain('2/3')
   })
 
   it('renders case solved and prepared badges from live engine lines', () => {
@@ -227,8 +231,8 @@ describe('CardSlot', () => {
     const { container } = render(<CardSlot card={card} />)
     const badge = container.querySelector('.designation-badge.is-evidence')
     expect(badge).not.toBeNull()
-    expect(badge?.getAttribute('title')).toContain('6')
-    expect(badge?.getAttribute('title')).toContain('9')
+    expect(badge?.getAttribute('aria-label')).toContain('6')
+    expect(badge?.getAttribute('aria-label')).toContain('9')
   })
 
   it('renders harnessed and protector badges with the protector name in title', () => {
@@ -242,7 +246,7 @@ describe('CardSlot', () => {
     expect(container.querySelector('.designation-badge.is-harnessed')).not.toBeNull()
     const badge = container.querySelector('.designation-badge.is-protector')
     expect(badge).not.toBeNull()
-    expect(badge?.getAttribute('title')).toContain('Grizzly Bears')
+    expect(badge?.getAttribute('aria-label')).toContain('Grizzly Bears')
   })
 
   it('renders a room-door badge from sniffed unlock broadcasts', () => {
@@ -262,7 +266,7 @@ describe('CardSlot', () => {
     const badge = container.querySelector('.designation-badge.is-room')
     expect(badge).not.toBeNull()
     expect(badge?.textContent).toBe('L')
-    expect(badge?.getAttribute('title')).toContain('L')
+    expect(badge?.getAttribute('aria-label')).toContain('L')
   })
 
   it('renders no room-door badge on non-Room cards with a colliding name', () => {
@@ -324,8 +328,8 @@ describe('CardSlot', () => {
     const { container } = render(<CardSlot card={card} />)
     const badge = container.querySelector('.sickness-badge') as HTMLElement
     expect(badge).not.toBeNull()
-    expect(badge.getAttribute('title')).toContain('Enfermedad de invocación')
-    expect(badge.getAttribute('aria-label')).toBe(badge.getAttribute('title'))
+    expect(badge.getAttribute('aria-label')).toContain('Enfermedad de invocación')
+    expect(badge.getAttribute('title')).toBeNull()
   })
 
   it('no pinta el badge de enfermedad de invocación si la criatura está girada', () => {
@@ -410,7 +414,7 @@ describe('CardSlot target feedback (C1)', () => {
 
   afterEach(() => setState({ feedback: null }))
 
-  it('a required target gets the beacon and no optional class', () => {
+  it('TGT-2: a required target gets the beacon and no optional class', () => {
     setState({ feedback: choice(true) })
     const slot = render(<CardSlot card={target} isTarget />).container.querySelector('.card-slot')!
     expect(slot.classList.contains('targetable')).toBe(true)
@@ -418,7 +422,7 @@ describe('CardSlot target feedback (C1)', () => {
     expect(slot.classList.contains('target-optional')).toBe(false)
   })
 
-  it('an optional target keeps the static border: no beacon', () => {
+  it('TGT-2: an optional target keeps the static border: no beacon', () => {
     setState({ feedback: choice(false) })
     const slot = render(<CardSlot card={target} isTarget />).container.querySelector('.card-slot')!
     expect(slot.classList.contains('targetable')).toBe(true)
@@ -426,7 +430,7 @@ describe('CardSlot target feedback (C1)', () => {
     expect(slot.classList.contains('target-beacon')).toBe(false)
   })
 
-  it('a chosen target drops the beacon and gets the chosen class', () => {
+  it('TGT-2: a chosen target drops the beacon and gets the chosen class', () => {
     setState({ feedback: choice(true) })
     const slot = render(<CardSlot card={target} isTarget isChosen />).container.querySelector('.card-slot')!
     expect(slot.classList.contains('chosen')).toBe(true)
@@ -434,7 +438,7 @@ describe('CardSlot target feedback (C1)', () => {
     expect(slot.classList.contains('target-optional')).toBe(false)
   })
 
-  it('a click on a required target stops the beacon while the echo is pending', () => {
+  it('TGT-2, TGT-3: a click on a required target stops the beacon while the echo is pending', () => {
     setState({ feedback: choice(true) })
     const view = render(<CardSlot card={target} isTarget onClick={vi.fn()} />)
     const slot = view.container.querySelector('.card-slot')!
@@ -444,7 +448,7 @@ describe('CardSlot target feedback (C1)', () => {
     expect(slot.classList.contains('target-beacon')).toBe(false)
   })
 
-  it('a target without a GAME_TARGET prompt counts as required', () => {
+  it('TGT-2: a target without a GAME_TARGET prompt counts as required', () => {
     const slot = render(<CardSlot card={target} isTarget />).container.querySelector('.card-slot')!
     expect(slot.classList.contains('target-beacon')).toBe(true)
   })
@@ -497,7 +501,7 @@ describe('CardSlot acuse optimista (plan4 §5.4)', () => {
     expect(view.container.querySelector('.card-slot')!.className).not.toContain('casting-press')
   })
 
-  it('pinta is-chosen-pending al elegir objetivo, no reenvía el mismo target y reconcilia con isChosen', () => {
+  it('TGT-3: marks is-chosen-pending on a target click, does not resend the same target and reconciles with isChosen', () => {
     const onClick = vi.fn()
     const card = makeSlotCard('ack-2')
     const view = render(<CardSlot card={card} isTarget onClick={onClick} />)
@@ -776,7 +780,7 @@ describe('CardSlot sicknessStyle (issue #12)', () => {
     // Geometry is not measured here: jsdom returns zero rects. The "covers the
     // whole card" contract lives in `cardOverlayCss.test.ts` (`inset: 0`) and was
     // checked in a real browser (elementFromPoint returns the card).
-    expect(veil.getAttribute('aria-hidden')).toBe('true')
+    expect(veil.querySelector('.sickness-veil-icon')?.getAttribute('aria-label')).toContain('Enfermedad de invocación')
     expect(veil.querySelector('svg')).not.toBeNull()
   })
 
@@ -863,11 +867,182 @@ describe('CardSlot keywordIcons', () => {
     for (const b of badges) expect(b.classList.contains('icons-outline')).toBe(true)
   })
 
-  it('keeps the emoji for badge keywords outside the set', () => {
-    const { container } = withSet('outline', beast(['Menace']))
-    const badge = container.querySelector('.keyword-badge') as HTMLElement
+  it('draws a glyph for every badge keyword and never an emoji', () => {
+    const { container } = withSet('outline', beast(['Menace, shadow, ward {2}']))
+    const badges = [...container.querySelectorAll('.keyword-badge')]
+    expect(badges.length).toBeGreaterThanOrEqual(2)
+    for (const b of badges) {
+      expect(b.classList.contains('is-glyph')).toBe(true)
+      expect(b.querySelector('svg')).not.toBeNull()
+    }
+  })
+
+  it('shows one badge when the server icon and the rules both say Flying', () => {
+    const card = { ...beast(['Flying']), cardIcons: [{ cardIconType: 'ABILITY_FLYING', text: '', hint: 'Flying' }] } as unknown as PermanentView
+    const { container } = render(<CardSlot card={card} showPt />)
+    expect(container.querySelectorAll('.keyword-badge.kw-flying')).toHaveLength(1)
+    expect(container.querySelector('.card-icon.ability')).toBeNull()
+  })
+
+  it('draws mutate as a glyph badge with its own tooltip instead of a separate mutated badge', () => {
+    const card = { ...beast(['Flying']), mutated: true } as unknown as PermanentView
+    const { container } = render(<CardSlot card={card} showPt />)
+    const badge = container.querySelector('.keyword-badge.mutated-badge') as HTMLElement
     expect(badge).not.toBeNull()
-    expect(badge.classList.contains('is-glyph')).toBe(false)
-    expect(badge.querySelector('svg')).toBeNull()
+    expect(badge.querySelector('svg')).not.toBeNull()
+    expect(container.querySelectorAll('.mutated-badge')).toHaveLength(1)
+    fireEvent.pointerEnter(badge)
+    const title = document.querySelector('.badge-tip-title')?.textContent
+    fireEvent.pointerLeave(badge)
+    expect(title).toMatch(/Mut/)
+  })
+
+  it('shows a tooltip with the keyword name and rules summary on hover', () => {
+    const { container } = render(<CardSlot card={beast(['Flying'])} showPt />)
+    const badge = container.querySelector('.keyword-badge.kw-flying') as HTMLElement
+    fireEvent.pointerEnter(badge)
+    const tip = document.querySelector('.badge-tip')
+    expect(tip).not.toBeNull()
+    expect(tip?.querySelector('.badge-tip-title')?.textContent).toBeTruthy()
+    fireEvent.pointerLeave(badge)
+    expect(document.querySelector('.badge-tip')).toBeNull()
+  })
+})
+
+describe('CardSlot designation gained', () => {
+  const NOT_MONSTROUS = "ICON_BAD{this} isn't monstrous"
+  const MONSTROUS = 'ICON_GOOD{this} is monstrous'
+  const SUSPECTED = "Suspected (has menace and can't block)"
+  const card = (rules: string[]) =>
+    ({ id: 'g1', name: 'Polukranos, World Eater', cardTypes: ['Creature'], rules }) as unknown as PermanentView
+
+  it('does not animate a designation on the first render', () => {
+    const { container } = render(<CardSlot card={card(['Trample', MONSTROUS])} />)
+    const badge = container.querySelector('.designation-badge.is-monstrous')
+    expect(badge).not.toBeNull()
+    expect(badge?.classList.contains('designation-gained')).toBe(false)
+    expect(container.querySelector('.card-slot')?.classList.contains('fx-designation-swell')).toBe(false)
+  })
+
+  it('pops and swells when a card becomes monstrous', () => {
+    const { container, rerender } = render(<CardSlot card={card(['Trample', NOT_MONSTROUS])} />)
+    rerender(<CardSlot card={card(['Trample', MONSTROUS])} />)
+    const badge = container.querySelector('.designation-badge.is-monstrous')
+    expect(badge?.classList.contains('designation-gained')).toBe(true)
+    expect(badge?.classList.contains('designation-gained--monstrous')).toBe(true)
+    expect(container.querySelector('.card-slot')?.classList.contains('fx-designation-swell')).toBe(true)
+  })
+
+  it('pops a newly added suspected badge without swelling', () => {
+    const { container, rerender } = render(<CardSlot card={card(['Deathtouch'])} />)
+    rerender(<CardSlot card={card(['Deathtouch', SUSPECTED])} />)
+    const badge = container.querySelector('.designation-badge.is-suspected')
+    expect(badge?.classList.contains('designation-gained--suspected')).toBe(true)
+    expect(container.querySelector('.card-slot')?.classList.contains('fx-designation-swell')).toBe(false)
+  })
+})
+
+describe('CardSlot keyword aura', () => {
+  const creature = (over: Record<string, unknown> = {}) =>
+    ({
+      id: 'ka1',
+      name: 'Aura Beast',
+      cardTypes: ['Creature'],
+      power: '3',
+      toughness: '3',
+      rules: ['Flying, trample'],
+      ...over,
+    }) as unknown as PermanentView
+
+  it('draws the aura of the main keyword on a battlefield permanent', () => {
+    const { container } = render(<CardSlot card={creature()} keywordAura />)
+    expect(container.querySelectorAll('.kw-aura.kw-aura--flying[data-kw-aura="flying"]')).toHaveLength(1)
+  })
+
+  it('draws no aura unless the battlefield asks for one', () => {
+    const { container } = render(<CardSlot card={creature()} />)
+    expect(container.querySelector('.kw-aura')).toBeNull()
+  })
+
+  it('draws no aura when the setting is off, and marks it vivid when set to vivid', () => {
+    setSetting('keywordAura', 'off')
+    try {
+      const off = render(<CardSlot card={creature()} keywordAura />)
+      expect(off.container.querySelector('.kw-aura')).toBeNull()
+      off.unmount()
+    } finally {
+      setSetting('keywordAura', 'subtle')
+    }
+    setSetting('keywordAura', 'vivid')
+    try {
+      const vivid = render(<CardSlot card={creature()} keywordAura />)
+      expect(vivid.container.querySelector('.kw-aura.is-vivid')).not.toBeNull()
+    } finally {
+      setSetting('keywordAura', 'subtle')
+    }
+  })
+
+  it('honours a per-demo override of the setting', () => {
+    const { container } = render(<CardSlot card={creature()} keywordAura demo={{ artUrl: null, keywordAura: 'off' }} />)
+    expect(container.querySelector('.kw-aura')).toBeNull()
+  })
+
+  it('picks the highest-priority aura keyword', () => {
+    const { container } = render(<CardSlot card={creature({ rules: ['Hexproof, indestructible'] })} keywordAura />)
+    expect(container.querySelector('[data-kw-aura]')?.getAttribute('data-kw-aura')).toBe('indestructible')
+  })
+
+  it('draws the indestructible aura even when it is beyond the visible badge cap', () => {
+    const icon = (cardIconType: string) => ({ cardIconType, text: '', hint: cardIconType })
+    const card = creature({
+      rules: ['Indestructible'],
+      cardIcons: [
+        icon('ABILITY_FLYING'),
+        icon('ABILITY_FIRST_STRIKE'),
+        icon('ABILITY_VIGILANCE'),
+        icon('ABILITY_REACH'),
+        icon('ABILITY_DEFENDER'),
+      ],
+    })
+    const { container } = render(<CardSlot card={card} keywordAura />)
+    expect(container.querySelectorAll('.keyword-badge:not(.keyword-badge-more)')).toHaveLength(5)
+    expect(container.querySelector('.keyword-badge-more')?.textContent).toBe('+1')
+    expect(container.querySelector('[data-kw-aura]')?.getAttribute('data-kw-aura')).toBe('indestructible')
+  })
+
+  it('draws no aura on a face-down card', () => {
+    const { container } = render(<CardSlot card={creature({ faceDown: true })} keywordAura faceDown />)
+    expect(container.querySelector('.kw-aura')).toBeNull()
+  })
+
+  it('does not pop a keyword the card already has on its first render', () => {
+    const { container } = render(<CardSlot card={creature()} keywordAura />)
+    expect(container.querySelector('.kw-coin.kw-flying')?.classList.contains('kw-gained')).toBe(false)
+    expect(container.querySelector('.kw-aura-flare')).toBeNull()
+  })
+
+  it('pops the gained coin and flares the aura when a card gains flying', () => {
+    const { container, rerender } = render(<CardSlot card={creature({ rules: [] })} keywordAura />)
+    expect(container.querySelector('.kw-aura')).toBeNull()
+    rerender(<CardSlot card={creature({ rules: ['Flying'] })} keywordAura />)
+    expect(container.querySelector('.kw-coin.kw-flying')?.classList.contains('kw-gained')).toBe(true)
+    expect(container.querySelector('.kw-aura-flare.kw-aura-flare--flying')).not.toBeNull()
+  })
+})
+
+describe('CardSlot keyword overflow', () => {
+  it('counts every keyword past the five badges shown in the +N badge', () => {
+    const icons = ['ABILITY_FLYING', 'ABILITY_DEATHTOUCH', 'ABILITY_LIFELINK', 'ABILITY_DOUBLE_STRIKE', 'ABILITY_FIRST_STRIKE', 'ABILITY_TRAMPLE', 'ABILITY_HEXPROOF']
+    const card = {
+      id: 'k7',
+      name: 'Many Keywords',
+      cardTypes: ['Creature'],
+      power: '2',
+      toughness: '2',
+      cardIcons: icons.map((cardIconType) => ({ cardIconType, hint: cardIconType })),
+    } as unknown as PermanentView
+    const { container } = render(<CardSlot card={card} />)
+    expect(container.querySelectorAll('.keyword-badge:not(.keyword-badge-more)')).toHaveLength(5)
+    expect(container.querySelector('.keyword-badge-more')?.textContent).toBe('+2')
   })
 })

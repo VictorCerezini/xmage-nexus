@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import IconButton from '../ui/IconButton'
 import Button from '../ui/Button'
 import { getDeckStorage } from './storage'
@@ -22,7 +22,7 @@ import CurveChart from './CurveChart'
 import { DeckImportModal } from './DeckImportModal'
 import { exportTxt } from './parseDck'
 import type { CardStripMeta } from './ArenaCardStrip'
-import { applySuggestions, fetchDeckIssues, fetchFormatIssues, type DeckFix } from './deckIssues'
+import { applySuggestions, deckIssueKey, fetchDeckIssues, fetchFormatIssues, type DeckFix } from './deckIssues'
 import { deckCardKey } from './deckCardOps'
 import { withCommanderFirst, derivePartnerCard } from './deckUtils'
 import { FORMAT_CONFIGS } from './formatRules'
@@ -176,6 +176,15 @@ export default function DeckBuilder({ deckId, onClose }: { deckId: string; onClo
   // Se ejecuta al abrir el mazo Y en vivo tras cada edición (debounce: la
   // validación hace un round-trip al proxy, no por cada tecla).
   const lastValidatedRef = useRef<DeckV2 | null>(null)
+  const validationSeqRef = useRef(0)
+  const validateNow = useCallback((d: DeckV2) => {
+    const seq = ++validationSeqRef.current
+    void Promise.all([fetchDeckIssues(d, d.format), fetchFormatIssues(d, d.format)]).then(([report, formatReport]) => {
+      if (seq !== validationSeqRef.current) return
+      setServerIssues(report)
+      setFormatIssues(formatReport)
+    })
+  }, [])
   useEffect(() => {
     setServerIssues(null)
     setFormatIssues(null)
@@ -183,21 +192,18 @@ export default function DeckBuilder({ deckId, onClose }: { deckId: string; onClo
       const d = await storage.get(deckId)
       if (!d) return
       lastValidatedRef.current = d
-      const report = await fetchDeckIssues(d)
-      setServerIssues(report)
-      setFormatIssues(await fetchFormatIssues(d, d.format))
+      validateNow(d)
     })()
-  }, [deckId, wsAlive])
+  }, [deckId, wsAlive, validateNow])
 
   useEffect(() => {
     if (!deck || deck === lastValidatedRef.current) return
     const timer = window.setTimeout(() => {
       lastValidatedRef.current = deck
-      void fetchDeckIssues(deck).then((report) => setServerIssues(report))
-      void fetchFormatIssues(deck, deck.format).then(setFormatIssues)
+      validateNow(deck)
     }, 1200)
     return () => window.clearTimeout(timer)
-  }, [deck])
+  }, [deck, validateNow])
 
   useEffect(() => {
     if (partnerMigratedRef.current) return
@@ -334,7 +340,20 @@ export default function DeckBuilder({ deckId, onClose }: { deckId: string; onClo
 
   const handleRepairIssue = (fixes: DeckFix[]) => {
     if (!deck) return
-    schedulePersist(applySuggestions(deck, fixes))
+    const next = applySuggestions(deck, fixes)
+    schedulePersist(next)
+    updateMetaForDeck([...next.cards, ...next.sideboard])
+    setServerIssues((prev) => {
+      if (!prev) return null
+      const fixedFromKeys = new Set(fixes.map((f) => deckIssueKey(f.from.cardName, f.from.setCode, f.from.cardNumber)))
+      const keep = (c: { cardName: string; setCode: string; cardNumber: string }) =>
+        !fixedFromKeys.has(deckIssueKey(c.cardName, c.setCode, c.cardNumber))
+      return {
+        ...prev,
+        missing: prev.missing.filter(keep),
+        mismatches: prev.mismatches.filter(keep),
+      }
+    })
   }
 
   // Cover Card Art for Header

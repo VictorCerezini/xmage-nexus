@@ -30,6 +30,12 @@ const REAL_E2E_SPECS = [
   "priority-stop-real.spec.ts",
   "skips.spec.ts",
   "full-flow.spec.ts",
+  "reconnect-real.spec.ts",
+  "smart-mana-real.spec.ts",
+  "smart-stops-real.spec.ts",
+  "xmage-catalog-real.spec.ts",
+  "learn-real.spec.ts",
+  "draft-real-reload.spec.ts",
 ];
 
 const LAYERS = [
@@ -51,6 +57,19 @@ const LAYERS = [
     },
   },
 ];
+
+export function failedStatus(note) {
+  const status = { generatedAt: new Date().toISOString() };
+  for (const layer of LAYERS) status[layer.key] = "fail";
+  status.status = "fail";
+  status.note = note;
+  return status;
+}
+
+export function writeIntegrationResult(status, dir = path.join(repoRoot, "reports")) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "integration-result.json"), JSON.stringify(status, null, 2));
+}
 
 async function tcpUp(port, timeoutMs = 5000) {
   try {
@@ -151,16 +170,15 @@ async function main() {
     }
   }
 
-  fs.mkdirSync(path.join(repoRoot, "reports"), { recursive: true });
-  fs.writeFileSync(
-    path.join(repoRoot, "reports", "integration-result.json"),
-    JSON.stringify(status, null, 2),
-  );
+  writeIntegrationResult(status);
   console.log("[integration-report] " + JSON.stringify(status));
   process.exit(status.status === "pass" ? 0 : 1);
 }
 
-main().catch((e) => {
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) main().catch((e) => {
   console.error(e);
+  const message = e && e.message ? e.message : String(e);
+  writeIntegrationResult(failedStatus(`integration-report crashed: ${message}`));
   process.exit(1);
 });

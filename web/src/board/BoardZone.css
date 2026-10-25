@@ -132,7 +132,7 @@
    el botón se monta FUERA de la zona para quedar por encima y ser clicable. */
 .board-shell > .hand-switch-btn {
   position: absolute;
-  right: 216px;
+  right: calc(216px + var(--main-inset-right, 0px));
   bottom: calc(var(--dock-bottom, 104px) + 8px);
   z-index: 25;
   box-shadow: 0 2px 8px var(--shade-3);
@@ -315,6 +315,64 @@
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--gold-rgb) / 0.3) transparent;
 }
+
+.bz-band.bz-lands-band,
+.bz-band.bz-others-band {
+  flex: 1 1 0;
+  width: auto;
+  min-width: var(--card-w, 100px);
+}
+
+.board-zone.has-marquee-column {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: var(--sp-2);
+}
+
+.board-zone.has-marquee-column > .bz-row {
+  grid-column: 1;
+}
+
+.board-zone.has-marquee-column.zone-top > .bz-status-row {
+  grid-row: 1;
+  grid-column: 1 / -1;
+}
+
+.board-zone.has-marquee-column.zone-bottom > .bz-status-row {
+  grid-row: 3;
+  grid-column: 1 / -1;
+}
+
+.board-wrap[data-ui='v2'] .board-zone.has-marquee-column.zone-bottom > .bz-status-row {
+  grid-row: auto;
+  grid-column: auto;
+}
+
+.board-zone.has-marquee-column.zone-top > .bz-marquee--column {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+}
+
+.board-zone.has-marquee-column.zone-bottom > .bz-marquee--column {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.board-zone .bz-marquee.bz-marquee--column {
+  margin: 0;
+  max-width: none;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--sp-1);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .stack-group,
 .land-group {
   display: inline-flex;
@@ -612,4 +670,56 @@
   .card-dissolve-ghost {
     animation: none;
   }
+}
+
+/* Priority frame: the whole seat glows gold while its player holds priority,
+   so the holder reads at a glance instead of only through the info-bar border.
+   Own outline/box-shadow only, so `overflow: hidden` never clips it and no
+   child positioning context changes. */
+.board-zone[data-priority] {
+  --priority-rgb: var(--gold-rgb);
+  outline: 2px solid rgb(var(--priority-rgb) / 0.8);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 24px rgb(var(--priority-rgb) / 0.28);
+  border-radius: var(--r-xl);
+  animation: zonePriorityGlow 1.8s ease-in-out infinite;
+}
+
+@keyframes zonePriorityGlow {
+  0%, 100% {
+    box-shadow: inset 0 0 18px rgb(var(--priority-rgb) / 0.2);
+  }
+  50% {
+    box-shadow: inset 0 0 34px rgb(var(--priority-rgb) / 0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-zone[data-priority] {
+    animation: none;
+  }
+}
+
+/* ── Pile corner (BRD-12): library, graveyard and exile as cards at the
+   bottom-right of the battlefield; the row keeps room for them on its right. */
+.board-zone.has-pile-corner {
+  position: relative;
+}
+
+.bz-status-row.has-pile-corner,
+.bz-permanents-row.pile-corner-reach {
+  padding-right: calc(var(--pile-corner-w, 0px) + var(--sp-1));
+}
+
+.bz-status-row.has-pile-corner {
+  box-sizing: border-box;
+}
+
+.bz-pile-corner {
+  position: absolute;
+  right: calc(var(--sp-3h) + var(--sp-1));
+  bottom: 0;
+  z-index: 11;
+  max-width: 25%;
+  min-width: 0;
 }

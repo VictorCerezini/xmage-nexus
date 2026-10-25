@@ -74,7 +74,7 @@ The project has successfully conquered the most difficult engineering hurdles (p
 | | **Sideboarding Screen between Bo3 Matches** | ✅ Yes | ✅ Yes | Completed |
 | | Multi-blocker Damage Assignment Order | ✅ Yes | ✅ Yes | Completed |
 | **Presentation & Audio** | Sound Effects (Turn bell, life loss, spell cast, combat) | ✅ Basic | ✅ Yes (Web Audio 22 sfx, 4 buses incl. adaptive music, JIT unlock) | Completed (Surpasses Swing) |
-| | VFX & Animations (Spell cast arcs, screen shake, damage) | ❌ No | ✅ Yes (donut color pie, bars, shake, floating damage, spell-weight slam, hit sparks, destroy/exile/token deaths, low-life vignette, foil + tilt preview, playmats, cinematic end screen) | Completed (Surpasses Swing) |
+| | VFX & Animations (Spell cast arcs, screen shake, damage) | ❌ No | ✅ Yes (donut color pie, bars, shake, floating damage, spell-weight slam, hit sparks, destroy/exile/token deaths, countered-spell shatter, transform flip, bounce swirl, life-gain motes, library riffle, flicker, monarch/initiative passing, elimination crack, dice rolls, phasing, mulligan deal, day/night sky, sacrifice, spell copies, planeswalker ultimates, revealed-card flip, keyword auras and keyword combat moments, low-life vignette, foil + tilt preview, playmats, cinematic end screen) | Completed (Surpasses Swing) |
 | **Distribution** | Desktop & Web Deployment | ❌ Heavy JRE required | ✅ Web + Tauri launcher (v0.2.3, updater firmado y componentes desacoplados) | Completed |
 | **Distribution** | Interactive Web Demo (GitHub Pages, no install) | ❌ None | ✅ `site/demo/`: the real client on scripted scenarios, ELO ranking, deck builder + EDHREC, 12 playable scenes (§4.10) | Completed |
 | **Advanced Formats** | 4-Player Commander / EDH (Command zone, tax, damage) | ✅ Yes | ✅ Yes (PodBoard 2×2 clamp 4; server FFA 3-10) | Completed |
@@ -105,6 +105,7 @@ The project has successfully conquered the most difficult engineering hurdles (p
 | Game FX | Sequential combat strikes: when combat damage resolves, attackers lunge one after another at their blocker or at the player/planeswalker/battle they attack, each landing with the hit sound, sparks and a shake; dying combatants stay on screen until the sequence ends and damage/life numbers pop on each impact | High / small | Done 2026-09-25 (first-strike and regular damage steps animate separately; declaring attackers only shows the existing nudge) |
 | Game FX | Physical combat: impact particles on damage, distinct deaths (destroy = burn, exile = beam of light, token = pop/puff); the attacker lunge already existed | High / ~2 d | Done 2026-09-23 |
 | Game FX | Low-life tension: red vignette + heartbeat at ≤ 5 life | Medium / small | Done 2026-09-23 |
+| Game FX | Countered spells shatter on the stack, double-faced cards flip when they transform, bounced permanents swirl and fly to their owner's hand (opponents included, without a fake draw), life gain lights the portrait with rising motes | High / ~1 d | Done 2026-10-20 (`gameTransitionEngine.ts`: `counteredSpellIds`, `opponentBounceIds`, transform flip; gallery `anim:countered`, `anim:transform`, `anim:bounce`, `anim:opp-bounce`, `anim:life-gain`). Library shuffle shipped the same day (`board/shuffleFx.ts`, read from the game-log line since a shuffle changes nothing in the view; gallery `anim:shuffle`, `anim:shuffle-opp`, `anim:shuffle-classic`). The rest of the animation backlog shipped the same day too: flicker, monarch/initiative passing, player elimination, dice rolls, phasing, mulligan, day/night, sacrifice, spell copies, planeswalker ultimates and revealed cards (`buenas_animaciones.md`; the log-only ones in `board/gameLogFx.ts` and `board/diceRollFx.ts`), and so did the last polish batch: spent mana flying from the pool to the stack, goad and new card-icon pops, the library glowing red at 3 cards and cracking at 0, and blockers stepping up to their attackers; designation gains (monstrous, renowned, suspected, class level, case solved…, read from the `rules` hints) and the scry / surveil library peek (log line) followed on 2026-10-21 (gallery `anim:designation-*`, `anim:scry`, `anim:surveil-opp`), and so did the remaining log-only effects: fizzle, behold, paying or declining to prevent an effect, announced choices, a completed dungeon and a concession (`fizzleFx.ts`, `beholdFx.ts`, `playerLogFx.ts`, `concedeFx.ts`); what remains is only what neither the view nor the log carries (player targeting, regeneration, prevented damage, crime committed). Keyword effects followed on 2026-10-21: a looping aura per battlefield permanent for its main keyword (setting *Keyword effects* off / subtle / vivid, `keywordAura.ts`, `KeywordAura.css`), a pop when a keyword is gained, and combat moments for first strike, deathtouch, lifelink, trample and indestructible (`keywordStrikeFx.ts`; gallery `anim:keyword-auras`, `anim:keyword-gain`, `anim:kw-*`) |
 | Game FX | Foil shimmer + 3D tilt on the enlarged card preview | Medium / small | Done 2026-09-23 |
 | Game FX | Selectable playmats, including animated mats tinted by colour identity (Phase 3 leftover; 7 static + 2 animated mats) | Medium / ~1 d | Done 2026-09-23 |
 | Game UI | Compact (Arena-style) battlefield cards: art-crop tiles with name, type and mana-source pips; Settings → Board → Card style (Classic / Compact) and Tapped cards (Sideways 90° / Tilted 45°) | High / ~1 d | Done 2026-09-25 (battlefield only; hand, stack and dialogs keep full cards; tapped cards are scaled so the rotated box fits the row) |
@@ -126,6 +127,20 @@ Dropped on purpose (2026-10-07, data does not reach the client): the response wi
 | Open item | Why it is not a toggle |
 |---|---|
 | See the rules text of every permanent in play without hovering | Legible text for 8+ permanents does not fit one screen. Options: bigger cards with band panning, a one-line rules strip under compact tiles, or a persistent inspector |
+| Commander pod room (issue #23): what is left after BRD-1…BRD-13 | Shipped 2026-10-22 in the Arena and Table layouts (`docs/specs/board.md`): lands left and other non-creature permanents right, a planeswalker/saga/battle column, and focusing one opponent's board (`board/seatFocus.ts`); then the opt-in **main board** mode (BRD-6…BRD-13, `board/SpotlightBoard.tsx`): one board at full size, every other board as a scaled copy in a resizable side panel, piles as corner cards and the strip on top. Open: whether the main board mode becomes the default for pods once players have tried it (then BRD-3…BRD-5 retire); copies stop growing once their slot height binds, so the panel width only pays off in three-player games; an opponent card height is bound by the opponents' row (40% of the board), so focus only grows cards a crowded column had shrunk; at 1366x768 a non-focused opponent column still sits at the 38 px card floor, with mid-word name breaks on small faces |
+
+### 4.3b2 Unified keyword glyphs and badges
+
+One registry (`keyword id → glyph`, today `board/KeywordGlyph.tsx`) feeds every surface that draws a keyword: card badges, the hover preview (`FloatingCardPreview`) and the wiki glossary (`HelpWikiModal`). Glyphs come from Lucide (already a dependency, one table line per keyword); keywords without a clear pictogram get a 2-letter abbreviation, never a shared category icon or an emoji. Every phase ends with a contact sheet in `#/gallery` (all glyphs at real badge size), a guard test and a screenshot.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Card badges: combat / evasion / protection glyphs, server `ABILITY_*` merge, `BadgeTip`, mutate, responsive row with `+N` | Done 2026-10-21 |
+| 2 | Move the glyph registry out of `CardSlot`; hover preview and wiki glossary use it (drops the emoji and the per-category Lucide icon); keyword-id → glyph guard test | Done 2026-10-21 |
+| 3 | `combat` / `evasion` / `protection` leftovers + `counters` (11) + `cards` (7) + `graveyard` (14) + `mana` (19) mapped to Lucide; abbreviation fallback | Done 2026-10-21 (nine haiku batches in `board/glyphs/*.ts`, Lucide geometry copied as data) |
+| 4 | `mechanic` (166, the long tail) plus the rest of the glossary: 218 keywords needed a glyph; 85 got a pictogram and 133 a 2-letter abbreviation (an honest sigla beats a loose metaphor); `glyphs.test.ts` fails on any keyword with neither; `scripts/glyph-check.mjs` rejects repeated shapes and siglas, `scripts/glyph-sheet.mjs` renders the contact sheet | Done 2026-10-21 |
+| 5 | State badges on the card (sickness, transform, face-down type, the 10 designations + Room) move to `BadgeTip` and the shared style; the e2e specs that read `title` migrate | Done 2026-10-21 |
+| 6 | Counters and number badges (P/T, loyalty, defense, damage) get a real tooltip, no new look; the designation row stops overlapping the keyword row | Done 2026-10-21 |
 
 ### 4.3c New table interface (v2): what is left
 
@@ -146,12 +161,54 @@ Shipped 2026-10-13 behind `settings.gameUi` (`v1` = the interface as it was; `v2
 | v2 board layout | v2 is the fourth board layout ("Table", next to Standard, Pod and Arena in both settings pickers; stored as `gameUi: 'v2'`, so choosing a classic layout switches back to the classic chrome). It renders the arena board (up to 4 players; 5+ still falls back to standard) whatever `boardLayout` holds. The own battlefield is kept between the portrait, last-actions box, combat ledger, phase dial and action button by measuring them (`useOverlayGutters`), not by a fixed budget. Open: the own lands row can still run under the fan hand when the battlefield is tall, and at 1280 px the opponent columns shrink card names to wrapping. The space the rival hand fan used to hold (about 200x110 px right of each opponent portrait) is not reused: putting the permanents band there left 35-60 px cards with clipped names, and doing it only when it fits would make the board jump as permanents are played. `useOverlayGutters` also caps the ledger and the last-actions box below the divider, and `game-ui-v2.spec.ts` "no overlap" asserts that no visible battlefield card touches a portrait, the log, the ledger, the stack deck or the dial |
 | Commander damage, real partner pods | The v2 matrix (`CommanderSeatMatrix`) and the portrait chips group commanders by seat and print `X/Y` for partners, tones from 12 (amber) and 18 (red) as in the design; covered by unit tests with synthetic partners, but no recorded frame has a partner pair yet |
 
+### 4.3d Keyword effects: known gaps
+
+Shipped with the keyword auras and combat moments (`board/keywordAura.ts`, `board/keywordStrikeFx.ts`, `board/CardSlot.tsx`).
+
+| Open item | Why |
+|---|---|
+| Morph or disguise turned face up pops every keyword | Every keyword counts as "gained". Decide whether that is intended, then pin it with a test |
+| Stale callbacks after a relink can bypass the proxy's ordering | Needs the fork to fence callbacks per CallbackHandler (Mage.Proxy CallbackSequencer; reset during relink) |
+| Double strike: the second hit is not scheduled for blocker keyword moments | A double-striking attacker's second hit is not scheduled separately, so the keyword moments of its blockers fire for the first hit only (`board/keywordStrikeFx.ts`) |
+
+### 4.11 Lobby, invites and proxy restore
+
+| Open item | Why |
+|---|---|
+| Invite links to another server connect with an empty password | An invite link to another server connects with an empty password instead of the saved one. Better: open the login screen prefilled with the target server and username |
+| `RestoreIds` keys ignore the port | `mage-proxy` sets the keys without the port. Cross-port restore is pinned by `RestoreIdsTest`, which has to change with the fix |
+
+### 4.12 Behaviour specs and usability checks
+
+Design: `docs/plans/2026-10-22-behavior-specs-design.md`. Phase 1 shipped 2026-10-22: `docs/specs/` with one file per area and `web/src/specCoverage.test.ts` linking each rule to the tests named after it.
+
+- Rules marked `Guard: none yet` need a test (`grep -n "none yet" docs/specs/*.md`).
+- Areas without a spec are written the first time someone changes them (stack, log and chat, deck builder, draft, settings, spectating).
+- Findings while writing the specs (not made rules). Confirmed in code:
+  - `state/events/game.ts` clears an open `GAME_PLAY_MANA` prompt on any update whose stack is non-empty, and a spell being paid for is already on the stack. Whether the real server sends an update between mana asks needs a recorded frame.
+  - `board/revealedCards.ts` `opponentRevealedCards` adds every revealed group to each opponent's known hand, whatever zone or player it came from (`handRevealFx.ts` filters by the group name).
+  - To check: skip keys (F4–F11) fire with Settings/wiki/game menu open; F5/F11 are always prevented on the game screen; Ctrl/Shift-click to hold priority cannot reach `onPlayableClick` from the hand (`CardSlot.onClick` drops the event); the AskBar 1–9 digits need focus inside the bar; `__mageScene.targeting.source` is always null although `AGENTS.md` documents it; the combat ledger and the life-loss sound mute key off damage-step frames the real server rarely sends (the CMB-6 trap); combat `selectable` may outlive the declaration window; `resolveTargetSourceId` matches the arrow source by card name; `CardSlot.css` `sicknessFloat`/`enteredGlow` loop forever and two of them ignore `--fx-speed`; the wiki's Shortcuts tab has placeholder copy; unadvertised shortcuts (zoom, rewind arrows/Esc, Shift-click on stops, digits, Alt peek).
+- Phase 2: a Playwright sweep of every gallery state with generic usability checks (nothing covers the top layer, decision context visible, a visible way out, controls fit, axe on game states), an `expectVisuallyHidden` helper, a static guard for hold-a-modifier keyup handling and a shortcut registry.
+- Phase 3: an exploratory usability agent (per gallery state and per task, Playwright MCP + screenshots, report under `.run/ux-review/`), never gating CI; confirmed findings become spec rules.
+
 ### 4.4 Test-infrastructure risk
 
-- The nightly real-mode job covers 5 of 312 specs plus the `verify` layer; a ~15-spec protocol-sensitive set would shrink drift risk.
-- `verify` scripts are order-sensitive (`verify-player-leave` is the most sensitive and runs second); isolating each with a fresh proxy would remove that class of flake.
-- Replay files exist (§4.2); loading one in the GitHub Pages demo is still open.
+Shipped 2026-10-23 (branch `feat/test-robustez-tst`, PR #28): the **TST guard package**
+(`docs/specs/testing.md`, rules held by rule-id-named tests, `specCoverage` also scans `scripts/*.mjs`):
+
+- **TST-1/2** — game-state integrity invariants (no object id in two zones; zone counts match) run over every recorded frame in unit, no Java.
+- **TST-3** — fuzz anomaly triage: a new livelock signature fails the fuzz run until it joins `scripts/fuzz-known-signatures.json` with a reason. The allowlist carries the confirmed 2026-10-19..23 triage (7× state-loop + 1× prompt-storm: server-side prompt loops; SimPlayer hardened with a repeatable-cost decline and a 20-identical-ask fail-safe; a directed `record.mjs` driver proved a human `false` decline closes the dialog).
+- **TST-4** — the nightly integration/re-record/validate steps no longer run with `continue-on-error` (`workflows.test.mjs` forbids it).
+- **TST-5** — `REAL_E2E_SPECS` is a drift-checked bijection with `@real` tags; the real-mode set grew 5 → 11 protocol-sensitive specs.
+- **TST-6** — every guard has a verified fail mode (coverage gate, engine-view baseline versioning with `gapHash`/`sourceCommit`, invariants).
+- Coverage **no-regression gate** (fails when a metric drops >1.0 pt vs `web/coverage-previous.json`) wired into `test.mjs`, `dashboard-ci.mjs` and push CI (`web-ci.yml`); baseline committed.
+- **TST-7** — verify isolation: `--isolate-verify` (or `VERIFY_ISOLATE=1`) restarts the proxy before every verify script and waits for `/ready`, so each script starts on a fresh proxy with clean server-side session state; it refuses to mix with `self-test`/`human-test`/`fuzz` (those hold live sessions across a restart) and cleans tables for scripts with deterministic usernames (`multi-tenant-test.mjs`). Measured 2026-10-23 vs the non-isolated control (90.7 s, 10/10; fresh-stack baseline 83 s): isolated runs took 113.9 s / 118.1 s (~+28–35 s) and remain opt-in — default behaviour unchanged when isolation is off. Guard: `scripts/verify-isolate.test.mjs`.
+
+Still open:
+
+- Verify isolation's ready-poll race: `node scripts/ctl.mjs restart proxy` is async-detached, so the first `/ready` answer can come from the old proxy before it dies, and `verify-wizard-matrix.mjs` (no WS retry) crashes in the dead gap — the isolated layer ran 9/10 in both measured runs. Fix `restartProxyAndWait` to pin the new proxy PID from launch / require the restart to have taken effect, and/or give wizard-matrix a short bounded first-connect retry; expect 10/10 after.
 - Mobile layout: the full board stays desktop-only on purpose. Since 2026-10-15 a phone-width window (≤ 600 px) has a compact spectator view (`game/MobileSpectator.tsx`: scoreboard, turn/phase, stack, feed and chat, "Full board" button), the lobby and chat already fit, and dialogs no longer overflow (`ui/DialogShell.css` caps the panel at the window minus the backdrop padding; the create-table wizard hides inactive step labels and stacks its type cards). Guard: `e2e/mobile.spec.ts` at 390 px (verified red with the dialog fix removed). The draft header fits since the same day (same guard, verified red without its CSS). Still open: playing a seat on a phone and the deck builder editor at 390 px.
+- Replay files exist (§4.2); loading one in the GitHub Pages demo is still open.
 
 ### 4.5 Out of scope on purpose
 
@@ -177,10 +234,10 @@ Design: `docs/plans/2026-10-09-report-pipeline-design.md`. Web path shipped.
 
 | What | Why |
 |---|---|
-| Tour copy is English only | `DemoTour.tsx` hard-codes its strings; the rest of the client has 9 locales |
+| Tour copy internationalized to 9 locales | Built: `DemoTour.tsx`/`scenarios.ts` use typed `titleKey`/`blurbKey` into `TranslationSchema['demo']`; the 12 scenarios' 24 strings exist in all 9 locales, guarded by `scripts/i18n-coverage.mjs` and `src/i18n/i18n.coverage.test.ts` |
 | EDHREC is frozen for one commander | `demoEdhrecPage` only answers `krenko-mob-boss`; card search and EDHREC resolution still call Scryfall live |
 | Roster and tables are invented | `src/demo/data.ts`. The ranking carries a "sample data" note since 2026-10-15 (`leaderboard-demo-note`, checked by `verify-demo.mjs`); the lobby table list does not |
-| Not a layer on the status dashboard | `verify-demo.mjs` fails the Pages run but `status.json` has no row for it |
+| Built: a demo layer on the status dashboard | `verify-demo.mjs` writes `web/.demo.json`; `gen-dashboard.mjs` renders it as the "Interactive demo (tour)" layer via `demoVerdict`; `pages.yml` regenerates `status.json` with the demo result and fails the run on a red demo layer |
 | Not covered: replay viewer, spectate, chat bots | Needs a scenario that streams frames |
 | Mobile layout unchecked | Verified at 1440×900 only (the client itself has a phone spectator view since 2026-10-15) |
 

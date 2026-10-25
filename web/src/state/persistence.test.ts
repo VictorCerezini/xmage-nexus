@@ -11,6 +11,8 @@ import {
   loadActiveGame,
   loadConn,
   loadAppearanceSettings,
+  saveAppearanceSettings,
+  DEFAULT_APPEARANCE,
   loadFxSettings,
   saveActiveDraft,
   saveActiveGame,
@@ -25,6 +27,9 @@ import {
   savePhaseStops,
   loadGameplayPreset,
   saveGameplayPreset,
+  loadDeckStacksScale,
+  saveDeckStacksScale,
+  DECK_STACKS_SCALE_KEY,
   saveResumeToken,
   loadResumeToken,
   clearResumeToken,
@@ -270,6 +275,39 @@ describe('persistence', () => {
       expect(loadActiveDraft()).toBeNull()
       expect(mockStorage['mage-web-active-draft']).toBeUndefined()
     })
+
+    describe('pick timer', () => {
+      const pickSnapshot = (timeout: number, picking = true) =>
+        ({ draftId: 'draft-uuid-123', message: { draftView: { boosterNum: 1 }, draftPickView: { booster: {}, picks: {}, picking, timeout } } }) as never
+
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      it('restores the pick timeout minus the time elapsed since the snapshot was saved', () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date('2026-10-17T10:00:00Z'))
+        saveActiveDraft(pickSnapshot(60))
+        vi.setSystemTime(new Date('2026-10-17T10:00:20Z'))
+        expect(loadActiveDraft()?.draft.message.draftPickView?.timeout).toBe(40)
+      })
+
+      it('never restores a negative pick timeout', () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date('2026-10-17T10:00:00Z'))
+        saveActiveDraft(pickSnapshot(60))
+        vi.setSystemTime(new Date('2026-10-17T10:01:30Z'))
+        expect(loadActiveDraft()?.draft.message.draftPickView?.timeout).toBe(0)
+      })
+
+      it('leaves the timeout of a snapshot that is not picking untouched', () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date('2026-10-17T10:00:00Z'))
+        saveActiveDraft(pickSnapshot(0, false))
+        vi.setSystemTime(new Date('2026-10-17T10:00:20Z'))
+        expect(loadActiveDraft()?.draft.message.draftPickView?.timeout).toBe(0)
+      })
+    })
   })
 
   describe('active construct persistence', () => {
@@ -412,13 +450,14 @@ describe('persistence', () => {
     it('reads the three overlay flags a player turned off', () => {
       mockStorage['mage-web-appearance'] = JSON.stringify({
         sleeveId: 'classic', boardLayout: 'standard', uiScale: 1, cjkBoost: true,
-        showHandCost: false, ptBadgeMode: 'changed', sicknessStyle: 'veil', keywordIcons: 'outline',
+        showHandCost: false, ptBadgeMode: 'changed', sicknessStyle: 'veil', keywordIcons: 'outline', keywordAura: 'vivid',
       })
       const loaded = loadAppearanceSettings()
       expect(loaded.showHandCost).toBe(false)
       expect(loaded.ptBadgeMode).toBe('changed')
       expect(loaded.sicknessStyle).toBe('veil')
       expect(loaded.keywordIcons).toBe('outline')
+      expect(loaded.keywordAura).toBe('vivid')
     })
 
     it('falls back to today\'s behaviour for a blob written before the flags existed', () => {
@@ -430,18 +469,54 @@ describe('persistence', () => {
       expect(loaded.ptBadgeMode).toBe('always')
       expect(loaded.sicknessStyle).toBe('badge')
       expect(loaded.keywordIcons).toBe('coins')
+      expect(loaded.keywordAura).toBe('subtle')
     })
 
     it('normalizes a hand-edited or corrupt value instead of leaking it into the UI', () => {
       mockStorage['mage-web-appearance'] = JSON.stringify({
         sleeveId: 'classic', boardLayout: 'standard', uiScale: 1, cjkBoost: true,
-        showHandCost: 'false', ptBadgeMode: 'sometimes', sicknessStyle: 'hourglass', keywordIcons: 'emoji',
+        showHandCost: 'false', ptBadgeMode: 'sometimes', sicknessStyle: 'hourglass', keywordIcons: 'emoji', keywordAura: 'loud',
       })
       const loaded = loadAppearanceSettings()
       expect(loaded.showHandCost).toBe(true)
       expect(loaded.ptBadgeMode).toBe('always')
       expect(loaded.sicknessStyle).toBe('badge')
       expect(loaded.keywordIcons).toBe('coins')
+      expect(loaded.keywordAura).toBe('subtle')
+    })
+  })
+
+  describe('card preview size persistence', () => {
+    it('SET-1: cardPreviewScale defaults to 100% and survives a save and load', () => {
+      expect(DEFAULT_APPEARANCE.cardPreviewScale).toBe(1)
+      expect(loadAppearanceSettings().cardPreviewScale).toBe(1)
+      saveAppearanceSettings({ ...DEFAULT_APPEARANCE, cardPreviewScale: 1.65 })
+      expect(loadAppearanceSettings().cardPreviewScale).toBe(1.65)
+    })
+
+    it.each([
+      [5, 2],
+      [0.1, 0.75],
+      [-3, 0.75],
+      [1.234, 1.25],
+      ['1.5', 1],
+      [null, 1],
+      [Number.NaN, 1],
+      [{}, 1],
+    ])('SET-1: a stored cardPreviewScale of %j loads as %s', (stored, expected) => {
+      mockStorage['mage-web-appearance'] = JSON.stringify({ sleeveId: 'classic', boardLayout: 'standard', uiScale: 1, cjkBoost: true, cardPreviewScale: stored })
+      expect(loadAppearanceSettings().cardPreviewScale).toBe(expected)
+    })
+  })
+
+  describe('board spotlight settings persistence', () => {
+    it('BRD-6, BRD-13: appearance settings keep boardSpotlight and boardSpotlightPanel across a save and load', () => {
+      expect(DEFAULT_APPEARANCE.boardSpotlight).toBe(false)
+      expect(DEFAULT_APPEARANCE.boardSpotlightPanel).toBe(22)
+      saveAppearanceSettings({ ...DEFAULT_APPEARANCE, boardSpotlight: true, boardSpotlightPanel: 31 })
+      const loaded = loadAppearanceSettings()
+      expect(loaded.boardSpotlight).toBe(true)
+      expect(loaded.boardSpotlightPanel).toBe(31)
     })
   })
 
@@ -547,6 +622,37 @@ describe('persistence', () => {
       saveGameplayPreset(null)
       expect(loadGameplayPreset()).toBeNull()
       expect(mockStorage['mage-web-gameplay-preset']).toBeUndefined()
+    })
+  })
+
+  describe('deck stacks scale persistence', () => {
+    it('DCK-1: defaults to 100% when nothing is stored', () => {
+      expect(loadDeckStacksScale()).toBe(100)
+    })
+
+    it('DCK-1: keeps the stacks card size across a save and load', () => {
+      saveDeckStacksScale(170)
+      expect(mockStorage[DECK_STACKS_SCALE_KEY]).toBe('170')
+      expect(loadDeckStacksScale()).toBe(170)
+    })
+
+    it.each([
+      ['250', 200],
+      ['10', 50],
+      ['-40', 50],
+      ['134', 130],
+      ['"big"', 100],
+      ['null', 100],
+      ['{"scale":150}', 100],
+      ['not json', 100],
+    ])('DCK-1: sanitises a stored stacks card size of %s to %i', (raw, expected) => {
+      mockStorage[DECK_STACKS_SCALE_KEY] = raw
+      expect(loadDeckStacksScale()).toBe(expected)
+    })
+
+    it('DCK-1: clamps an out-of-range value before writing it', () => {
+      saveDeckStacksScale(900)
+      expect(mockStorage[DECK_STACKS_SCALE_KEY]).toBe('200')
     })
   })
 })

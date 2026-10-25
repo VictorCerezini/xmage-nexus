@@ -7,7 +7,10 @@ client (`web`, React 19 + TypeScript + Vite).
 **Docs model — no work log**: the narrative of a task lives in its commit
 message; do not keep a dated log. When finishing a task update only the
 affected docs — pending work in `ROADMAP.md` §4, durable lessons in
-`docs/lessons.md`, phases/features in `site/content.json` — and keep the
+`docs/lessons.md`, phases/features in `site/content.json`, product behaviour
+decisions in `docs/specs/<area>.md` (numbered rules whose tests carry the rule
+id in their title; `web/src/specCoverage.test.ts` fails when a rule and its
+tests drift apart, see `docs/specs/README.md`) — and keep the
 interaction coverage matrix `web/INTERACTION_COVERAGE.md` in sync (mark
 implemented/tested + test ref + date per callback/interaction); the guard
 `callbackCoverage.test.ts` enforces that every server callback has a handler or
@@ -44,8 +47,8 @@ triage. See `web/INTERACTION_COVERAGE.md`.
   steps run inside the fork checkout; the proxy builds standalone in this repo)
 - XMage version: **1.4.62-V1** (upstream magefree/mage; merge of tag `xmage_1.4.62V1`).
   Proxy jar: `Mage.Proxy/target/mage-proxy-1.4.62.jar`. A second proxy flavor is built against the
-  **XDHS fork** (xenohedron/mage, tag `1.5.8-XDHS-r1`) for `mage.xdhs.net`:
-  `mage-proxy-1.5.8.jar` + `patches/xdhs/*.patch` + `-Dmage.version=1.5.8`
+  **XDHS fork** (xenohedron/mage, tag `1.6.1-XDHS-r2`) for `mage.xdhs.net`:
+  `mage-proxy-1.6.1.jar` + `patches/xdhs/*.patch` + `-Dmage.version=1.6.1`
   (see `patches/xdhs/README.md`; launcher component `proxy-xdhs`, host script
   `scripts/deploy/host-xdhs.sh`). The proxy's default server is **`beta.xmage.today:17171`** (current official server; `beta.xmage.de` is obsolete).
   If the remote server changes release (strict version check `MAGE_VERSION_RELEASE_INFO_MUST_BE_SAME`),
@@ -160,11 +163,13 @@ Orchestrator: `node scripts/test.mjs [layer...] [--skip=unit,e2e]` — layers:
 `build` (tsc -b && vite build) · `java` (mvn -f Mage.Proxy/pom.xml test) ·
 `self-test` (headless E2E against the proxy; requires stack) ·
 `human-test` (E2E human player vs AI; requires stack) ·
-`verify` (9 anti-drift scripts: multi-tenant isolation, hand permissions, player leave,
-range attack, rollback vote, spectator end, swiss, tournament watch, create-table matrix) ·
+`verify` (10 anti-drift scripts, listed in `VERIFY_SCRIPTS` in `scripts/test.mjs`: player leave (first),
+multi-tenant isolation, create-table matrix, hand permissions, spectator end, range attack, rollback vote,
+swiss, tournament watch, verify-report (last); opt-in per-script fresh proxy via `--isolate-verify`
+(`VERIFY_ISOLATE=1`), which refuses to mix with layers holding live sessions — `docs/specs/testing.md` TST-7) ·
 `verify-restart` (`verify-reconnect.mjs`; restarts the proxy, so it runs alone) ·
 `fuzz` (`fuzz.mjs` self-play soak; nightly, not per push) ·
-`e2e` (playwright in web; requires vite) · `i18n` (translation coverage guard)
+`e2e` (playwright in web; requires vite) · `i18n` (translation coverage guard) · `scripts` (`node --test scripts/*.test.mjs`, dashboard and CI helpers)
 
 The stack layers wait for the proxy's `/ready`, not just for its port: a proxy that has just
 started answers on 8787 while its card database is still building, and every script then fails
@@ -267,10 +272,22 @@ game per test. Common libraries in `web/e2e/support/`
 `web/fixtures/scenarios/` (mini-engine `humanGame.ts`). Tags by
 domain: `@spells`, `@targeting`, `@combat`, `@fullflow`, `@board`, `@site` (scripts
 `test:e2e:spells|targeting|combat|fullflow|board|site`). Every spec runs in fake
-(no stack, ~9 min for all 312) and can run in real; the nightly real-mode job
-covers the five protocol-sensitive specs (`deckvalidation`, `multi-user`,
-`priority-stop-real`, `skips`, `full-flow`) plus the `verify` layer, not all 312.
+(no stack; ~440 tests, ~12 min locally with 4 workers, 4 shards in CI) and can run in real; the
+nightly real-mode job covers the eleven protocol-sensitive specs (`deckvalidation`, `multi-user`,
+`priority-stop-real`, `skips`, `full-flow`, `reconnect-real`, `smart-mana-real`, `smart-stops-real`,
+`xmage-catalog-real`, `learn-real`, `draft-real-reload`) plus the `verify` layer, not all of them
+(the `REAL_E2E_SPECS` set in `scripts/integration-report.mjs` and the `@real` tags are drift-checked
+by `integration-report.test.mjs`, TST-5).
 When touching `e2e/support/` or the scenarios, run the full fake + real suite.
+**Game specs start with `quickStartGame`** (`e2e/support/start-game.ts`): in fake mode the helper
+sends `startMatch` over its WS and the scenario answers START_GAME + GAME_INIT, skipping the
+create-table UI (~9 s → ~5 s per test); in real mode it is `startGame` unchanged. Use `startGame`
+only when the spec is about the table flow, needs `winsNeeded > 1`, or its scenario begins at
+createTable (draft, tournament). **Specs whose verdict depends on wall-clock timing or animation
+ordering carry the `@timing` tag** and `retryTimingSpecInCi()`: CI runs them in their own
+`e2e-timing` job and the shards run `--grep-invert @timing`. **Keep single tests short**: the
+suite is `fullyParallel`, so one 4-minute test (the old one-test gallery sweep) sets the floor of
+the whole run; split loops into blocks generated at describe level.
 **The helper does NOT answer the mulligan** (the web's auto-keep already does it;
 a second false breaks the test window).
 
@@ -291,11 +308,21 @@ for `mechanics.spec.ts`, so a fixture change must be checked against every spec 
   the translation locales (`web/src/i18n/locales/*`) and quoted server output.
   Existing Spanish prose is migrated to English as its file is touched; do not
   do unrelated mass rewrites.
+- **Before changing how the client behaves**, read the spec of that area in
+  `docs/specs/`. A change to a rule goes in the same commit as the code: edit
+  the rule and its `Why:`, then the tests named after it. A new decision gets a
+  new rule; behaviour that looks like a bug is reported, not written down.
 - **After touching `web`**: run `unit` and `typecheck` (and `build` if
   the build changed). After touching proxy Java: `java` + rebuild jar
   (`build.mjs proxy`) + restart proxy.
-- **Before declaring a task "done"**: the full suite (`node scripts/test.mjs`) with the stack up, **and the
-  remote CI green afterwards** (`gh run list -R Adamychen/xmage-nexus -L 5`). `Web client CI` once sat red on
+- **Before declaring a task "done"**: the layers the change touches — for `web/`, `unit` + `typecheck` and
+  `npm --prefix web run test:e2e:changed` (Playwright `--only-changed`: the specs your diff reaches through
+  their imports). `--only-changed` follows imports, so a diff that touches only `web/src/` usually selects
+  ZERO specs and the command passes without running anything: also run the related specs by name
+  (`npx playwright test e2e/<spec>.spec.ts`); the full fake e2e (`node scripts/test.mjs e2e`) when touching `e2e/support/`, `fixtures/`
+  or the FakeServer; the stack layers (`self-test`, `human-test`, `verify`) with the stack up when the proxy
+  or the protocol changed — **and the remote CI green afterwards** (`gh run list -R Adamychen/xmage-nexus -L 5`),
+  which runs the whole fake e2e sharded on every push. `Web client CI` once sat red on
   `master` for a week while the local suite was 9/9, because CI's Maven cache held old `org.mage` artifacts.
   If the fork is touched, publish `origin/nexus` first: CI and `release.yml` build from there.
 - **Restart the stack right before** (`node scripts/ctl.mjs restart all`): a server that accumulated orphan
@@ -340,7 +367,9 @@ for `mechanics.spec.ts`, so a fixture change must be checked against every spec 
 (test layers, coverage, roadmap phases, feature-parity matrix, anti-drift guards).
 
 - Generator: `scripts/gen-dashboard.mjs` (merges `site/content.json` + test artefacts).
-- CI orchestrator: `scripts/dashboard-ci.mjs` (unit+coverage, typecheck, build, fake-e2e, proxy java).
+- CI orchestrator: `scripts/dashboard-ci.mjs` (unit+coverage in one vitest run, typecheck, build, proxy java;
+  fake-e2e only on the nightly/dispatch runs — on push `DASHBOARD_SKIP_E2E=1` reports it `pending`, since the
+  same suite already runs sharded in `Web client CI`).
 - Red gate: `scripts/check-status.mjs` runs as the **last** Pages step and exits non-zero when any
   layer of `status.json` is `fail`. It runs after the deploy on purpose: the page publishes the
   truth and the run is red with it. Before 2026-10-10 every nightly step carried

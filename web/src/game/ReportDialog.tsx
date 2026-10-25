@@ -11,7 +11,7 @@ import { addLog, getState } from '../state/state'
 import { sendReport } from '../net/commands'
 import { downloadBlob } from '../utils/download'
 import { copyText } from '../utils/clipboard'
-import { buildReport, githubIssueUrl, isLocalProxy, reportToMarkdown, type ReportKind } from '../system/report'
+import { REPORT_LIMITS, buildReport, githubIssueUrl, isLocalProxy, reportToMarkdown, type ReportKind } from '../system/report'
 import './ReportDialog.css'
 
 export interface ReportDialogProps {
@@ -162,6 +162,7 @@ export default function ReportDialog({ initialText = '', kind = 'bug', onClose }
             className="report-textarea"
             rows={4}
             value={text}
+            maxLength={REPORT_LIMITS.MAX_TEXT_CHARS}
             placeholder={t('system', 'report_placeholder')}
             data-testid="report-text"
             onChange={(e) => setText(e.target.value)}

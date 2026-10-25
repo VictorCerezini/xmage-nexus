@@ -21,6 +21,7 @@ import AboutModal from '../system/AboutModal'
 import SetupWizard from '../setup/SetupWizard'
 import RenderedCardsGallery from './RenderedCardsGallery'
 import ProjectileGalleryStage from './ProjectileGalleryStage'
+import KeywordGlyphGallery from './KeywordGlyphGallery'
 import './GalleryScreen.css'
 
 // Layout reproducible: la escala de las zonas del tablero se mide contra la
@@ -47,6 +48,7 @@ function stageOf(entry: GalleryEntry | undefined) {
   if (entry.screen === 'about') return <AboutModal onClose={() => {}} />
   if (entry.screen === 'cards') return <RenderedCardsGallery />
   if (entry.screen === 'projectile') return <ProjectileGalleryStage />
+  if (entry.screen === 'glyphs') return <KeywordGlyphGallery />
   if (entry.screen === 'help') return <HelpWikiModal onClose={() => {}} />
   if (entry.screen === 'gameend') {
     return (
@@ -128,6 +130,7 @@ export default function GalleryScreen() {
       playableIds: active.playableIds ?? [],
       combat: null,
       gameEnd: active.gameEnd ?? null,
+      turnRecap: null,
       userRequest: null,
       viewer: null,
       sideboardScreen: null,
@@ -138,9 +141,12 @@ export default function GalleryScreen() {
       error: active.error ?? null,
       chatMessages: active.chatMessages ?? [],
       lastDraftEventAt: active.lastDraftEventAt ?? null,
+      seatFocus: active.seatFocus ? { gameId: active.gameId ?? null, playerId: active.seatFocus, combatTurn: null } : null,
       settings: {
         ...base.settings,
         boardLayout: active.boardLayout ?? base.settings.boardLayout,
+        boardSpotlight: active.boardSpotlight ?? base.settings.boardSpotlight,
+        gameUi: active.gameUi ?? base.settings.gameUi,
         uiScale: active.uiScale ?? base.settings.uiScale,
         cjkBoost: active.cjkBoost ?? base.settings.cjkBoost,
       },

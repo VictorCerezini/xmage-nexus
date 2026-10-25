@@ -4,18 +4,25 @@ import { cardName, hiddenFaceDownName } from '../cards/cardImages'
 import { useCardImageUrl } from '../cards/useCardImageUrl'
 import RenderedCard from '../cards/rendered/RenderedCard'
 import { getPreviousCardPosition, getPreviousCardSize, getPreviousCardZone, recordCardPosition } from './cardPositionRegistry'
-import { startCardFlight, onFlightLanded, getActiveFlights, subscribeFlights, noteFlightEvent, ENTER_FLIGHT_MS } from './flightManager'
+import { startCardFlight, onFlightLanded, getActiveFlights, subscribeFlights, noteFlightEvent, flightLandingDelay, ENTER_FLIGHT_MS } from './flightManager'
 import { combatHoldRemaining, isOffBattlefield } from './combatStrikes'
+import { CONTROL_FLIGHT_MS, controlChangeTint } from './controlFx'
+import { COMMAND_FLIGHT_MS, commandReturnSource } from './commandFx'
+import { ANIMATE_FLIGHT_MS, SETTLE_FLIGHT_MS, animateTint, creatureShiftOf } from './creatureShiftFx'
 import { DamageNumbers } from './DamageNumber'
 import { useCombatHeld } from './useCombatHeld'
 import { fxMotionAllowed, fxMotionDuration } from './fx'
-import { useCounterPulse, type CounterPulse } from './useCounterPulse'
+import { counterPulseClass as pulseClass, useCounterPulse } from './useCounterPulse'
 import { extractOwnedKeywords } from '../data/keywordExtractor'
 import { keywordDisplayName, keywordSummary } from '../data/keywordI18n'
-import { cardDesignations, pairedPartnerName, classLevelOf, evidenceCounts, protectorName, type Designation } from './designations'
+import { cardDesignations, gainedDesignations, pairedPartnerName, classLevelOf, evidenceCounts, protectorName, type Designation } from './designations'
 import { roomDoorKey, roomSidesLabel } from '../game/rooms'
 import { useChangeFlag } from '../game/useChangeFlag'
 import CardIcons from './CardIcons'
+import BadgeTip from '../ui/BadgeTip'
+import { MAX_BADGES, mergeBadgeKeywords } from './cardBadges'
+import { useBadgeFit } from './useBadgeFit'
+import { useBadgeLayout } from './useBadgeLayout'
 import { basePtValue, ptTrend } from './ptTrend'
 import Icon from '../ui/Icon'
 import { clickableProps } from '../ui/clickable'
@@ -26,19 +33,21 @@ import { useSleeveFor } from '../appearance/useSleeve'
 import { perfMark } from '../system/perfProbe'
 import { ManaPip } from '../decks/ArenaManaSymbols'
 import { artCropUrl, landTapColor, manaSourceSymbols, primaryCardType } from './compactCard'
-import type { KeywordIconSet, PtBadgeMode, SicknessStyle } from './cardOverlays'
-import KeywordGlyph, { isGlyphKeyword } from './KeywordGlyph'
+import type { KeywordAuraMode, KeywordIconSet, PtBadgeMode, SicknessStyle } from './cardOverlays'
+import KeywordGlyph from './KeywordGlyph'
+import { dominantAuraKeyword, gainedKeywordIds } from './keywordAura'
 import { manaPoolElement, spawnManaParticle, type ManaSide } from './manaParticle'
 import './CardSlot.css'
+import './KeywordAura.css'
 import './manaParticle.css'
 
 /** Cota del acuse optimista si el eco del servidor no llega nunca. */
 const PENDING_ACK_MS = 3000
-
-function pulseClass(pulse: CounterPulse | undefined): string {
-  if (!pulse) return ''
-  return ` counter-badge-changed counter-badge-${pulse.direction}${pulse.scale ? ' counter-badge-pulse' : ''}`
-}
+/** Grace after the clone's landing time before the real card is revealed anyway. */
+const FLIGHT_BACKSTOP_MARGIN_MS = 40
+const FLIGHT_LAND_FADE_MS = 180
+const seenKeywordsByCard = new Map<string, string>()
+const KEYWORD_GAIN_MS = 900
 
 interface CardSlotProps {
   cardId?: string
@@ -63,8 +72,10 @@ interface CardSlotProps {
   compact?: boolean
   /** Classic battlefield card: overlay its mana source too (the compact tile always does). */
   showManaSource?: boolean
+  /** Battlefield permanents only: draw the looping aura of the card's main keyword. */
+  keywordAura?: boolean
   /** Settings previews only: local art (never a network lookup) and per-option overrides of the global overlay settings. */
-  demo?: { artUrl: string | null; ptBadgeMode?: PtBadgeMode; sicknessStyle?: SicknessStyle; keywordIcons?: KeywordIconSet }
+  demo?: { artUrl: string | null; ptBadgeMode?: PtBadgeMode; sicknessStyle?: SicknessStyle; keywordIcons?: KeywordIconSet; keywordAura?: KeywordAuraMode }
 }
 
 export default function CardSlot({
@@ -87,6 +98,7 @@ export default function CardSlot({
   showDamage = false,
   compact = false,
   showManaSource = false,
+  keywordAura = false,
   demo,
 }: CardSlotProps) {
   const { t } = useTranslation()
@@ -94,6 +106,7 @@ export default function CardSlot({
   const ptBadgeMode = demo?.ptBadgeMode ?? settings.ptBadgeMode
   const sicknessStyle = demo?.sicknessStyle ?? settings.sicknessStyle
   const keywordIcons = demo?.keywordIcons ?? settings.keywordIcons
+  const auraMode = demo?.keywordAura ?? settings.keywordAura
   const sleeve = useSleeveFor(card.controllerId)
   const resolvedImgUrl = useCardImageUrl(card, !faceDown && !demo)
   const imgUrl = demo ? demo.artUrl : resolvedImgUrl
@@ -109,12 +122,11 @@ export default function CardSlot({
   const slotRef = useRef<HTMLDivElement>(null)
   const isFirstMountRef = useRef(true)
   const [entering, setEntering] = useState(false)
-  const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [flightState, setFlightState] = useState<'none' | 'hidden' | 'landing'>('none')
-  const flightStateRef = useRef(flightState)
-  flightStateRef.current = flightState
+  const [flightId, setFlightId] = useState<string | null>(null)
   const [held, setHeld] = useState(false)
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [hold, setHold] = useState<{ ms: number } | null>(null)
+  const holdFlyRef = useRef<((rect: DOMRect) => void) | null>(null)
 
   const effectiveId = cardId || card.id
   const recapMark = useStore((s) => (effectiveId ? s.turnRecap?.marks[effectiveId] : undefined))
@@ -155,8 +167,57 @@ export default function CardSlot({
 
   useEffect(() => () => {
     if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current)
-    if (holdTimerRef.current) clearTimeout(holdTimerRef.current)
   }, [])
+
+  useEffect(() => {
+    if (!hold) return
+    const release = setTimeout(() => {
+      setHold(null)
+      setHeld(false)
+      const fly = holdFlyRef.current
+      holdFlyRef.current = null
+      const el = slotRef.current
+      if (el?.isConnected && fly) fly(el.getBoundingClientRect())
+    }, hold.ms)
+    return () => clearTimeout(release)
+  }, [hold])
+
+  useEffect(() => {
+    if (!entering) return
+    const release = setTimeout(() => setEntering(false), 250)
+    return () => clearTimeout(release)
+  }, [entering])
+
+  useEffect(() => {
+    if (flightState !== 'landing') return
+    const fade = setTimeout(() => setFlightState('none'), FLIGHT_LAND_FADE_MS)
+    return () => clearTimeout(fade)
+  }, [flightState])
+
+  useEffect(() => {
+    if (!flightId) return
+    let backstop: ReturnType<typeof setTimeout> | undefined
+    const detach = () => {
+      clearTimeout(backstop)
+      offLanded()
+      unsub()
+    }
+    const settle = () => {
+      detach()
+      setFlightState('landing')
+    }
+    const check = () => {
+      const left = flightLandingDelay(flightId)
+      if (left === null || left <= 0) settle()
+      else backstop = setTimeout(check, left + FLIGHT_BACKSTOP_MARGIN_MS)
+    }
+    const offLanded = onFlightLanded(flightId, settle)
+    const unsub = subscribeFlights(() => {
+      if (!getActiveFlights().some((f) => f.flightId === flightId)) settle()
+    })
+    backstop = setTimeout(check, (flightLandingDelay(flightId) ?? 0) + FLIGHT_BACKSTOP_MARGIN_MS)
+    return detach
+  }, [flightId])
 
   useLayoutEffect(() => {
     const el = slotRef.current
@@ -169,55 +230,43 @@ export default function CardSlot({
       }
       const lastRect = el.getBoundingClientRect()
       if (lastRect.width > 0 && lastRect.height > 0) {
-        const prev = getPreviousCardPosition(effectiveId)
+        const commandFrom = el.closest('.command-zone') ? commandReturnSource(String(effectiveId)) : null
+        const prev = commandFrom?.rect ?? getPreviousCardPosition(effectiveId)
         const prevZone = getPreviousCardZone(effectiveId)
         if (prev && prev.width > 0) {
           const curZone = el.closest('.opponent-zone, .player-zone, .stack-zone, .hand-zone')
           const curZoneClass = curZone ? curZone.className.split(' ')[0] : ''
-          if (!prevZone || !curZoneClass || prevZone !== curZoneClass) {
-            const sourceSize = getPreviousCardSize(effectiveId)
+          const controlTint = controlChangeTint(String(effectiveId))
+          const shift = el.closest('.creatures-band, .permanents-band, .bz-marquee') ? creatureShiftOf(String(effectiveId)) : null
+          if (commandFrom || !prevZone || !curZoneClass || prevZone !== curZoneClass || controlTint || shift) {
+            const sourceSize = commandFrom ? commandFrom.size : getPreviousCardSize(effectiveId)
             const flyIn = (toRect: DOMRect) => {
               const enteringLand = (card.cardTypes ?? []).some((t) => String(t).toUpperCase() === 'LAND')
               const onBattlefield = !!el.closest('.creatures-band, .permanents-band')
-              const variant = !onBattlefield ? undefined : enteringLand ? 'land' : 'enter'
-              const flightId = startCardFlight(card, prev, toRect, onBattlefield ? ENTER_FLIGHT_MS : 340, `[data-card-id="${effectiveId}"]`, { sourceSize, toCompact: compact, variant })
+              const variant = commandFrom ? 'command' : !onBattlefield ? undefined : controlTint ? 'control' : shift === 'rise' ? 'animate' : shift ? undefined : enteringLand ? 'land' : 'enter'
+              const duration = commandFrom ? COMMAND_FLIGHT_MS : !onBattlefield ? 340 : controlTint ? CONTROL_FLIGHT_MS : shift === 'rise' ? ANIMATE_FLIGHT_MS : shift ? SETTLE_FLIGHT_MS : ENTER_FLIGHT_MS
+              const tint = controlTint ?? (shift === 'rise' ? animateTint(card) : null)
+              const flightId = startCardFlight(card, prev, toRect, duration, `[data-card-id="${effectiveId}"]`, { sourceSize, toCompact: compact, variant, tint: tint ?? undefined })
               if (!flightId) return
               setFlightState('hidden')
-              const land = () => {
-                if (flightStateRef.current !== 'hidden') return
-                setFlightState('landing')
-                setTimeout(() => setFlightState('none'), 180)
-              }
-              const offLanded = onFlightLanded(flightId, land)
-              const unsub = subscribeFlights(() => {
-                if (!getActiveFlights().some((f) => f.flightId === flightId)) {
-                  land()
-                  offLanded()
-                  unsub()
-                }
-              })
+              setFlightId(flightId)
             }
             const holdMs = combatHoldRemaining(String(effectiveId))
             if (holdMs > 0) {
               setHeld(true)
-              holdTimerRef.current = setTimeout(() => {
-                holdTimerRef.current = null
-                setHeld(false)
-                if (el.isConnected) flyIn(el.getBoundingClientRect())
-              }, holdMs)
+              holdFlyRef.current = flyIn
+              setHold({ ms: holdMs })
             } else {
               flyIn(lastRect)
             }
           } else {
             noteFlightEvent({ kind: 'skip', reason: 'same-zone', cardId: String(effectiveId), detail: `slot:${prevZone || '?'}>${curZoneClass || '?'}` })
             setEntering(true)
-            enterTimerRef.current = setTimeout(() => { enterTimerRef.current = null; setEntering(false) }, 250)
           }
         } else {
           const mountZone = el.closest('.opponent-zone, .player-zone, .stack-zone, .hand-zone')
           noteFlightEvent({ kind: 'skip', reason: 'no-prev', cardId: String(effectiveId), detail: `slot-mount:${mountZone ? mountZone.className.split(' ')[0] : '?'}` })
           setEntering(true)
-          enterTimerRef.current = setTimeout(() => { enterTimerRef.current = null; setEntering(false) }, 250)
         }
       }
     }
@@ -245,12 +294,6 @@ export default function CardSlot({
     const release = setTimeout(() => setHeld(false), holdMs + 40 + fxMotionDuration(420))
     return () => clearTimeout(release)
   }, [effectiveId])
-
-  useEffect(() => {
-    if (flightState !== 'hidden') return
-    const safety = setTimeout(() => setFlightState('landing'), 700)
-    return () => clearTimeout(safety)
-  }, [flightState])
 
   const perm = card as PermanentView
   const counters = card.counters ?? []
@@ -280,12 +323,53 @@ export default function CardSlot({
     ? t('game', 'pt_base', { pt: `${basePower}/${baseToughness}` })
     : undefined
 
-  const keywordBadges = useMemo(() => {
-    const kws = extractOwnedKeywords(card)
-    return kws.filter((k) => ['combat', 'evasion', 'protection'].includes(k.category)).slice(0, 4)
-  }, [card.rules, (card as unknown as { abilities?: unknown }).abilities, card.name])
+  const hideFaceDownKeywords = isFaceDownCard && (!localPlayerId || card.controllerId !== localPlayerId)
+  const allKeywords = useMemo(() => {
+    if (hideFaceDownKeywords) return []
+    const merged = mergeBadgeKeywords(card.cardIcons, extractOwnedKeywords(card), Infinity)
+    return perm.mutated === true ? [{ id: 'mutate', name: 'Mutate', icon: '', category: 'mechanic' as const }, ...merged] : merged
+  }, [hideFaceDownKeywords, perm.mutated, card.rules, card.cardIcons, (card as unknown as { abilities?: unknown }).abilities, card.name])
+  const keywordBadges = useMemo(() => allKeywords.slice(0, MAX_BADGES), [allKeywords])
+
+  const allKeywordIdsKey = allKeywords.map((kw) => kw.id).join('|')
+  const [seenKeywordIds, setSeenKeywordIds] = useState(() => seenKeywordsByCard.get(String(effectiveId)) ?? allKeywordIdsKey)
+  const [gainedKeywords, setGainedKeywords] = useState<string[]>([])
+  if (seenKeywordIds !== allKeywordIdsKey) {
+    setSeenKeywordIds(allKeywordIdsKey)
+    const fresh = gainedKeywordIds(seenKeywordIds.split('|'), allKeywordIdsKey.split('|'))
+    setGainedKeywords((running) => [...running, ...fresh.filter((id) => !running.includes(id))])
+  }
+  useEffect(() => {
+    const key = String(effectiveId)
+    seenKeywordsByCard.set(key, allKeywordIdsKey)
+    return () => {
+      seenKeywordsByCard.delete(key)
+    }
+  }, [effectiveId, allKeywordIdsKey])
+  useEffect(() => {
+    if (gainedKeywords.length === 0) return
+    const expire = setTimeout(() => setGainedKeywords([]), KEYWORD_GAIN_MS)
+    return () => clearTimeout(expire)
+  }, [gainedKeywords])
+  const auraKeyword = keywordAura && auraMode !== 'off' && !showBack && !isFaceDownCard
+    ? dominantAuraKeyword(allKeywords.map((kw) => kw.id))
+    : null
+
+  const badgeRowRef = useRef<HTMLDivElement>(null)
+  const shownBadges = useBadgeFit(badgeRowRef, keywordBadges.length)
+  const hiddenBadges = allKeywords.slice(shownBadges)
+  useBadgeLayout(slotRef)
 
   const designations = useMemo(() => cardDesignations(card.rules), [card.rules])
+  const [seenRules, setSeenRules] = useState(card.rules)
+  const [gainedDes, setGainedDes] = useState<Designation[]>([])
+  const [swell, setSwell] = useState(false)
+  if (seenRules !== card.rules) {
+    const fresh = gainedDesignations(seenRules, card.rules)
+    setSeenRules(card.rules)
+    setGainedDes([...gainedDes.filter((d) => designations.includes(d) && !fresh.includes(d)), ...fresh])
+    if (fresh.includes('monstrous') || fresh.includes('renowned')) setSwell(true)
+  }
   // Duskmourn Room doors never travel in the DTO; the unlocked sides are
   // sniffed from the server chat (`sniffRoomDoor`), keyed by card name.
   const roomSides = useStore((s) => {
@@ -413,10 +497,14 @@ const showPtBadge =
         entering ? 'entering' : '',
         flightState === 'hidden' || held ? 'flight-hidden' : '',
         flightState === 'landing' ? 'flight-land' : '',
+        swell ? 'fx-designation-swell' : '',
         className,
       ].filter(Boolean).join(' ')}
       onClick={handleClick}
-      onAnimationEnd={handleCastAnimationEnd}
+      onAnimationEnd={(e) => {
+        if (e.animationName === 'designationSwell') setSwell(false)
+        handleCastAnimationEnd(e)
+      }}
       {...clickableProps(handleClick)}
       aria-label={onClick ? cardName(card) : undefined}
       aria-pressed={onClick && ariaPressed !== undefined ? ariaPressed : undefined}
@@ -459,7 +547,7 @@ const showPtBadge =
       )}
 
       {showManaPill && (
-        <div className="compact-mana-source" data-testid="compact-mana-source" data-mana={manaSymbols.join('')}>
+        <div className="compact-mana-source" data-badge-zone="mana" data-testid="compact-mana-source" data-mana={manaSymbols.join('')}>
           {manaSymbols.map((sym) => (
             sym === 'ANY'
               ? <span key={sym} className="compact-mana-any" />
@@ -471,9 +559,9 @@ const showPtBadge =
       {compact && !showBack && (
         <>
           {tapped && (
-            <div className="compact-tap-badge" data-testid="compact-tap-badge" title={t('game', 'tapped')}>
+            <BadgeTip className="compact-tap-badge" data-testid="compact-tap-badge" data-badge-zone="tap" tip={{ title: t('game', 'tapped') }}>
               <ManaPip symbol="T" size={16} className="compact-tap-pip" />
-            </div>
+            </BadgeTip>
           )}
           <div className={`compact-plate${hasCornerStat ? ' has-stat' : ''}`} aria-hidden="true">
             <span className="compact-name">{cardName(card)}</span>
@@ -485,17 +573,18 @@ const showPtBadge =
       )}
 
       {showPtBadge && !renderedFace && (
-        <div
+        <BadgeTip
           className="pt-badge"
+          data-badge-zone="stats"
           data-trend={pt.power !== 'same' || pt.toughness !== 'same' ? 'changed' : undefined}
-          title={ptTitle}
+          tip={{ title: `${perm.power}/${perm.toughness}`, body: ptTitle }}
         >
           <span className="pt-value" data-trend={pt.power}>{perm.power}</span>/<span className="pt-value" data-trend={pt.toughness}>{perm.toughness}</span>
-        </div>
+        </BadgeTip>
       )}
 
       {isPlaneswalker && loyaltyVal > 0 && !renderedFace && (
-        <div className={`loyalty-badge${pulseClass(loyaltyPulse)}`} title={`${t('game', 'ability_loyalty')}: ${perm.loyalty}`}>
+        <BadgeTip className={`loyalty-badge${pulseClass(loyaltyPulse)}`} data-badge-zone="stats" tip={{ title: `${t('game', 'ability_loyalty')}: ${perm.loyalty}` }}>
           <span className="loyalty-icon"><Icon name="shield" size={11} /></span>
           <span className={`loyalty-val${loyaltyPulse?.tick ? ` counter-tick is-${loyaltyPulse.direction}` : ''}`}>{perm.loyalty}</span>
           {loyaltyPulse?.scale && <span key={`ring-${loyaltyPulse.seq}`} className="counter-change-ring" aria-hidden="true" />}
@@ -508,24 +597,18 @@ const showPtBadge =
               {loyaltyPulse.delta > 0 ? `+${loyaltyPulse.delta}` : `${loyaltyPulse.delta}`}
             </span>
           )}
-        </div>
+        </BadgeTip>
       )}
 
       {isBattle && defenseVal > 0 && !renderedFace && (
-        <div className="defense-badge" title={`${t('game', 'damage')}: ${perm.defense}`}>
+        <BadgeTip className="defense-badge" data-badge-zone="stats" tip={{ title: `${t('game', 'damage')}: ${perm.defense}` }}>
           <span className="defense-icon"><Icon name="swords" size={11} /></span>
           <span className="defense-val">{perm.defense}</span>
-        </div>
-      )}
-
-      {perm.mutated === true && (
-        <div className="mutated-badge" title={t('board', 'zone_battlefield')}>
-          <span className="mutated-icon"><Icon name="dna" size={12} /></span>
-        </div>
+        </BadgeTip>
       )}
 
       {showCounters && visibleCounters.length > 0 && !renderedFace && (
-        <div className="card-counters-wrap">
+        <div className="card-counters-wrap" data-badge-zone="counters">
           {visibleCounters.map((c) => {
             const n = c.name.toLowerCase()
             let iconElement: React.ReactNode = null
@@ -563,10 +646,10 @@ const showPtBadge =
 
             const pulse = counterPulses[c.name]
             return (
-              <div
+              <BadgeTip
                 key={c.name}
                 className={`counter-badge ${customClass}${pulseClass(pulse)}`}
-                title={`${c.name}: ${c.count}`}
+                tip={{ title: `${c.name}: ${c.count}` }}
               >
                 {iconElement && <span className="counter-icon-symbol">{iconElement}</span>}
                 {label && <span className={`counter-text-val${pulse?.tick ? ` counter-tick is-${pulse.direction}` : ''}`}>{label}</span>}
@@ -580,17 +663,28 @@ const showPtBadge =
                     {pulse.delta > 0 ? `+${pulse.delta}` : `${pulse.delta}`}
                   </span>
                 )}
-              </div>
+              </BadgeTip>
             )
           })}
         </div>
       )}
 
       {showDamage && isRealCreature && shownDamage > 0 && (
-        <div className="damage-badge">{shownDamage}</div>
+        <BadgeTip className="damage-badge" data-badge-zone="stats" tip={{ title: `${t('game', 'damage')}: ${shownDamage}` }}>{shownDamage}</BadgeTip>
       )}
 
       {enteredThisTurn && <span className="entered-glow" aria-hidden="true" />}
+
+      {auraKeyword && (
+        <span
+          className={`kw-aura kw-aura--${auraKeyword}${auraMode === 'vivid' ? ' is-vivid' : ''}`}
+          data-kw-aura={auraKeyword}
+          aria-hidden="true"
+        />
+      )}
+      {auraKeyword && gainedKeywords.includes(auraKeyword) && (
+        <span key={`flare-${allKeywordIdsKey}`} className={`kw-aura-flare kw-aura-flare--${auraKeyword}`} aria-hidden="true" />
+      )}
 
       {recapMark && (
         <div className="recap-mark-badge" data-mark={recapMark} data-testid="recap-mark">
@@ -599,66 +693,93 @@ const showPtBadge =
       )}
 
       {hasSummoningSickness && sicknessStyle === 'badge' && (
-        <div className="sickness-badge" title={t('game', 'summoning_sickness')} aria-label={t('game', 'summoning_sickness')}>
+        <BadgeTip className="sickness-badge" data-badge-zone="sickness" tip={{ title: t('game', 'summoning_sickness') }}>
           <Icon name="timer" size={11} />
-        </div>
+        </BadgeTip>
       )}
 
       {hasSummoningSickness && sicknessStyle === 'veil' && (
-        <div className="sickness-veil" aria-hidden="true">
-          <Icon name="timer" size={28} />
+        <div className="sickness-veil">
+          <BadgeTip className="sickness-veil-icon" tip={{ title: t('game', 'summoning_sickness') }}>
+            <Icon name="timer" size={28} />
+          </BadgeTip>
         </div>
       )}
 
       {isFaceDownCard && (
-        <div className="facedown-badges">
-          {perm.morphed && <span className="facedown-type-badge morph" title={t('board', 'morph')}>{t('board', 'morph')}</span>}
-          {perm.manifested && <span className="facedown-type-badge manifest" title={t('board', 'manifest')}>{t('board', 'manifest')}</span>}
-          {perm.disguised && <span className="facedown-type-badge disguise" title={t('board', 'disguise')}>{t('board', 'disguise')}</span>}
-          {perm.cloaked && <span className="facedown-type-badge cloak" title={t('board', 'cloak')}>{t('board', 'cloak')}</span>}
+        <div className="facedown-badges" data-badge-zone="facedown">
+          {([['morphed', 'morph'], ['manifested', 'manifest'], ['disguised', 'disguise'], ['cloaked', 'cloak']] as const).map(([flag, id]) =>
+            perm[flag] ? (
+              <BadgeTip
+                key={id}
+                className={`facedown-type-badge ${id}`}
+                tip={{ title: t('board', id), body: keywordSummary(id, (k) => t('keywords', k)) || undefined }}
+              >
+                {t('board', id)}
+              </BadgeTip>
+            ) : null,
+          )}
         </div>
       )}
 
       {(card.transformable || card.secondCardFace != null || card.alternateName != null) && !isFaceDownCard && (
-        <div
+        <BadgeTip
           className={`card-transform-badge ${perm.transformed ? 'is-transformed' : ''}`}
-          title={perm.transformed ? t('wiki', 'face_back') : t('wiki', 'face_front')}
+          data-badge-zone="transform"
+          tip={{ title: perm.transformed ? t('wiki', 'face_back') : t('wiki', 'face_front') }}
         >
           {perm.transformed ? <Icon name="moon" size={11} /> : <Icon name="sun" size={11} />}
-        </div>
+        </BadgeTip>
       )}
 
-      <CardIcons icons={card.cardIcons} />
+      <CardIcons icons={hideFaceDownKeywords ? undefined : card.cardIcons} />
 
       {(designations.length > 0 || roomSides !== '') && (
-        <div className="designation-badges">
+        <div className="designation-badges" data-badge-zone="designation">
           {designations.map((d) => {
             const texts = designationTexts(d)
             return (
-              <span key={d} className={`designation-badge is-${d}`} title={texts.title}>
+              <BadgeTip
+                key={d === 'classlevel' ? `classlevel-${classLevel}` : d}
+                className={`designation-badge is-${d}${gainedDes.includes(d) ? ` designation-gained designation-gained--${d}` : ''}`}
+                tip={{ title: texts.title }}
+              >
                 {texts.label}
-              </span>
+              </BadgeTip>
             )
           })}
           {roomSides !== '' && (
-            <span className="designation-badge is-room" title={t('board', 'designation_room_title', { sides: roomSides })}>
+            <BadgeTip className="designation-badge is-room" tip={{ title: t('board', 'designation_room_title', { sides: roomSides }) }}>
               {roomSides}
-            </span>
+            </BadgeTip>
           )}
         </div>
       )}
 
       {keywordBadges.length > 0 && (
-        <div className="keyword-badges" aria-label={t('wiki', 'tab_keywords')}>
-          {keywordBadges.map((kw) => (
-            <span
+        <div className="keyword-badges" data-badge-zone="keyword" ref={badgeRowRef} aria-label={t('wiki', 'tab_keywords')}>
+          {keywordBadges.slice(0, shownBadges).map((kw) => (
+            <BadgeTip
               key={kw.id}
-              className={isGlyphKeyword(kw.id) ? `keyword-badge is-glyph icons-${keywordIcons} kw-${kw.id}` : `keyword-badge cat-${kw.category}`}
-              title={`${keywordDisplayName(kw.id, kw.name, (k) => t('keywords', k), kw.parameter)} — ${keywordSummary(kw.id, (k) => t('keywords', k), kw.parameter)}`}
+              className={`keyword-badge kw-coin is-glyph cat-${kw.category} icons-${keywordIcons} kw-${kw.id}${kw.id === 'mutate' ? ' mutated-badge' : ''}${gainedKeywords.includes(kw.id) ? ' kw-gained' : ''}`}
+              tip={{
+                title: keywordDisplayName(kw.id, kw.name, (k) => t('keywords', k), kw.parameter),
+                body: keywordSummary(kw.id, (k) => t('keywords', k), kw.parameter),
+              }}
             >
-              {isGlyphKeyword(kw.id) ? <KeywordGlyph keyword={kw.id} set={keywordIcons} /> : kw.icon}
-            </span>
+              <KeywordGlyph id={kw.id} category={kw.category} set={keywordIcons} />
+            </BadgeTip>
           ))}
+          {hiddenBadges.length > 0 && (
+            <BadgeTip
+              className="keyword-badge keyword-badge-more"
+              tip={{
+                title: hiddenBadges.map((kw) => keywordDisplayName(kw.id, kw.name, (k) => t('keywords', k), kw.parameter)).join(', '),
+              }}
+            >
+              {`+${hiddenBadges.length}`}
+            </BadgeTip>
+          )}
         </div>
       )}
 
