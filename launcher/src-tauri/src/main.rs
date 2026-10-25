@@ -271,21 +271,7 @@ fn kill_all(processes: &State<Processes>) {
 }
 
 fn patch_seeded_port(config: &Path, port: u16) -> Result<(), String> {
-    if !config.is_file() {
-        return Ok(());
-    }
-    let text = std::fs::read_to_string(config).map_err(|e| format!("config: {e}"))?;
-    let Some(start) = text.find("port=\"") else {
-        return Ok(());
-    };
-    let digits = start + 6;
-    let end = text[digits..]
-        .find('"')
-        .map(|i| digits + i)
-        .unwrap_or(text.len());
-    let mut patched = text;
-    patched.replace_range(digits..end, &port.to_string());
-    std::fs::write(config, patched).map_err(|e| format!("config: {e}"))?;
+    layout::set_server_port(config, port).map_err(|e| format!("config: {e}"))?;
     Ok(())
 }
 

@@ -133,6 +133,49 @@ pub fn seed_server_data(staging_server: &Path, data_server: &Path) -> Result<(),
     Ok(())
 }
 
+/// Points the server config at `port`, the contract's. Runs on every start, so it leaves the file
+/// alone when the port already matches (the usual case) and otherwise replaces it whole: a power
+/// cut during a plain write left the config as zeros and the server would not start again.
+/// Returns whether the file changed.
+pub fn set_server_port(config_xml: &Path, port: u16) -> Result<bool, LayoutError> {
+    if !config_xml.is_file() {
+        return Ok(false);
+    }
+    let text = std::fs::read_to_string(config_xml)?;
+    let Some(start) = text.find("port=\"") else {
+        return Ok(false);
+    };
+    let digits = start + 6;
+    let end = text[digits..]
+        .find('"')
+        .map(|i| digits + i)
+        .unwrap_or(text.len());
+    let wanted = port.to_string();
+    if text[digits..end] == wanted {
+        return Ok(false);
+    }
+    let mut patched = text;
+    patched.replace_range(digits..end, &wanted);
+    replace_file(config_xml, patched.as_bytes())?;
+    Ok(true)
+}
+
+/// Writes `bytes` beside `path` and moves them over it once they are on disk, so `path` holds
+/// either its old content or the new one, never a half-written file.
+fn replace_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    let tmp = path.with_file_name(name);
+    {
+        let mut file = std::fs::File::create(&tmp)?;
+        io::Write::write_all(&mut file, bytes)?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
 /// Where the copy of the game page that friends open in their browser lives.
 pub fn friends_web_dir(paths: &Paths) -> PathBuf {
     paths.root.join("friends-web")
@@ -337,6 +380,37 @@ mod tests {
             .unwrap();
             assert_eq!(server_open_to_network(&config), open, "{address}");
         }
+    }
+
+    #[test]
+    fn the_server_port_is_only_written_when_it_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.xml");
+        assert!(!set_server_port(&config, 17171).unwrap(), "no config yet");
+
+        let text = "<config>\r\n  <server serverAddress=\"0.0.0.0\" port=\"17171\" secondaryBindPort=\"-1\"/>\r\n</config>";
+        std::fs::write(&config, text).unwrap();
+        let written = std::fs::metadata(&config).unwrap().modified().unwrap();
+        assert!(!set_server_port(&config, 17171).unwrap());
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), text);
+        assert_eq!(std::fs::metadata(&config).unwrap().modified().unwrap(), written);
+
+        assert!(set_server_port(&config, 17200).unwrap());
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), text.replace("17171", "17200"));
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, vec!["config.xml"], "no temporary file left behind");
+    }
+
+    #[test]
+    fn a_config_without_a_port_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.xml");
+        std::fs::write(&config, "<config/>").unwrap();
+        assert!(!set_server_port(&config, 17171).unwrap());
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "<config/>");
     }
 
     #[test]
