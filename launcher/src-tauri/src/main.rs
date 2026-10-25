@@ -425,12 +425,9 @@ fn bootstrap_or_update(app: &AppHandle) -> Result<(), String> {
     emit_state(app, "checking", None, None);
     let remote = fetch_manifest();
     if !skip {
-        // newer components than this app mean its update is out: the daily check could leave
-        // them running in this old app for up to a day
-        let newer = remote
-            .as_ref()
-            .is_some_and(|m| m.is_newer_than(&app.package_info().version.to_string()));
-        if let Some(info) = check_for_update(app, newer)? {
+        // every start: a daily check left a new release unseen for up to a day, and one small
+        // file from the release is all it costs
+        if let Some(info) = check_for_update(app)? {
             emit_state(app, "update-available", Some("app"), Some(info));
             return Ok(());
         }
@@ -438,38 +435,7 @@ fn bootstrap_or_update(app: &AppHandle) -> Result<(), String> {
     bootstrap(app, remote)
 }
 
-const UPDATE_CHECK_INTERVAL_SECS: u64 = 24 * 3600;
-
-fn update_check_due_secs(last: u64, now: u64) -> bool {
-    now.saturating_sub(last) >= UPDATE_CHECK_INTERVAL_SECS
-}
-
-fn update_check_due(app: &AppHandle) -> bool {
-    let last: u64 = std::fs::read_to_string(data_root(app).join("updater-last-check"))
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    update_check_due_secs(last, now)
-}
-
-fn mark_update_checked(app: &AppHandle) {
-    if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        let _ = std::fs::write(
-            data_root(app).join("updater-last-check"),
-            now.as_secs().to_string(),
-        );
-    }
-}
-
-fn check_for_update(app: &AppHandle, components_newer: bool) -> Result<Option<String>, String> {
-    if !components_newer && !update_check_due(app) {
-        eprintln!("update check skipped (recently checked)");
-        return Ok(None);
-    }
+fn check_for_update(app: &AppHandle) -> Result<Option<String>, String> {
     emit_state(app, "checking-update", None, None);
     let result = tauri::async_runtime::block_on(async {
         tokio::time::timeout(Duration::from_secs(12), async {
@@ -485,18 +451,12 @@ fn check_for_update(app: &AppHandle, components_newer: bool) -> Result<Option<St
         .map_err(|_| "update check exceeded hard timeout".to_string())?
     });
     match result {
-        Ok(Some(update)) => {
-            mark_update_checked(app);
-            Ok(Some(format!(
-                "{}|{}",
-                update.version,
-                update.body.clone().unwrap_or_default()
-            )))
-        }
-        Ok(None) => {
-            mark_update_checked(app);
-            Ok(None)
-        }
+        Ok(Some(update)) => Ok(Some(format!(
+            "{}|{}",
+            update.version,
+            update.body.clone().unwrap_or_default()
+        ))),
+        Ok(None) => Ok(None),
         Err(e) => {
             eprintln!("update check failed, continuing offline-capable bootstrap: {e}");
             Ok(None)
@@ -930,7 +890,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{error_code, rotate_log, update_check_due_secs, wait_log, Contract, UPDATE_CHECK_INTERVAL_SECS};
+    use super::{error_code, rotate_log, wait_log, Contract};
 
     const CONTRACT_BASE: &str = r#"{
         "server": {"mainClass": "mage.server.Main", "classpath": ["lib/*"], "port": 17171},
@@ -1021,13 +981,5 @@ mod tests {
     #[test]
     fn unknown_errors_pass_through_verbatim() {
         assert_eq!(error_code("server: boom"), "server: boom");
-    }
-
-    #[test]
-    fn update_check_due_logic() {
-        assert!(update_check_due_secs(0, UPDATE_CHECK_INTERVAL_SECS));
-        assert!(update_check_due_secs(100, 100 + UPDATE_CHECK_INTERVAL_SECS));
-        assert!(!update_check_due_secs(100, 100 + UPDATE_CHECK_INTERVAL_SECS - 1));
-        assert!(!update_check_due_secs(200, 100));
     }
 }

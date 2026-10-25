@@ -34,30 +34,6 @@ impl ComponentsManifest {
         names.sort();
         names
     }
-
-    /// Whether these components come from a later release than `app_version`, the running app's.
-    /// A release ships its components and its app together, so newer components mean a newer app
-    /// is out too. A release that is not plain numbers (upstream's "1.4.62-1") is never newer.
-    pub fn is_newer_than(&self, app_version: &str) -> bool {
-        match (version_numbers(&self.release), version_numbers(app_version)) {
-            (Some(release), Some(app)) => release > app,
-            _ => false,
-        }
-    }
-}
-
-fn version_numbers(version: &str) -> Option<Vec<u64>> {
-    let mut numbers = version
-        .trim()
-        .trim_start_matches('v')
-        .split('.')
-        .map(|part| part.parse().ok())
-        .collect::<Option<Vec<u64>>>()?;
-    // "0.5" and "0.5.0" are the same release
-    while numbers.last() == Some(&0) {
-        numbers.pop();
-    }
-    Some(numbers)
 }
 
 #[cfg(test)]
@@ -105,37 +81,6 @@ mod tests {
         assert_eq!(m.git_sha, "");
         assert_eq!(m.min_launcher, "");
         assert!(m.component_names().is_empty());
-    }
-
-    fn released(release: &str) -> ComponentsManifest {
-        ComponentsManifest::parse(&format!(
-            r#"{{"schema":1,"release":"{release}","xmage":"x","components":{{}}}}"#
-        ))
-        .unwrap()
-    }
-
-    #[test]
-    fn components_from_a_later_release_are_newer_than_the_app() {
-        assert!(released("0.5.2").is_newer_than("0.5.1"));
-        assert!(released("0.6.0").is_newer_than("0.5.9"));
-        assert!(released("0.10.0").is_newer_than("0.9.0"));
-        assert!(released("1.0").is_newer_than("0.9.9"));
-        assert!(released("v0.5.2").is_newer_than("0.5.1"));
-    }
-
-    #[test]
-    fn the_same_or_an_older_release_is_not_newer() {
-        assert!(!released("0.5.2").is_newer_than("0.5.2"));
-        assert!(!released("0.5").is_newer_than("0.5.0"));
-        // components reused from an older release (release.yml's components_tag)
-        assert!(!released("0.5.1").is_newer_than("0.5.2"));
-    }
-
-    #[test]
-    fn a_release_that_is_not_plain_numbers_is_never_newer() {
-        assert!(!released("1.4.62-1").is_newer_than("0.5.1"));
-        assert!(!released("").is_newer_than("0.5.1"));
-        assert!(!released("0.5.2").is_newer_than("dev"));
     }
 
     #[test]
