@@ -257,6 +257,13 @@ class IdbDeckStorage implements DeckStorage {
     if (isIdbAvailable()) {
       try {
         await idbPut(toSave)
+        // the synchronous readers (getAllAvailableDecks) still read the localStorage copy
+        const mirror = lsList()
+        const at = mirror.findIndex((d) => d.id === deck.id)
+        if (at >= 0) {
+          mirror[at] = toSave
+          try { lsSaveAll(mirror) } catch {}
+        }
         return
       } catch {}
     }

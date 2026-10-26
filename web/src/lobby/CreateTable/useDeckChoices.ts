@@ -2,6 +2,11 @@ import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { getAllAvailableDecks, deckRef, sameDeck, type Deck } from '../decks'
 import { isHumanSeatType, type SeatConfig } from './constants'
 
+/** The stored version of `deck`: same id, else same name (a deck deleted and created again). */
+function freshDeck(decks: Deck[], deck: Deck): Deck {
+  return decks.find((d) => deckRef(d) === deckRef(deck)) ?? decks.find((d) => d.name === deck.name) ?? deck
+}
+
 /**
  * The decks the Create Table wizard can seat: the list (bundled + legacy right away, the stored
  * decks once the async storage answers), my deck and the default deck for bot seats.
@@ -25,7 +30,13 @@ export function useDeckChoices(storeDeck: Deck | null, setSeatConfigs: Dispatch<
         for (const d of getAllAvailableDecks()) {
           if (!maps.has(deckRef(d))) maps.set(deckRef(d), d)
         }
-        setAvailableDecks([...maps.values()])
+        const loaded = [...maps.values()]
+        setAvailableDecks(loaded)
+        // The first pick came from the synchronous list (an older localStorage copy) or from the
+        // last match's snapshot, so it can hold cards edited since: swap in the stored deck.
+        const current = (d: Deck | null) => (d ? freshDeck(loaded, d) : d)
+        setMyDeckState(current)
+        setSimDeck(current)
       } catch {}
       if (!cancelled) setDecksLoaded(true)
     })()
