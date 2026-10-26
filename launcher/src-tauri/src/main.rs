@@ -548,7 +548,17 @@ fn bootstrap(app: &AppHandle, remote: Option<ComponentsManifest>) -> Result<(), 
             }
         })
         .collect();
+    let server_data = layout::server_data_dir(&paths);
+    let log_config = server_data.join("config").join("log4j.properties");
+    layout::write_server_log_config(&log_config, &paths.logs.join("mageserver.log"))
+        .map_err(|e| format!("log config: {e}"))?;
+    // The server's built-in settings wrote here without a size limit; nothing writes it any more.
+    let _ = std::fs::remove_file(server_data.join("mageserver.log"));
     let mut server_cmd = Command::new(&java);
+    server_cmd.arg(format!(
+        "-Dlog4j.configuration={}",
+        layout::file_url(&log_config)
+    ));
     for (k, v) in &contract.server.system_properties {
         server_cmd.arg(format!("-D{k}={v}"));
     }

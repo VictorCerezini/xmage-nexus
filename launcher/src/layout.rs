@@ -160,6 +160,55 @@ pub fn set_server_port(config_xml: &Path, port: u16) -> Result<bool, LayoutError
     Ok(true)
 }
 
+/// The server's log settings (reload4j). Its built-in ones append to one `mageserver.log` forever
+/// and echo every line to the console: AI simulation errors in Commander games grew that file to
+/// 2 GB in ten days. These roll the file over at 10 MB, keep five old ones and log to it only, so
+/// the launcher's `server.log` (the console) keeps just what the JVM itself prints.
+pub fn server_log_config(log_file: &Path) -> String {
+    let file = log_file.display().to_string().replace('\\', "/");
+    format!(
+        "log4j.rootLogger=info, logfile\n\
+         log4j.logger.com.j256.ormlite=warn\n\
+         log4j.logger.mage.player.ai=warn\n\
+         log4j.appender.logfile=org.apache.log4j.RollingFileAppender\n\
+         log4j.appender.logfile.File={file}\n\
+         log4j.appender.logfile.MaxFileSize=10MB\n\
+         log4j.appender.logfile.MaxBackupIndex=5\n\
+         log4j.appender.logfile.append=true\n\
+         log4j.appender.logfile.layout=org.apache.log4j.PatternLayout\n\
+         log4j.appender.logfile.layout.ConversionPattern=%-5p %d{{yyyy-MM-dd HH:mm:ss,SSS}} %-90m =>[%t] %C{{1}}.%M %n\n"
+    )
+}
+
+/// Writes [`server_log_config`] to `config`, only when it differs from what is there. Returns
+/// whether the file changed.
+pub fn write_server_log_config(config: &Path, log_file: &Path) -> Result<bool, LayoutError> {
+    let wanted = server_log_config(log_file);
+    if std::fs::read_to_string(config).is_ok_and(|text| text == wanted) {
+        return Ok(false);
+    }
+    if let Some(dir) = config.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    replace_file(config, wanted.as_bytes())?;
+    Ok(true)
+}
+
+/// `path` as the `file:` URL reload4j's `-Dlog4j.configuration` expects.
+pub fn file_url(path: &Path) -> String {
+    let text = path
+        .display()
+        .to_string()
+        .replace('\\', "/")
+        .replace('%', "%25")
+        .replace(' ', "%20");
+    if text.starts_with('/') {
+        format!("file:{text}")
+    } else {
+        format!("file:/{text}")
+    }
+}
+
 /// Writes `bytes` beside `path` and moves them over it once they are on disk, so `path` holds
 /// either its old content or the new one, never a half-written file.
 fn replace_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -411,6 +460,37 @@ mod tests {
         std::fs::write(&config, "<config/>").unwrap();
         assert!(!set_server_port(&config, 17171).unwrap());
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "<config/>");
+    }
+
+    #[test]
+    fn the_server_log_rolls_over_and_is_only_rewritten_when_it_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config").join("log4j.properties");
+        let log_file = Path::new(r"C:\Users\Some One\logs\mageserver.log");
+        assert!(write_server_log_config(&config, log_file).unwrap());
+        let text = std::fs::read_to_string(&config).unwrap();
+        assert!(text.contains("log4j.rootLogger=info, logfile\n"), "no console echo");
+        assert!(text.contains("=org.apache.log4j.RollingFileAppender\n"));
+        assert!(text.contains("MaxFileSize=10MB\n"));
+        assert!(text.contains("File=C:/Users/Some One/logs/mageserver.log\n"), "{text}");
+        assert!(text.contains("%d{yyyy-MM-dd HH:mm:ss,SSS}"));
+
+        let written = std::fs::metadata(&config).unwrap().modified().unwrap();
+        assert!(!write_server_log_config(&config, log_file).unwrap());
+        assert_eq!(std::fs::metadata(&config).unwrap().modified().unwrap(), written);
+        assert!(write_server_log_config(&config, Path::new("/home/a/logs/mageserver.log")).unwrap());
+    }
+
+    #[test]
+    fn file_urls_use_forward_slashes_and_escape_spaces() {
+        assert_eq!(
+            file_url(Path::new(r"C:\Users\Some One\cfg\log4j.properties")),
+            "file:/C:/Users/Some%20One/cfg/log4j.properties"
+        );
+        assert_eq!(
+            file_url(Path::new("/home/a/100%/log4j.properties")),
+            "file:/home/a/100%25/log4j.properties"
+        );
     }
 
     #[test]
