@@ -113,6 +113,11 @@ jobs:
           MODULES=$(jdeps --ignore-missing-deps --multi-release 17 --print-module-deps \
             --class-path 'staging/server/lib/*' \
             staging/proxy/mage-proxy-*.jar staging/server/classes/*/)
+          # jdeps misses what is loaded as a service: without jdk.crypto.ec no TLS handshake with
+          # Cloudflare sites (Moxfield) works, and its bot filter answers 403 unless Windows Java
+          # also carries jdk.crypto.mscapi (it changes how the handshake looks).
+          MODULES="$MODULES,jdk.crypto.ec"
+          if [[ "$RUNNER_OS" == 'Windows' ]]; then MODULES="$MODULES,jdk.crypto.mscapi"; fi
           echo "modules: $MODULES"
           jlink --add-modules "$MODULES" --strip-debug --no-man-pages --no-header-files \
             --compress=2 --output staging/jre
@@ -122,6 +127,7 @@ jobs:
           ls staging/proxy/
           test -x staging/jre/bin/java || test -f staging/jre/bin/java.exe
           staging/jre/bin/java -version
+          staging/jre/bin/java --list-modules | grep -q '^jdk.crypto.ec@'
           du -sh staging staging/jre
       - name: Smoke server (normal mode) + proxy
         run: |

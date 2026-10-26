@@ -15,6 +15,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -28,6 +30,8 @@ import java.util.regex.Pattern;
  * siempre falla con "Failed to fetch". El proxy no tiene esa restriccion.
  */
 final class OnlineDeckCommands {
+
+    private static final Logger logger = Logger.getLogger(OnlineDeckCommands.class.getName());
 
     // Sin marcador explicito ("moxfield.com/decks/"/"archidekt.com/decks/" o
     // "id=") se asume que urlOrId YA es el id: no hay alternativa "^" en el
@@ -88,6 +92,9 @@ final class OnlineDeckCommands {
             ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, true, null, data));
         } catch (Exception ex) {
             boolean notFound = "edhrec".equals(source) && "HTTP 404".equals(ex.getMessage());
+            if (!notFound) {
+                logger.log(Level.WARNING, "deck import from " + apiUrl + " failed: " + ex);
+            }
             ctx.gateway().send(conn, ProxyProtocol.resultJson(action, requestId, false,
                     notFound ? ProxyProtocol.ERR_CARD_NOT_FOUND : ProxyProtocol.ERR_FAILED, "fetch failed: " + ex.getMessage()));
         }
