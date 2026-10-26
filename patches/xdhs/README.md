@@ -13,7 +13,7 @@ The files touched by patches `0001`/`0002` apply cleanly against
 | --- | --- | --- |
 | `0001-matchoptions-test-mode.patch` | `40a0cda712` | `MatchOptions.setSkipInitShuffling` / `setSkipStartingPlayerChoice` (deterministic test mode). Explicit `serialVersionUID` keeps the extra fields wire-compatible with unmodified servers. |
 | `0002-cheatsetup-client.patch` | `0e95f17bb9` | `SessionImpl.cheatSetup` + `MageServer`/`Testable` declarations. Against a stock XDHS server the call fails softly (the server has no such remote method). |
-| `0003-custom-threadpool-shared-pool.patch` | retired | The nexus-side thread-pool leak patch. **Not applied** since `1.6.1-XDHS-r2`: the XDHS fork carries the upstream fix itself (`CustomThreadPool.enableIdleThreadExit`, idle threads stop after 60 s), so the shared-pool shim is unnecessary there. |
+| `retired/0003-custom-threadpool-shared-pool.patch` | retired | The nexus-side thread-pool leak patch. **Not applied** since `1.6.1-XDHS-r2` (kept under `retired/` so the `patches/xdhs/*.patch` loops in `modules.yml` and `host-xdhs.sh` skip it): the XDHS fork carries the upstream fix itself (`CustomThreadPool.enableIdleThreadExit`, idle threads stop after 60 s), so the shared-pool shim is unnecessary there. |
 
 ## Host install (`scripts/deploy/host-xdhs.sh`)
 
