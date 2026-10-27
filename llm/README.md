@@ -79,7 +79,8 @@ folder to every supervisor process as `NEXUS_LLM_HOME`, and then:
 
 The CLIs are not bundled: Codex, Claude Code and OpenCode come from the
 machine. An older Codex lists fewer ChatGPT models (0.153 offers only
-`gpt-6-astra`; 0.163 also offers `gpt-6-luna` and `gpt-6.1-sol`).
+`gpt-6-astra`; 0.163 also offers `gpt-6-luna` and `gpt-6.1-sol`; 0.164 adds
+`gpt-6.1-terra`).
 
 ## Commands
 

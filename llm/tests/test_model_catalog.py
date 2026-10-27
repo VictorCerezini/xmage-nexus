@@ -35,6 +35,8 @@ def test_catalog_paginates_and_excludes_identity_hidden_and_unwanted_models():
             "data": [
                 model("gpt-6-luna", ["medium"]),
                 model("gpt-6.1-sol", ["high"]),
+                model("gpt-6.1-terra", ["low", "ultra"]),
+                model("gpt-5.6-terra", ["medium"]),
                 model("gpt-6-sol", ["low"]),
                 model("gpt-5.6-astra", ["high"]),
                 model("gpt-6-astra", ["low"], hidden=True),
@@ -43,7 +45,7 @@ def test_catalog_paginates_and_excludes_identity_hidden_and_unwanted_models():
         }
 
     catalog = read_catalog(call)
-    assert [item["id"] for item in catalog["models"]] == ["gpt-6-astra", "gpt-6-luna", "gpt-6.1-sol"]
+    assert [item["id"] for item in catalog["models"]] == ["gpt-6-astra", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra"]
     assert catalog["models"][0]["efforts"] == ["low", "high"]
     assert "private" not in json.dumps(catalog)
     assert [method for method, _ in calls] == ["account/read", "model/list", "model/list"]
