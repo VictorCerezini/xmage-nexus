@@ -218,7 +218,11 @@ def run_player(request, *, start_player=None, runtime=None):
     def save_status(status):
         manifest["status"] = status
         local.save_json(run / "manifest.json", manifest)
-        print(status, flush=True)
+        try:
+            print(status, flush=True)
+        except OSError:
+            # The app that reads it already stopped (it cancels the seat); the manifest has the status.
+            pass
 
     def bridge_text():
         bridge_log = run / "bridge.log"
@@ -376,7 +380,7 @@ def run_player(request, *, start_player=None, runtime=None):
         bridge_env = dict(env)
         if request.get("table_password"):
             bridge_env[TABLE_PASSWORD_ENV] = request["table_password"]
-        bridge = local.launch_bridge(arguments, bridge_env, log("bridge.log"))
+        bridge = local.launch_bridge(arguments, bridge_env, log("bridge.log"), run / "bridge")
         processes.append(bridge)
         save_status("joining")
         url = f"http://127.0.0.1:{mcp_port}/mcp"

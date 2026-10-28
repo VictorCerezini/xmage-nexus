@@ -81,11 +81,13 @@ def bridge_main():
     return ["-cp", os.pathsep.join(str(entry) for entry in classpath), bridge["mainClass"]]
 
 
-def launch_bridge(arguments, env, log_file):
-    paths.BRIDGE_HOME.mkdir(parents=True, exist_ok=True)
+def launch_bridge(arguments, env, log_file, workdir):
+    # The card database is ./db under the working folder, so each seat gets its own: two
+    # processes opening one H2 file at the same moment can lose the race and fail to join.
+    workdir.mkdir(parents=True, exist_ok=True)
     return subprocess.Popen(
         [java(), *arguments, *bridge_main()],
-        cwd=paths.BRIDGE_HOME,
+        cwd=workdir,
         env=env,
         stdout=log_file,
         stderr=subprocess.STDOUT,

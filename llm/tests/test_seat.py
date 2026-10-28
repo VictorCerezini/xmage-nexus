@@ -72,7 +72,8 @@ def harness(tmp_path, monkeypatch):
         stopped.append(proc)
         proc.poll = lambda: 0
 
-    def launch_bridge(arguments, _env, log):
+    def launch_bridge(arguments, _env, log, workdir):
+        assert workdir == Path(request["run"]) / "bridge"
         assert f"-Dxmage.bridge.seat={request['seat']}" in arguments
         assert f"-Dxmage.bridge.tableId={request['table_id']}" in arguments
         assert not any("continueMatch" in argument for argument in arguments)
@@ -373,7 +374,7 @@ def test_table_password_reaches_only_the_bridge(harness):
     (run / "cancel.requested").write_text("")
     launched = {}
 
-    def launch_bridge(arguments, env, _log):
+    def launch_bridge(arguments, env, _log, _workdir):
         launched.update(arguments=arguments, env=env)
         return SimpleNamespace(poll=lambda: None)
 
@@ -405,6 +406,33 @@ def test_table_cancellation_during_a_blocked_player_wait_still_cleans_both_proce
     assert manifest["cleanup_complete"] is True
     assert len(stopped) == 2
     start.assert_called_once()
+
+
+def test_a_seat_cancelled_after_the_app_stopped_reading_still_records_it(harness, monkeypatch):
+    request, runtime, stopped, _ = harness
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+
+    def cancel_during_play(_events):
+        (Path(request["run"]) / "cancel.requested").write_text("The other seat failed")
+
+    chatgpt = replace(providers.get("chatgpt_subscription"), require_game_only_events=cancel_during_play)
+    monkeypatch.setitem(providers.PROVIDERS, "chatgpt_subscription", chatgpt)
+    runtime.launch_bridge = lambda *_args: SimpleNamespace(poll=lambda: None)
+
+    class ClosedPipe:
+        def write(self, _text):
+            raise OSError(22, "Invalid argument")
+
+        def flush(self):
+            raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr("sys.stdout", ClosedPipe())
+    start = Mock(return_value=SimpleNamespace(poll=lambda: None))
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "cancelled"
+    assert manifest["cleanup_complete"] is True
+    assert len(stopped) == 2
 
 
 def test_closing_the_window_after_the_game_ended_records_the_result(harness, monkeypatch):
@@ -459,7 +487,7 @@ def match(harness, monkeypatch):
     bridge_log = []
     gateways = []
 
-    def launch_bridge(arguments, _env, log):
+    def launch_bridge(arguments, _env, log, _workdir):
         assert "-Dxmage.bridge.continueMatch=true" in arguments
         bridge_log.append(log)
         write("Game started: gameId=first")
@@ -707,8 +735,8 @@ def test_bridge_seat_records_the_winner_from_its_game_over_line(harness, monkeyp
     request, runtime, _stopped, _gateway = harness
     launch = runtime.launch_bridge
 
-    def launch_with_winner(arguments, env, log):
-        bridge = launch(arguments, env, log)
+    def launch_with_winner(arguments, env, log, workdir):
+        bridge = launch(arguments, env, log, workdir)
         log.write(f"[{request['username']}] Game over: Player Mad 1 is the winner\n")
         log.flush()
         return bridge

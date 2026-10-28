@@ -16,7 +16,7 @@ DESKTOP_PATH = (DATA_HOME or PACKAGE) / "desktop.json"
 COMPONENT_PATH = REPO / "llm.json"
 # Runtime state, ignored with the rest of .run/.
 RUN_ROOT = DATA_HOME or REPO / ".run" / "llm"
-# The bridge keeps its lazily loaded card database in db/ here; H2's AUTO_SERVER lets seats share it.
+# The bridge's user.home; each seat's lazily loaded card database stays in that seat's run folder.
 BRIDGE_HOME = RUN_ROOT / "bridge"
 BRIDGE_TARGET = REPO / "Mage.Client.Bridge" / "target"
 
@@ -85,6 +85,8 @@ def bridge_java_arguments():
     return [
         "--add-opens=java.base/java.io=ALL-UNNAMED",
         "-Dfile.encoding=UTF-8",
+        # The card database's AUTO_SERVER listens here only, not on the LAN or a VPN address.
+        "-Dh2.bindAddress=127.0.0.1",
         # Anything the client writes under the user's home stays in the run folder.
         f"-Duser.home={(BRIDGE_HOME / 'home').as_posix()}",
     ]

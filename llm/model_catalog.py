@@ -113,7 +113,9 @@ def read_catalog(call):
             raise ValueError("Codex returned a repeated model catalog cursor")
         seen.add(cursor)
     if not models:
-        raise RuntimeError("No GPT-6 Astra, GPT-6 Luna, GPT-6.1 Sol or GPT-6.1 Terra model is available through this ChatGPT sign-in")
+        raise RuntimeError(
+            "No GPT-6 Astra, GPT-6 Luna, GPT-6.1 Sol or GPT-6.1 Terra model is available through this ChatGPT sign-in"
+        )
     return {
         "id": "chatgpt_subscription",
         "playerType": "ChatGPT subscription",
@@ -130,7 +132,9 @@ def discover():
 
 def validate_selection(catalog, model, reasoning):
     if model not in GUI_MODELS:
-        raise ValueError(f"{model} is not offered for model seats; choose GPT-6 Astra, GPT-6 Luna, GPT-6.1 Sol or GPT-6.1 Terra")
+        raise ValueError(
+            f"{model} is not offered for model seats; choose GPT-6 Astra, GPT-6 Luna, GPT-6.1 Sol or GPT-6.1 Terra"
+        )
     for item in catalog["models"]:
         if item["id"] == model:
             if reasoning not in item["efforts"]:

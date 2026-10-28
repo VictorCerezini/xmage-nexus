@@ -53,7 +53,7 @@ def test_only_the_release_jar_is_used(fake_repo):
     assert runtime.bridge_jar() == shaded
 
 
-def test_bridge_launches_with_java_jar_from_its_own_home(fake_repo, monkeypatch):
+def test_bridge_launches_with_java_jar_from_the_seat_folder(fake_repo, tmp_path, monkeypatch):
     target, java = fake_repo
     jar = target / "mage-client-bridge-1.4.62.jar"
     jar.write_text("")
@@ -64,13 +64,19 @@ def test_bridge_launches_with_java_jar_from_its_own_home(fake_repo, monkeypatch)
         return "process"
 
     monkeypatch.setattr(runtime.subprocess, "Popen", popen)
-    assert runtime.launch_bridge(["-Dxmage.bridge.seat=2"], {"PATH": "x"}, "log") == "process"
+    workdir = tmp_path / "table-seat-2" / "bridge"
+    assert runtime.launch_bridge(["-Dxmage.bridge.seat=2"], {"PATH": "x"}, "log", workdir) == "process"
     assert launched["command"] == [str(java), "-Dxmage.bridge.seat=2", "-jar", str(jar)]
-    assert launched["cwd"] == paths.BRIDGE_HOME
-    assert paths.BRIDGE_HOME.is_dir()
+    # its card database (./db) belongs to this seat alone
+    assert launched["cwd"] == workdir
+    assert workdir.is_dir()
     assert launched["env"] == {"PATH": "x"}
     assert launched["stdout"] == "log"
     assert launched["stdin"] == subprocess.DEVNULL
+
+
+def test_the_bridge_card_database_server_listens_on_loopback_only():
+    assert "-Dh2.bindAddress=127.0.0.1" in paths.bridge_java_arguments()
 
 
 def test_bridge_user_home_stays_in_the_run_folder():
@@ -96,7 +102,7 @@ def test_desktop_bridge_runs_its_thin_jar_on_the_bundled_server(fake_repo, tmp_p
     )
     launched = {}
     monkeypatch.setattr(runtime.subprocess, "Popen", lambda command, **_kwargs: launched.setdefault("command", command))
-    runtime.launch_bridge(["-Dxmage.bridge.seat=2"], {}, "log")
+    runtime.launch_bridge(["-Dxmage.bridge.seat=2"], {}, "log", tmp_path / "seat")
     classpath = [
         tmp_path / "llm" / "bridge" / "mage-client-bridge.jar",
         server / "classes" / "Mage",
