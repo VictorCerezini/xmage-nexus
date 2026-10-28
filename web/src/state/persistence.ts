@@ -16,6 +16,7 @@ export interface ConnectionInfo {
   serverHost: string
   port: number
   username: string
+  /** Login input only: never written to storage (LBY-17). loadConn returns it empty. */
   password: string
   flagName?: string
   avatarId?: number
@@ -78,6 +79,13 @@ function writeJson(key: string, value: unknown) {
   } catch {}
 }
 
+/** The connection record as stored on the device: everything except the password (LBY-17). */
+function toSavedRecord(conn: ConnectionInfo): Partial<ConnectionInfo> {
+  const saved: Partial<ConnectionInfo> = { ...conn }
+  delete saved.password
+  return saved
+}
+
 function readJson<T>(key: string): T | undefined {
   try {
     const raw = getStorage().getItem(key)
@@ -106,7 +114,7 @@ function followBuildTunnel(conn: ConnectionInfo): ConnectionInfo {
   if (!isQuickTunnel(build) || !isQuickTunnel(conn.wsHost)) return conn
   if (hostOf(conn.wsHost) === hostOf(build)) return conn
   const next = { ...conn, wsHost: build }
-  writeJson(STORAGE_KEY, next)
+  writeJson(STORAGE_KEY, toSavedRecord(next))
   return next
 }
 
@@ -120,10 +128,10 @@ function readConn(): ConnectionInfo | null {
         serverHost: parsed.host ?? parsed.serverHost ?? 'localhost',
         port: parsed.port ?? 17171,
         username: parsed.username ?? '',
-        password: parsed.password ?? '',
+        password: '',
       }
     }
-    return { proxyPort: 8787, ...parsed } as ConnectionInfo
+    return { proxyPort: 8787, ...parsed, password: '' } as ConnectionInfo
   }
   return null
 }
@@ -135,12 +143,17 @@ function followFriendsPage(conn: ConnectionInfo): ConnectionInfo {
 }
 
 export function loadConn(): ConnectionInfo | null {
+  const stored = readJson<Record<string, unknown>>(STORAGE_KEY)
+  // a record written before LBY-17 still holds the password: drop it from the device
+  if (stored && typeof stored === 'object' && 'password' in stored) {
+    writeJson(STORAGE_KEY, toSavedRecord(stored as unknown as ConnectionInfo))
+  }
   const conn = readConn()
   return conn ? followFriendsPage(followBuildTunnel(conn)) : null
 }
 
 export function saveConn(conn: ConnectionInfo | null) {
-  if (conn) writeJson(STORAGE_KEY, conn)
+  if (conn) writeJson(STORAGE_KEY, toSavedRecord(conn))
   else try { getStorage().removeItem(STORAGE_KEY) } catch {}
 }
 
@@ -620,6 +633,8 @@ export function saveGameplayPreset(id: string | null) {
 
 const BROWSER_NOTIFICATIONS_KEY = 'mage-web-browser-notifications'
 const BOARD_REWIND_KEY = 'mage-web-board-rewind'
+const LOG_TICKER_EXPANDED_KEY = 'mage-web-log-ticker-expanded'
+const TURN_RECAP_KEY = 'mage-web-turn-recap'
 const DRAFT_HELPER_KEY = 'mage-web-draft-helper'
 const NOTIFICATION_ASKED_KEY = 'mage-web-notification-asked'
 
@@ -637,6 +652,22 @@ export function loadBoardRewind(): boolean {
 
 export function saveBoardRewind(enabled: boolean) {
   writeJson(BOARD_REWIND_KEY, enabled)
+}
+
+export function loadLogTickerExpanded(): boolean {
+  return readJson<unknown>(LOG_TICKER_EXPANDED_KEY) === true
+}
+
+export function saveLogTickerExpanded(expanded: boolean) {
+  writeJson(LOG_TICKER_EXPANDED_KEY, expanded)
+}
+
+export function loadTurnRecap(): boolean {
+  return readJson<unknown>(TURN_RECAP_KEY) === true
+}
+
+export function saveTurnRecap(enabled: boolean) {
+  writeJson(TURN_RECAP_KEY, enabled)
 }
 
 export function loadBrowserNotifications(): boolean {
@@ -744,6 +775,7 @@ export function saveMusicSettings(settings: MusicSettings) {
 }
 
 import { ZOOM_DEFAULT, normalizeZoom } from '../appearance/zoom'
+import { normalizeAppearanceChoice, type AppearanceChoice } from '../appearance/appearanceChoice'
 import { normalizeCardStyle, normalizeTapStyle, type CardStyle, type TapStyle } from '../board/compactCard'
 import { normalizeGameUi, DEFAULT_GAME_UI, type GameUi } from '../game/gameUi'
 import { CARD_PREVIEW_SCALE_DEFAULT, normalizeCardPreviewScale } from '../board/cardPreviewScale'
@@ -754,6 +786,7 @@ export type ZoomLevel = number
 
 export interface AppearanceSettings {
   sleeveId: string
+  appearance?: AppearanceChoice
   boardLayout: BoardLayoutPref
   uiScale: ZoomLevel
   cjkBoost: boolean
@@ -781,7 +814,7 @@ export interface AppearanceSettings {
 }
 
 export const APPEARANCE_KEY = 'mage-web-appearance'
-export const DEFAULT_APPEARANCE: AppearanceSettings = { sleeveId: 'classic', boardLayout: 'standard', uiScale: ZOOM_DEFAULT, cjkBoost: true, boardLayoutManual: false, transparentDialogs: false, showHandCost: true, showManaSource: false, ptBadgeMode: 'always', sicknessStyle: 'badge', keywordAura: 'subtle', cardRender: 'image', handRail: false, handRailWidth: 260, handRow: false, boardFill: true, boardSpotlight: false, boardSpotlightPanel: 22, stackCaption: true, gameUi: DEFAULT_GAME_UI, cardPreviewScale: CARD_PREVIEW_SCALE_DEFAULT }
+export const DEFAULT_APPEARANCE: AppearanceSettings = { sleeveId: 'classic', appearance: 'dark', boardLayout: 'standard', uiScale: ZOOM_DEFAULT, cjkBoost: true, boardLayoutManual: false, transparentDialogs: false, showHandCost: true, showManaSource: false, ptBadgeMode: 'always', sicknessStyle: 'badge', keywordAura: 'subtle', cardRender: 'image', handRail: false, handRailWidth: 260, handRow: false, boardFill: true, boardSpotlight: false, boardSpotlightPanel: 22, stackCaption: true, gameUi: DEFAULT_GAME_UI, cardPreviewScale: CARD_PREVIEW_SCALE_DEFAULT }
 
 const VALID_LAYOUTS: BoardLayoutPref[] = ['standard', 'pod', 'arena']
 
@@ -796,7 +829,7 @@ export function loadAppearanceSettings(): AppearanceSettings {
     const cjkBoost = typeof parsed.cjkBoost === 'boolean' ? parsed.cjkBoost : DEFAULT_APPEARANCE.cjkBoost
     const playmatId = typeof parsed.playmatId === 'string' ? parsed.playmatId : undefined
     const transparentDialogs = parsed.transparentDialogs === true
-    return { sleeveId: sid, boardLayout: layout, uiScale: scale, cjkBoost, boardLayoutManual: parsed.boardLayoutManual === true, cardStyle: normalizeCardStyle(parsed.cardStyle), tapStyle: normalizeTapStyle(parsed.tapStyle), transparentDialogs, showHandCost: normalizeShowHandCost(parsed.showHandCost), showManaSource: normalizeShowManaSource(parsed.showManaSource), ptBadgeMode: normalizePtBadgeMode(parsed.ptBadgeMode), sicknessStyle: normalizeSicknessStyle(parsed.sicknessStyle), keywordIcons: normalizeKeywordIconSet(parsed.keywordIcons), keywordAura: normalizeKeywordAuraMode(parsed.keywordAura), cardRender: normalizeCardRender(parsed.cardRender), handRail: normalizeHandRail(parsed.handRail), handRailWidth: normalizeHandRailWidth(parsed.handRailWidth), handRow: normalizeHandRow(parsed.handRow), boardFill: normalizeBoardFill(parsed.boardFill), boardSpotlight: normalizeBoardSpotlight(parsed.boardSpotlight), boardSpotlightPanel: normalizeBoardSpotlightPanel(parsed.boardSpotlightPanel), stackCaption: normalizeStackCaption(parsed.stackCaption), gameUi: normalizeGameUi(parsed.gameUi), cardPreviewScale: normalizeCardPreviewScale(parsed.cardPreviewScale), ...(playmatId ? { playmatId } : null) }
+    return { sleeveId: sid, appearance: normalizeAppearanceChoice(parsed.appearance), boardLayout: layout, uiScale: scale, cjkBoost, boardLayoutManual: parsed.boardLayoutManual === true, cardStyle: normalizeCardStyle(parsed.cardStyle), tapStyle: normalizeTapStyle(parsed.tapStyle), transparentDialogs, showHandCost: normalizeShowHandCost(parsed.showHandCost), showManaSource: normalizeShowManaSource(parsed.showManaSource), ptBadgeMode: normalizePtBadgeMode(parsed.ptBadgeMode), sicknessStyle: normalizeSicknessStyle(parsed.sicknessStyle), keywordIcons: normalizeKeywordIconSet(parsed.keywordIcons), keywordAura: normalizeKeywordAuraMode(parsed.keywordAura), cardRender: normalizeCardRender(parsed.cardRender), handRail: normalizeHandRail(parsed.handRail), handRailWidth: normalizeHandRailWidth(parsed.handRailWidth), handRow: normalizeHandRow(parsed.handRow), boardFill: normalizeBoardFill(parsed.boardFill), boardSpotlight: normalizeBoardSpotlight(parsed.boardSpotlight), boardSpotlightPanel: normalizeBoardSpotlightPanel(parsed.boardSpotlightPanel), stackCaption: normalizeStackCaption(parsed.stackCaption), gameUi: normalizeGameUi(parsed.gameUi), cardPreviewScale: normalizeCardPreviewScale(parsed.cardPreviewScale), ...(playmatId ? { playmatId } : null) }
   }
   return { ...DEFAULT_APPEARANCE }
 }

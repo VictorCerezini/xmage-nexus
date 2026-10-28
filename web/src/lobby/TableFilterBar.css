@@ -11,6 +11,13 @@
   box-shadow: 0 4px 20px var(--shade-1);
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  .table-filter-bar-container {
+    backdrop-filter: none;
+    background: rgb(var(--ink-2-rgb));
+  }
+}
+
 .tfb-row {
   display: flex;
   align-items: center;
@@ -81,12 +88,12 @@
   border-radius: var(--r-md);
   background: var(--brand);
   color: var(--fg-hi);
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
   font-weight: 800;
 }
 
 .tfb-arrow-icon {
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
   opacity: 0.7;
 }
 

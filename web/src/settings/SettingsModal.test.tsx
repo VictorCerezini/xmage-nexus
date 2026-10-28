@@ -2,7 +2,8 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import SettingsModal from './SettingsModal'
 import { getState, setSetting } from '../state/store'
-import { loadAppearanceSettings, loadGameplayPreset, loadPhaseStops, saveGameplayPreset } from '../state/persistence'
+import { loadAppearanceSettings, loadGameplayPreset, loadPhaseStops, loadTurnRecap, saveGameplayPreset } from '../state/persistence'
+import { t } from '../i18n'
 
 afterEach(() => cleanup())
 
@@ -91,6 +92,23 @@ describe('SettingsModal', () => {
     expect(loadPhaseStops().yourTurn.main1).toBe(true)
   })
 
+  it('SET-2: the gameplay section has a turn recap toggle, off by default, that saves its value', () => {
+    expect(getState().settings.turnRecap).toBe(false)
+    render(<SettingsModal onClose={() => {}} />)
+    fireEvent.click(screen.getByTestId('settings-nav-gameplay'))
+    const row = screen.getByText(t('game', 'recap_setting')).closest('label')!
+    const toggle = row.querySelector('[role="switch"]') as HTMLElement
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+
+    fireEvent.click(toggle)
+    expect(getState().settings.turnRecap).toBe(true)
+    expect(loadTurnRecap()).toBe(true)
+
+    fireEvent.click(toggle)
+    expect(getState().settings.turnRecap).toBe(false)
+    expect(loadTurnRecap()).toBe(false)
+  })
+
   it('calls onClose from the close button', () => {
     const onClose = vi.fn()
     render(<SettingsModal onClose={onClose} />)
@@ -112,5 +130,15 @@ describe('SettingsModal', () => {
     fireEvent.click(screen.getByTestId('settings-preset-balanced'))
     expect(loadGameplayPreset()).toBe('balanced')
     saveGameplayPreset(null)
+  })
+
+  it("SET-3: a setting's explanation is visible text under its label", () => {
+    render(<SettingsModal onClose={() => {}} />)
+    fireEvent.click(screen.getByTestId('settings-nav-gameplay'))
+    const hint = screen.getByText(t('game', 'smart_stops_hint'))
+    expect(hint.classList.contains('ui-toggle-hint')).toBe(true)
+    const field = hint.closest('.ui-toggle-field') as HTMLElement
+    expect(field.querySelector('.ui-toggle-label')?.textContent).toBe(t('game', 'smart_stops'))
+    expect(field.querySelector('[role="switch"]')?.getAttribute('aria-describedby')).toBe(hint.id)
   })
 })

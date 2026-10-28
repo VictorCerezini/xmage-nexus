@@ -212,3 +212,61 @@ fit is measured against the rendered text, not a fixed pixel budget, so a wider 
 - Why: a 112 px centre broke "Waiting for BlackMagic" into "BLACKMAGI / C", "Thinking" into
   "THINKIN / G" and clipped "07:13 left" at the edge (user report with screenshot, 2026-10-24).
 - Guard: `src/game/PhaseDial.test.tsx` · `e2e/game-ui-v2.spec.ts`
+
+### BRD-15 · The own command zone sits in the left column, above the last actions
+On the v2 board the own command zone (commander, companion, emblems) is not part of the
+creatures row: it docks in the bottom-left column, left-aligned with it and right above the
+highest overlay stacked there (the "Last actions" box, the combat ledger, or the portrait when
+both are hidden). Its position is measured from those overlays, so it moves up when the log grows
+and drops onto the portrait when the log collapses or closes. Its cards are as large as that space
+allows: they fill the room between the divider and that overlay, as wide as the column, and may
+be larger than the board's own cards. When not even a card of `min(board card, 56px)` fits there
+(a small window, or the log expanded, BRD-17), the zone falls back to the start of the creatures
+row, clear of the column.
+
+- Why: the column above the log was empty while the commander sat offset to the right of it,
+  taking room from the battlefield (user report with screenshot, 2026-10-24).
+- Guard: `e2e/game-ui-v2.spec.ts`
+
+### BRD-16 · The resting hand never covers the own battlefield
+On the arena board (the one v2 always uses) the fanned hand still floats over the bottom edge of
+the board, but the own zone reserves room for it: its bottom padding is the height the resting
+fan shows above the board edge (the visible part of each sunk card, plus its arc rise, the
+playable lift and the lift of its rotated top corner) plus a gap of 1.5% of the viewport height,
+between 6 and 16 px. The reserve is computed by `HandBar` from the card size it actually renders
+and follows it on every resize. The lands row sits above the reserve, and when the zone has no
+room left its cards shrink instead of sliding under the hand. Hovering a hand card lifts it with
+a transform only: it is drawn above the battlefield, and the battlefield does not move.
+
+- Why: the resting fan sat on top of the lands row, and a hovered card covered it even more
+  (user report with screenshot, 2026-10-24).
+- Guard: `src/board/handSizing.test.ts` · `e2e/game-ui-v2.spec.ts`
+
+### BRD-17 · The last actions box is one line until the player expands it
+On the v2 board the "Last actions" box shows only the newest action, on one line cut with an
+ellipsis, so the column above it is free for the command zone (BRD-15). A +/− button on the box
+expands it to the header and the last four actions, and back; the choice is remembered across
+games and reloads (`mage-web-log-ticker-expanded`), collapsed by default. A click anywhere else on
+the box still opens the log panel; the button does not.
+
+- Why: the four-line box took the room the commander needed; the user asked for one line that
+  the player can expand, with the freed space going to the commander (2026-10-24).
+- Guard: `src/game/LogTicker.test.tsx` · `e2e/game-ui-v2.spec.ts`
+
+### BRD-18 · A commander that changes object is one column, not two
+The commander damage matrix has one column per commander. A commander cast from the command zone
+(or converted) can change object id; the remembered entry with the same owner and name and another
+id is the same commander, so the roster drops it and keeps the live one with its damage.
+
+- Why: the seat showed the damage next to a stale 0 (`3/0`), because the roster kept the command-zone
+  entry for the whole game. A player has one copy of each commander, so an owner and a name identify it.
+- Guard: `src/board/commanders.test.ts` · `src/game/CommanderSeatMatrix.test.tsx`
+
+### BRD-19 · A life total stays inside its seat at phone width
+On a phone an opponent's seat (the v2 board, the default) is about 100 px wide, so its name takes the top row and the avatar sits
+under it beside the life total. No life total is cut off by its seat or the screen edge, and the stats row
+wraps inside the seat instead of losing its counts. From 601 px up the seat keeps the full-size life total.
+
+- Why: at 390 px the opponents' 20 life was drawn as a single "2" at the seat's edge, the rest of the number
+  cut off by the screen (review of 2026-10-26). The life total is the number a player needs at a glance.
+- Guard: `e2e/phone-fit.spec.ts`

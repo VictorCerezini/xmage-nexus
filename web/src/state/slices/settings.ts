@@ -1,4 +1,4 @@
-import { loadAutoAnswers, loadChoiceMemory, loadFxSettings, loadAudioSettings, loadMusicSettings, loadAppearanceSettings, loadManaPayment, loadHandRequestsAllowed, loadPhaseStops, loadGameLogAutoSave, loadBrowserNotifications, loadBoardRewind, loadSmartStops, loadGameplayPreset, loadDeckStacksScale } from '../persistence'
+import { loadAutoAnswers, loadChoiceMemory, loadFxSettings, loadAudioSettings, loadMusicSettings, loadAppearanceSettings, loadManaPayment, loadHandRequestsAllowed, loadPhaseStops, loadGameLogAutoSave, loadBrowserNotifications, loadBoardRewind, loadTurnRecap, loadSmartStops, loadGameplayPreset, loadDeckStacksScale } from '../persistence'
 import type { ZoomLevel, ManaPaymentStored } from '../persistence'
 import type { PhaseStops } from '../../net/commands'
 import type { PrioritySoundMode } from '../../audio/prioritySound'
@@ -8,11 +8,13 @@ import { normalizePlaymat, type PlaymatId } from '../../appearance/playmats'
 import { normalizeCardStyle, normalizeTapStyle, type CardStyle, type TapStyle } from '../../board/compactCard'
 import { normalizeBoardSpotlight, normalizeBoardSpotlightPanel, normalizeBoardFill, normalizeStackCaption, normalizeCardRender, normalizeHandRail, normalizeHandRailWidth, normalizeHandRow, normalizePtBadgeMode, normalizeShowHandCost, normalizeShowManaSource, normalizeSicknessStyle, normalizeKeywordIconSet, normalizeKeywordAuraMode, type CardRender, type KeywordIconSet, type KeywordAuraMode, type PtBadgeMode, type SicknessStyle } from '../../board/cardOverlays'
 import { normalizeGameUi, type GameUi } from '../../game/gameUi'
+import { normalizeAppearanceChoice, type AppearanceChoice } from '../../appearance/appearanceChoice'
 import { normalizeCardPreviewScale } from '../../board/cardPreviewScale'
 import { gameplayPreset, isGameplayPresetId, type GameplayPresetId } from '../../settings/gameplayPresets'
 
 export interface SettingsState {
   autoKeepMulligan: boolean
+  appearance: AppearanceChoice
   smartStops: boolean
   deckStacksScale: number
   gameplayPreset: GameplayPresetId | null
@@ -26,6 +28,7 @@ export interface SettingsState {
   gameLogAutoSave: boolean
   browserNotifications: boolean
   boardRewind: boolean
+  turnRecap: boolean
   boardLayout: 'standard' | 'pod' | 'arena'
   boardLayoutManual: boolean
   effects: boolean
@@ -70,6 +73,7 @@ export function loadAppearanceSlice() {
   const appearance = loadAppearanceSettings()
   return {
     ...appearance,
+    appearance: normalizeAppearanceChoice(appearance.appearance),
     boardLayoutManual: appearance.boardLayoutManual ?? false,
     transparentDialogs: appearance.transparentDialogs ?? false,
     playmatId: normalizePlaymat(appearance.playmatId),
@@ -112,6 +116,7 @@ export const initialSettings: SettingsSlice = {
     gameLogAutoSave: loadGameLogAutoSave(),
     browserNotifications: loadBrowserNotifications(),
     boardRewind: loadBoardRewind(),
+    turnRecap: loadTurnRecap(),
     ...loadFxSettings(),
     ...loadAudioSettings(),
     ...loadMusicSettings(),

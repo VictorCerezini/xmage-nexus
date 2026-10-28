@@ -31,6 +31,13 @@
   min-height: 44px;
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  .lobby-topstrip {
+    backdrop-filter: none;
+    background: rgb(var(--ink-2-rgb));
+  }
+}
+
 @media (max-width: 640px) {
   .lobby-topstrip {
     padding: var(--sp-1h) var(--sp-2h);
@@ -44,6 +51,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+  min-width: 0;
 }
 
 .lobby-brand-logo {
@@ -59,6 +67,8 @@
 .lobby-brand-titles {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .lobby-main-heading {
@@ -72,14 +82,24 @@
   background-clip: text;
   color: transparent;
   line-height: 1.1;
+  white-space: nowrap;
+  min-width: 1px;
 }
 
 .conn-info {
   display: flex;
   align-items: center;
   gap: var(--sp-1h);
+  min-width: 0;
   color: var(--fg-3);
   font-size: var(--fs-2xs);
+}
+
+.conn-info-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conn-status-dot {
@@ -104,6 +124,21 @@
   max-width: 100%;
   overflow-x: auto;
   padding: var(--sp-0h);
+}
+
+.lobby-top-center {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1h);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.lobby-create-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1h);
+  flex-shrink: 0;
 }
 
 .top-nav-btn {
@@ -274,18 +309,20 @@
   z-index: 4;
 }
 
-@media (max-width: 900px) {
-  .lobby-top-nav {
-    justify-content: flex-start;
+@media (max-width: 1279px) {
+  .lobby-top-center {
     order: 3;
     flex-basis: 100%;
   }
+  .lobby-top-nav {
+    justify-content: flex-start;
+  }
 }
 
-@media (min-width: 901px) {
+@media (min-width: 1280px) {
   .lobby-topstrip {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
   }
   .lobby-top-nav {
     flex: none;
@@ -343,6 +380,12 @@
   }
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  .lobby-aside-backdrop {
+    backdrop-filter: none;
+  }
+}
+
 @media (max-width: 600px) {
   .lobby-columns {
     grid-template-columns: 1fr;
@@ -351,6 +394,23 @@
   .lobby-sidebar { display: none; }
   .lobby-mobile-bottom-nav {
     display: flex !important;
+  }
+  .lobby-top-center {
+    order: 0;
+    flex-basis: auto;
+  }
+  .lobby-top-nav {
+    display: none;
+  }
+  .ui-menu-item.lobby-more-ranking {
+    display: flex;
+  }
+  .table-actions .ui-btn {
+    min-height: 44px;
+  }
+  .lobby-appearance-btn {
+    height: 44px;
+    min-width: 44px;
   }
 .lobby-aside,
 .lobby-aside-backdrop {
@@ -428,7 +488,7 @@ html:lang(zh) .hero-deck-label {
 }
 
 .sidebar-btn-label {
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.03em;
   line-height: 1;
@@ -544,7 +604,7 @@ html:lang(zh) .hero-deck-label {
   color: var(--fg-hi);
   border-radius: var(--r-md);
   padding: 1px var(--sp-1h);
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
   font-weight: 900;
   line-height: 1.4;
 }
@@ -603,7 +663,7 @@ html:lang(zh) .hero-deck-label {
 
 .aside-users-list .lobby-idle-badge {
   flex-shrink: 0;
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
 }
 
 /* Nav tabs (kept for backward compat, hidden in new layout) */
@@ -615,6 +675,12 @@ html:lang(zh) .hero-deck-label {
   gap: var(--sp-3);
   flex-wrap: wrap;
   min-width: 0;
+}
+
+@media (min-width: 901px) {
+  .lobby-user-actions {
+    flex-wrap: nowrap;
+  }
 }
 
 .lobby-mobile-bottom-nav {
@@ -631,6 +697,13 @@ html:lang(zh) .hero-deck-label {
   gap: var(--sp-0h);
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  .lobby-mobile-bottom-nav {
+    backdrop-filter: none;
+    background: rgb(var(--ink-rgb));
+  }
+}
+
 .lobby-mobile-bottom-nav .mobile-nav-btn {
   flex: 1;
   display: flex;
@@ -642,7 +715,7 @@ html:lang(zh) .hero-deck-label {
   background: transparent;
   border: 1px solid transparent;
   color: var(--fg-3);
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
   font-weight: 700;
   min-height: 48px;
   cursor: pointer;
@@ -666,6 +739,9 @@ html:lang(zh) .hero-deck-label {
   border: 1px solid var(--veil-3);
   transition: all 0.15s ease;
   cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
 }
 
 .lobby-user-badge:hover {
@@ -674,10 +750,26 @@ html:lang(zh) .hero-deck-label {
   transform: translateY(-1px);
 }
 
+.lobby-user-badge:focus-visible {
+  outline: 2px solid var(--gold-300);
+  outline-offset: 2px;
+}
+
+@media (min-width: 601px) {
+  .ui-menu-item.lobby-more-ranking {
+    display: none;
+  }
+}
+
+.lobby-user-actions {
+  min-width: 0;
+}
+
 .lobby-user-col {
   display: flex;
   align-items: center;
   gap: var(--sp-1h);
+  min-width: 0;
 }
 
 .view-leaderboard-btn {
@@ -698,6 +790,11 @@ html:lang(zh) .hero-deck-label {
 }
 
 .lobby-username {
+  min-width: 0;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--fg-1);
@@ -720,7 +817,7 @@ html:lang(zh) .hero-deck-label {
   position: absolute;
   top: 2px;
   right: 3px;
-  font-size: 8px;
+  font-size: var(--fs-2xs);
   color: var(--gold-300);
 }
 
@@ -784,6 +881,13 @@ html:lang(zh) .hero-deck-label {
   min-height: 0;
   overflow: hidden;
   min-width: 0;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .tables-panel {
+    backdrop-filter: none;
+    background: rgb(var(--ink-2-rgb));
+  }
 }
 
 .tables-panel-header {
@@ -855,7 +959,7 @@ html:lang(zh) .hero-deck-label {
   color: var(--ink-0);
   border-radius: var(--r-md);
   padding: 1px var(--sp-1h);
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
   font-weight: 900;
   line-height: 1.4;
 }
@@ -951,7 +1055,7 @@ html:lang(zh) .tables-list {
 
 @media (max-width: 780px) {
   .tables-list {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 }
 
@@ -1032,6 +1136,7 @@ html:lang(zh) .tables-list {
   justify-content: space-between;
   gap: var(--sp-2h);
   height: 100%;
+  min-width: 0;
   box-sizing: border-box;
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   box-shadow: var(--card-rail, inset 3px 0 0 transparent), var(--shadow-1), var(--sheen);
@@ -1418,6 +1523,13 @@ html.fx-off .table-card:hover::after {
   overflow: hidden;
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  .chat-panel {
+    backdrop-filter: none;
+    background: rgb(var(--ink-2-rgb));
+  }
+}
+
 .chat-panel h2 {
   margin: 0;
   font-size: var(--fs-md);
@@ -1508,7 +1620,7 @@ html.fx-off .table-card:hover::after {
 }
 
 .lobby-idle-badge {
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
   color: var(--fg-3);
   white-space: nowrap;
 }
@@ -1539,6 +1651,13 @@ html.fx-off .table-card:hover::after {
   cursor: pointer;
   transition: all 0.15s ease;
   box-shadow: 0 4px 14px var(--shade-1);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .debug-toggle-btn {
+    backdrop-filter: none;
+    background: rgb(var(--ink-2-rgb));
+  }
 }
 
 .debug-toggle-btn:hover {
@@ -1577,7 +1696,7 @@ html.fx-off .table-card:hover::after {
 }
 
 .debug-count {
-  font-size: var(--fs-3xs);
+  font-size: var(--fs-2xs);
   color: var(--fg-3);
 }
 

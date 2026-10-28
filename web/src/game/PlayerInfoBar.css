@@ -18,6 +18,13 @@
   flex-shrink: 0;
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  .player-info-bar {
+    backdrop-filter: none;
+    background: rgb(var(--ink-2-rgb));
+  }
+}
+
 .player-info-bar.has-priority {
   border-color: rgb(var(--ok-rgb) / 0.7);
   box-shadow: 0 0 20px rgb(var(--ok-rgb) / 0.35), 0 8px 24px var(--shade-3);
@@ -675,7 +682,7 @@ html.fx-off .player-info-bar.active-glow {
   gap: var(--sp-1);
   padding: 1px var(--sp-1h);
   border-radius: var(--r-xs);
-  font-size: var(--fs-4xs);
+  font-size: var(--fs-3xs);
   font-weight: 800;
   font-family: var(--font-display);
   text-transform: uppercase;
@@ -759,6 +766,37 @@ html.fx-off .player-info-bar.active-glow {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .player-info-bar.is-portrait.compact {
+    grid-template-areas:
+      'who who'
+      'av life'
+      'chips chips'
+      'pool pool';
+    grid-template-columns: auto minmax(0, 1fr);
+    justify-content: start;
+    column-gap: var(--sp-2);
+  }
+
+  .player-info-bar.is-portrait.compact .player-avatar,
+  .player-info-bar.is-portrait.compact .player-avatar .avatar-image {
+    width: 40px;
+    height: 40px;
+  }
+
+  .player-info-bar.is-portrait.compact .pp-life {
+    font-size: var(--fs-2xl);
+  }
+
+  .player-info-bar.is-portrait.compact .player-details {
+    overflow: visible;
+  }
+
+  .player-info-bar.is-portrait.compact .pp-stats {
+    flex-wrap: wrap;
+  }
 }
 
 .pp-hand-badge {

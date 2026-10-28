@@ -34,6 +34,8 @@ import {
   loadResumeToken,
   clearResumeToken,
   DEFAULT_AUDIO_SETTINGS,
+  loadTurnRecap,
+  saveTurnRecap,
   type ConnectionInfo,
   type FxSettings,
   type AudioSettings,
@@ -81,7 +83,35 @@ describe('persistence', () => {
         password: 'secret',
       }
       saveConn(conn)
-      expect(loadConn()).toEqual(conn)
+      expect(loadConn()).toEqual({ ...conn, password: '' })
+    })
+
+    it('LBY-17: a saved connection written with a password reads back with no password key', () => {
+      saveConn({
+        wsHost: '127.0.0.1',
+        proxyPort: 8787,
+        serverHost: 'localhost',
+        port: 17171,
+        username: 'alice',
+        password: 'secret',
+      })
+      expect(mockStorage['mage-web-conn']).not.toContain('secret')
+      expect(JSON.parse(mockStorage['mage-web-conn'])).not.toHaveProperty('password')
+      expect(loadConn()?.password).toBe('')
+    })
+
+    it('LBY-17: a legacy record that still holds a password is cleaned on load', () => {
+      mockStorage['mage-web-conn'] = JSON.stringify({
+        wsHost: 'localhost',
+        proxyPort: 8787,
+        serverHost: 'localhost',
+        port: 17171,
+        username: 'alice',
+        password: 'legacy-secret',
+      })
+      expect(loadConn()?.username).toBe('alice')
+      expect(mockStorage['mage-web-conn']).not.toContain('legacy-secret')
+      expect(JSON.parse(mockStorage['mage-web-conn'])).not.toHaveProperty('password')
     })
 
     it('removes connection info when saving null', () => {
@@ -475,7 +505,7 @@ describe('persistence', () => {
     it('normalizes a hand-edited or corrupt value instead of leaking it into the UI', () => {
       mockStorage['mage-web-appearance'] = JSON.stringify({
         sleeveId: 'classic', boardLayout: 'standard', uiScale: 1, cjkBoost: true,
-        showHandCost: 'false', ptBadgeMode: 'sometimes', sicknessStyle: 'hourglass', keywordIcons: 'emoji', keywordAura: 'loud',
+        showHandCost: 'false', ptBadgeMode: 'sometimes', sicknessStyle: 'hourglass', keywordIcons: 'sparkles', keywordAura: 'loud',
       })
       const loaded = loadAppearanceSettings()
       expect(loaded.showHandCost).toBe(true)
@@ -506,6 +536,27 @@ describe('persistence', () => {
     ])('SET-1: a stored cardPreviewScale of %j loads as %s', (stored, expected) => {
       mockStorage['mage-web-appearance'] = JSON.stringify({ sleeveId: 'classic', boardLayout: 'standard', uiScale: 1, cjkBoost: true, cardPreviewScale: stored })
       expect(loadAppearanceSettings().cardPreviewScale).toBe(expected)
+    })
+  })
+
+  describe('turn recap setting persistence', () => {
+    it('SET-2: the turn recap is off until saved on, and the saved value survives a reload', () => {
+      expect(loadTurnRecap()).toBe(false)
+      saveTurnRecap(true)
+      expect(mockStorage['mage-web-turn-recap']).toBe('true')
+      expect(loadTurnRecap()).toBe(true)
+      saveTurnRecap(false)
+      expect(loadTurnRecap()).toBe(false)
+      mockStorage['mage-web-turn-recap'] = 'garbage'
+      expect(loadTurnRecap()).toBe(false)
+    })
+
+    it('SET-2: a fresh settings slice starts with the turn recap off, and on once it was saved on', async () => {
+      vi.resetModules()
+      expect((await import('./slices/settings')).initialSettings.settings.turnRecap).toBe(false)
+      saveTurnRecap(true)
+      vi.resetModules()
+      expect((await import('./slices/settings')).initialSettings.settings.turnRecap).toBe(true)
     })
   })
 

@@ -103,10 +103,9 @@
   }
 }
 
-@media (max-width: 850px) {
+@media (max-width: 600px) {
   .deck-builder-body {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
+    padding-bottom: var(--chat-fab-clearance);
   }
 }
 
@@ -134,6 +133,13 @@
 
 .builder-left-tabs .ui-tab {
   flex: 1;
+  min-height: 28px;
+}
+
+@media (pointer: coarse) {
+  .builder-left-tabs .ui-tab {
+    min-height: 44px;
+  }
 }
 
 .builder-left-tabs + .arena-search-panel,
@@ -299,69 +305,6 @@
 
 /* MTG Arena Signature Big Done Button */
 
-/* Floating Card Preview on Hover */
-.arena-floating-preview {
-  position: fixed;
-  z-index: 1000;
-  pointer-events: none;
-  border-radius: var(--r-xl);
-  box-shadow: 0 24px 60px var(--shade-5), 0 0 32px rgb(var(--gold-rgb) / 0.5);
-  background: transparent;
-  display: flex;
-  gap: var(--sp-4);
-  transition: opacity 100ms ease;
-  transform-origin: center center;
-  animation: arena-preview-pop 120ms cubic-bezier(0.1, 0.9, 0.2, 1);
-}
-
-.preview-face-card {
-  position: relative;
-  width: 420px;
-  max-width: calc(48vw - 24px);
-  max-height: calc(100vh - 40px);
-  aspect-ratio: 2.5 / 3.5;
-  border-radius: var(--r-xl);
-  overflow: hidden;
-  border: 2.5px solid rgb(var(--gold-rgb) / 0.85);
-  background: var(--ink-2);
-  box-shadow: 0 16px 40px var(--shade-5);
-}
-
-.preview-face-card img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.preview-face-label {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 2;
-  background: var(--shade-4);
-  border: 1px solid var(--gold-500);
-  color: var(--gold-300);
-  font-size: var(--fs-xs);
-  font-weight: 800;
-  padding: var(--sp-1) var(--sp-2h);
-  border-radius: var(--r-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  backdrop-filter: blur(4px);
-}
-
-@keyframes arena-preview-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.92);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
 .builder-server-issues {
   position: relative;
   margin: var(--sp-1h) var(--sp-3) 0;
@@ -399,3 +342,31 @@
 }
 .builder-server-issues .bsi-repair-btn { margin-left: var(--sp-1h); }
 
+@media (max-width: 850px) {
+  .deck-builder-body {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .builder-left,
+  .builder-right {
+    flex: none;
+    height: auto;
+    overflow: visible;
+  }
+  .builder-left .arena-search-panel,
+  .builder-left .sg-panel {
+    flex: none;
+    height: auto;
+  }
+  .builder-left .arena-card-grid-container,
+  .builder-left .sg-scroll {
+    flex: none;
+    height: 60dvh;
+  }
+  .builder-right .builder-deck-footer {
+    position: sticky;
+    bottom: env(safe-area-inset-bottom);
+    z-index: 5;
+  }
+}

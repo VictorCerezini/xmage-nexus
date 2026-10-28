@@ -44,7 +44,8 @@ describe('friends page', () => {
   it('a saved connection keeps the player but joins the host', () => {
     saveConn({ wsHost: 'localhost', proxyPort: 8787, serverHost: 'beta.xmage.today', port: 17171, username: 'ann', password: 'pw' })
     setFriendsJoin({ wsHost: '26.10.20.30', wsPort: 8777 })
-    expect(loadConn()).toMatchObject({ ...friendsConnection({ wsHost: '26.10.20.30', wsPort: 8777 }), username: 'ann', password: 'pw' })
+    // the account password is never stored (LBY-17), on a friend's page too
+    expect(loadConn()).toMatchObject({ ...friendsConnection({ wsHost: '26.10.20.30', wsPort: 8777 }), username: 'ann', password: '' })
     setFriendsJoin(null)
     expect(loadConn()?.wsHost).toBe('localhost')
   })
