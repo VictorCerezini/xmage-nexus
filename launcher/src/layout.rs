@@ -160,6 +160,42 @@ pub fn set_server_port(config_xml: &Path, port: u16) -> Result<bool, LayoutError
     Ok(true)
 }
 
+const IDLE_ATTRIBUTE: &str = "maxSecondsIdle=\"";
+
+/// How long the server lets a player with a pending decision do nothing before it concedes the
+/// game for them (`maxSecondsIdle`); None without a config or the attribute.
+pub fn server_idle_seconds(config_xml: &Path) -> Option<u32> {
+    let text = std::fs::read_to_string(config_xml).ok()?;
+    let digits = text.find(IDLE_ATTRIBUTE)? + IDLE_ATTRIBUTE.len();
+    let end = text[digits..].find('"')? + digits;
+    text[digits..end].trim().parse().ok()
+}
+
+/// Sets [`server_idle_seconds`]; the server reads it when it starts. Like [`set_server_port`] it
+/// replaces the file whole and only when the value changes. Returns whether the file changed.
+pub fn set_server_idle_seconds(config_xml: &Path, seconds: u32) -> Result<bool, LayoutError> {
+    if !config_xml.is_file() {
+        return Ok(false);
+    }
+    let text = std::fs::read_to_string(config_xml)?;
+    let Some(start) = text.find(IDLE_ATTRIBUTE) else {
+        return Ok(false);
+    };
+    let digits = start + IDLE_ATTRIBUTE.len();
+    let end = text[digits..]
+        .find('"')
+        .map(|i| digits + i)
+        .unwrap_or(text.len());
+    let wanted = seconds.to_string();
+    if text[digits..end] == wanted {
+        return Ok(false);
+    }
+    let mut patched = text;
+    patched.replace_range(digits..end, &wanted);
+    replace_file(config_xml, patched.as_bytes())?;
+    Ok(true)
+}
+
 /// The server's log settings (reload4j). Its built-in ones append to one `mageserver.log` forever
 /// and echo every line to the console: AI simulation errors in Commander games grew that file to
 /// 2 GB in ten days. These roll the file over at 10 MB, keep five old ones and log to it only, so
@@ -451,6 +487,27 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(names, vec!["config.xml"], "no temporary file left behind");
+    }
+
+    #[test]
+    fn the_idle_limit_is_read_and_written_without_touching_the_rest_of_the_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.xml");
+        assert_eq!(server_idle_seconds(&config), None);
+        assert!(!set_server_idle_seconds(&config, 1800).unwrap(), "no config yet");
+
+        // The header comment names the attribute too; only the server element's value changes.
+        let text = "<config>\r\n  <!-- maxSecondsIdle      - Number of seconds -->\r\n  <server port=\"17171\"\r\n            maxSecondsIdle=\"600\"\r\n            maxAiOpponents=\"15\"/>\r\n</config>";
+        std::fs::write(&config, text).unwrap();
+        assert_eq!(server_idle_seconds(&config), Some(600));
+        assert!(!set_server_idle_seconds(&config, 600).unwrap());
+        assert!(set_server_idle_seconds(&config, 3600).unwrap());
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), text.replace("\"600\"", "\"3600\""));
+        assert_eq!(server_idle_seconds(&config), Some(3600));
+
+        std::fs::write(&config, "<config/>").unwrap();
+        assert_eq!(server_idle_seconds(&config), None);
+        assert!(!set_server_idle_seconds(&config, 600).unwrap());
     }
 
     #[test]

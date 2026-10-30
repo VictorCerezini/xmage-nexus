@@ -789,8 +789,24 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+/// The idle time limits the tray offers, in seconds: how long a player with a pending decision
+/// may do nothing before the server concedes the game for them. The server's own default is 600.
+const IDLE_LIMITS: [(u32, &str); 5] = [
+    (600, "10 minutes"),
+    (1200, "20 minutes"),
+    (1800, "30 minutes"),
+    (3600, "1 hour"),
+    (7200, "2 hours"),
+];
+
+fn server_config(app: &AppHandle) -> PathBuf {
+    layout::server_data_dir(&layout::resolve(&data_root(app)))
+        .join("config")
+        .join("config.xml")
+}
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};
+    use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
     use tauri::tray::TrayIconBuilder;
     use tauri_plugin_autostart::ManagerExt;
 
@@ -798,8 +814,29 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .id("autostart")
         .checked(app.autolaunch().is_enabled().unwrap_or(false))
         .build(app)?;
+    // Hosting's tables use this machine's server, so the limit applies to everyone at them.
+    let idle_now = layout::server_idle_seconds(&server_config(app));
+    let mut idle_items = Vec::new();
+    let mut idle_menu = SubmenuBuilder::new(app, "Idle time limit");
+    for (seconds, label) in IDLE_LIMITS {
+        let item = CheckMenuItemBuilder::new(label)
+            .id(format!("idle-{seconds}"))
+            .checked(idle_now == Some(seconds))
+            .build(app)?;
+        idle_menu = idle_menu.item(&item);
+        idle_items.push((seconds, item));
+    }
+    let idle_menu = idle_menu
+        .separator()
+        .item(
+            &MenuItemBuilder::new("Takes effect after Restart")
+                .enabled(false)
+                .build(app)?,
+        )
+        .build()?;
     let menu = MenuBuilder::new(app)
         .item(&autostart)
+        .item(&idle_menu)
         .item(&MenuItemBuilder::new("Open data folder").id("data").build(app)?)
         .item(&MenuItemBuilder::new("Restart").id("restart").build(app)?)
         .separator()
@@ -809,7 +846,20 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
+        .on_menu_event(move |app, event| match event.id.as_ref() {
+            id if id.starts_with("idle-") => {
+                let wanted = id["idle-".len()..].parse::<u32>().ok();
+                if let Some(seconds) = wanted {
+                    if let Err(e) = layout::set_server_idle_seconds(&server_config(app), seconds) {
+                        eprintln!("[tray] idle time limit not saved: {e}");
+                    }
+                }
+                // A check item toggles itself when clicked; show what the config holds now.
+                let saved = layout::server_idle_seconds(&server_config(app));
+                for (seconds, item) in &idle_items {
+                    let _ = item.set_checked(saved == Some(*seconds));
+                }
+            }
             "quit" => {
                 kill_all(&app.state::<Processes>());
                 app.exit(0);
