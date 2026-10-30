@@ -78,6 +78,11 @@ class PlayerView:
     def invalidate_action(self):
         self.last_action = None
 
+    def new_player(self):
+        """A replacement model saw none of this game: its next board is full, with every card's rules."""
+        self.last_action = None
+        self.full_board_required = True
+
     def prepare_request(self, request):
         effective = copy.deepcopy(request)
         params = effective["params"]

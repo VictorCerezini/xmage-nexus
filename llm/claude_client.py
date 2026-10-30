@@ -146,6 +146,14 @@ def usage(events):
     ]
 
 
+def failure_reason(events):
+    """The text of a result that ended in error, such as a reached session limit."""
+    for event in reversed(events):
+        if event.get("type") == "result" and event.get("is_error"):
+            return event.get("result") or event.get("api_error") or None
+    return None
+
+
 def read_auth_status():
     result = subprocess.run(
         [executable(), "auth", "status", "--json"],

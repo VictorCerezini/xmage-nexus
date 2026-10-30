@@ -452,3 +452,12 @@ def test_finished_game_answers_game_over_without_reaching_the_next_game(serve):
         records = [json.loads(line) for line in trace.read_text().splitlines()]
         assert [record["outcome"] for record in records] == ["ok", "game_finished", "game_finished", "game_finished"]
         assert gateway.optimization_stats()["auto_passes"] == 0
+
+
+def test_a_replacement_player_gets_the_full_board_with_every_rule_again():
+    view = PlayerView()
+    view.model_response("get_action_choices", {"result": envelope(select(rules_board(), "T3 Combat"))})
+    view.new_player()
+    renewed = value(view.model_response("pass_priority", {"result": envelope(select(rules_board(), "T3 Combat"))}))
+    assert ruled(renewed["board"]) == [("p1", True), ("p2", False), ("p3", True), ("p4", True)]
+    assert "board_unchanged" not in renewed

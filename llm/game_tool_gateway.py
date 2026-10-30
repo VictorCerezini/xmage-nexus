@@ -255,6 +255,11 @@ class GameToolGateway:
             "model_response_bytes": self.model_response_bytes,
         }
 
+    def new_player(self):
+        """Another model process takes over this game (the previous one stopped mid-game)."""
+        if self.view:
+            self.view.new_player()
+
     def finish_game(self):
         """Answer every later game call with game_over, so this player never acts in the match's next game."""
         self.game_finished = True

@@ -26,6 +26,9 @@ MAX_SECONDS = 7200
 MAX_WINS = 10
 NEXT_GAME_SECONDS = 600
 REPORT_GRACE_SECONDS = 120
+# Waits before another player process takes over a game whose player stopped mid-game (a busy model, a
+# dropped connection); a reached plan limit is not retried.
+RETRY_DELAYS = (15, 30, 60, 120, 120)
 TABLE_PASSWORD_ENV = "XMAGE_BRIDGE_TABLE_PASSWORD"  # noqa: S105 - an environment variable name, not a password
 PROMPT = (
     "You are {username}, playing a live Magic: The Gathering game with a human and possibly other players in XMage. "
@@ -56,6 +59,13 @@ PROMPT = (
 MATCH_PROMPT = (
     "\n\nThis game is part of a match won by the first player to win {wins_needed} games. This is game {game}. "
     "{status}A separate session plays each game of the match with the same, unchanged deck."
+)
+
+
+RESUME_PROMPT = (
+    "\n\nThe previous session playing this game for you stopped before the game ended. The game is still "
+    "running and you are still in it. Start by looking at the current game state and your pending decision, "
+    "then keep playing until the game ends."
 )
 
 
@@ -108,6 +118,14 @@ def game_file(name, game):
         return name
     path = Path(name)
     return f"{path.stem}-game{game}{path.suffix}"
+
+
+def retry_file(name, attempt):
+    """A player that takes over a stopped game writes its own files next to the first one's."""
+    if attempt == 0:
+        return name
+    path = Path(name)
+    return f"{path.stem}-retry{attempt}{path.suffix}"
 
 
 def tool_payload(response):
@@ -250,34 +268,21 @@ def run_player(request, *, start_player=None, runtime=None):
         game_text = game_log(bridge_text(), request["username"], number)
         return mcp_engine.winner(match_line(game_text, request["username"], "Game over"))
 
-    def play_game(number):
-        events = run / game_file(provider.events_file, number)
-        gateway = GameToolGateway(
-            server or url,
-            mcp_engine.TOOLS if server else subscription_client.TOOLS,
-            run / game_file("player-tools.jsonl", number),
-            max_calls=MAX_CALLS,
-            optimize_play=server is None,
-            upstream_timeout=MAX_SECONDS + 30,
-            describe=mcp_engine.describe_tool if server else None,
-        )
-        gateways.append(gateway)
-        prompt = (mcp_engine.PROMPT if server else PROMPT).format(
-            username=request["username"],
-            game_type=request["game_type"],
-            deck_type=request["deck_type"],
-            player_count=request["player_count"],
-        )
-        if wins > 1:
-            status = match_line(bridge_text(), request["username"], "Match continues")
-            prompt += MATCH_PROMPT.format(
-                wins_needed=wins, game=number, status=f"Match status: {status} " if status else ""
-            )
-        (run / game_file("player-prompt.txt", number)).write_text(prompt, encoding="utf-8")
+    def play_attempt(number, attempt, prompt, gateway, game_started, usage):
+        """Run one player process on this game: (terminal_reason, None) once the game is decided for this
+        player, or (None, why it stopped) when it stopped first."""
+
+        def name(base):
+            return retry_file(game_file(base, number), attempt)
+
+        events = run / name(provider.events_file)
+        if attempt:
+            prompt += RESUME_PROMPT
+        (run / name("player-prompt.txt")).write_text(prompt, encoding="utf-8")
         agent = start_player(
             prompt,
-            log(game_file(provider.events_file, number)),
-            log(game_file(provider.stderr_file, number)),
+            log(name(provider.events_file)),
+            log(name(provider.stderr_file)),
             gateway.url,
             model=request["model"],
             reasoning=request["reasoning"],
@@ -287,7 +292,6 @@ def run_player(request, *, start_player=None, runtime=None):
         processes.append(agent)
         event_paths.append(events)
         save_status("playing")
-        game_started = time.monotonic()
         ended_at = None
         stopped_after_report = False
         while agent.poll() is None:
@@ -316,10 +320,70 @@ def run_player(request, *, start_player=None, runtime=None):
             time.sleep(0.5)
         trace = read_complete_events(events)
         provider.require_game_only_events(trace)
+        usage.extend(provider.usage(trace))
         terminal_reason = decided(number)
-        if terminal_reason is None or (not stopped_after_report and agent.returncode != 0):
-            reason = provider.failure_reason(trace) or f"see {events.name}"
+        if terminal_reason is not None and (stopped_after_report or agent.returncode == 0):
+            return terminal_reason, None
+        reason = provider.failure_reason(trace) or f"see {events.name}"
+        if terminal_reason is not None:
+            # The game is over, so another player would have nothing left to play.
             raise RuntimeError(f"{provider.label} stopped before a confirmed game result: {reason}")
+        return None, reason
+
+    def wait_to_retry(number, seconds):
+        """Wait before the next player takes over; the game's result if it ended meanwhile."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            check_session(owner, created, run)
+            if engine_process().poll() is not None:
+                raise RuntimeError(f"The {provider.label} {engine_label} stopped during play")
+            if server:
+                poll_mcp_game()
+            terminal_reason = decided(number)
+            if terminal_reason is not None:
+                return terminal_reason
+            time.sleep(0.5)
+        return None
+
+    def play_game(number):
+        gateway = GameToolGateway(
+            server or url,
+            mcp_engine.TOOLS if server else subscription_client.TOOLS,
+            run / game_file("player-tools.jsonl", number),
+            max_calls=MAX_CALLS,
+            optimize_play=server is None,
+            upstream_timeout=MAX_SECONDS + 30,
+            describe=mcp_engine.describe_tool if server else None,
+        )
+        gateways.append(gateway)
+        prompt = (mcp_engine.PROMPT if server else PROMPT).format(
+            username=request["username"],
+            game_type=request["game_type"],
+            deck_type=request["deck_type"],
+            player_count=request["player_count"],
+        )
+        if wins > 1:
+            status = match_line(bridge_text(), request["username"], "Match continues")
+            prompt += MATCH_PROMPT.format(
+                wins_needed=wins, game=number, status=f"Match status: {status} " if status else ""
+            )
+        game_started = time.monotonic()
+        usage = []
+        attempt = 0
+        while True:
+            terminal_reason, reason = play_attempt(number, attempt, prompt, gateway, game_started, usage)
+            if reason is None:
+                break
+            if attempt == len(RETRY_DELAYS) or providers.lasting_limit(reason):
+                raise RuntimeError(f"{provider.label} stopped before a confirmed game result: {reason}")
+            manifest.setdefault("recoveries", []).append({"game": number, "attempt": attempt + 1, "reason": reason})
+            attempt += 1
+            terminal_reason = wait_to_retry(number, RETRY_DELAYS[attempt - 1])
+            if terminal_reason is not None:
+                # The game ended while no player was connected (the others won, or the table ended it).
+                gateway.finish_game()
+                break
+            gateway.new_player()
         manifest["games"].append(
             {
                 "game": number,
@@ -328,7 +392,8 @@ def run_player(request, *, start_player=None, runtime=None):
                 **({"turns": mcp_game.get("turn")} if server else {}),
                 "game_wall_seconds": round(time.monotonic() - game_started, 3),
                 "tool_calls": gateway.call_count,
-                "usage": provider.usage(trace),
+                **({"player_restarts": attempt} if attempt else {}),
+                "usage": usage,
             }
         )
         manifest["game_wall_seconds"] = round(sum(entry["game_wall_seconds"] for entry in manifest["games"]), 3)

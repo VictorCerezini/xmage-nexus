@@ -26,6 +26,26 @@ def codex_usage(events):
     return [event["usage"] for event in events if event.get("type") == "turn.completed"]
 
 
+def codex_failure_reason(events):
+    """Codex's message for a failed turn, such as an overloaded model or a reached usage limit."""
+    for event in reversed(events):
+        if event.get("type") == "turn.failed":
+            message = (event.get("error") or {}).get("message")
+            if message:
+                return message
+        if event.get("type") == "error" and event.get("message"):
+            return event["message"]
+    return None
+
+
+# A plan's allowance does not come back within a game; a busy model or a dropped connection does.
+LASTING_LIMITS = ("usage limit", "session limit", "weekly limit", "per-day", "quota", "insufficient", "allowance")
+
+
+def lasting_limit(reason):
+    return reason is not None and any(words in reason.lower() for words in LASTING_LIMITS)
+
+
 def codex_game_only_events(events):
     for event in events:
         if event.get("type") == "item.completed" and event["item"].get("type") in {
@@ -50,6 +70,7 @@ PROVIDERS = {
             start=subscription_client.start,
             require_game_only_events=codex_game_only_events,
             usage=codex_usage,
+            failure_reason=codex_failure_reason,
         ),
         Provider(
             id=claude_client.PROVIDER,
@@ -62,6 +83,7 @@ PROVIDERS = {
             start=claude_client.start,
             require_game_only_events=claude_client.require_game_only_events,
             usage=claude_client.usage,
+            failure_reason=claude_client.failure_reason,
         ),
         Provider(
             id=openrouter_client.PROVIDER,

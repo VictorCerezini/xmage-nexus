@@ -93,6 +93,7 @@ def harness(tmp_path, monkeypatch):
         fatal_error=None,
         close=lambda: None,
         finish_game=lambda: None,
+        new_player=lambda: None,
         optimization_stats=lambda: {"policy": "gui-efficient-v2"},
     )
     monkeypatch.setattr(seat.socket, "socket", FakeSocket)
@@ -209,6 +210,140 @@ def test_early_player_exit_is_failure_and_cleans_processes(harness, monkeypatch)
     assert manifest["status"] == "failed"
     assert manifest["cleanup_complete"] is True
     assert len(stopped) == 2
+
+
+CAPACITY = "Selected model is at capacity. Please try a different model."
+
+
+def codex_failure(out, message):
+    out.write(json.dumps({"type": "error", "message": message}) + "\n")
+    out.write(json.dumps({"type": "turn.failed", "error": {"message": message}}) + "\n")
+    out.flush()
+    return SimpleNamespace(poll=lambda: 1, returncode=1)
+
+
+@pytest.fixture
+def undecided(harness, monkeypatch):
+    """A game the bridge has not logged an end for; game_over() logs it."""
+    request, runtime, stopped, gateway = harness
+    bridge_log = []
+
+    def launch_bridge(_arguments, _env, log, _workdir):
+        bridge_log.append(log)
+        return SimpleNamespace(poll=lambda: None)
+
+    def game_over():
+        bridge_log[0].write(f"[{request['username']}] Game over: fake test result\n")
+        bridge_log[0].flush()
+
+    runtime.launch_bridge = launch_bridge
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+    monkeypatch.setattr(seat, "RETRY_DELAYS", (0,) * len(seat.RETRY_DELAYS))
+    return request, runtime, stopped, gateway, game_over
+
+
+def test_a_player_stopped_by_a_busy_model_is_replaced_and_finishes_the_game(undecided):
+    request, runtime, _stopped, gateway, game_over = undecided
+    prompts, new_players = [], []
+    gateway.new_player = lambda: new_players.append(True)
+
+    def start(prompt, out, *_args, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return codex_failure(out, CAPACITY)
+        game_over()
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    run = Path(request["run"])
+    manifest = json.loads((run / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["recoveries"] == [{"game": 1, "attempt": 1, "reason": CAPACITY}]
+    assert manifest["games"][0]["player_restarts"] == 1
+    assert new_players == [True]
+    assert seat.RESUME_PROMPT not in prompts[0]
+    assert prompts[1].endswith(seat.RESUME_PROMPT)
+    assert (run / "codex-events-retry1.jsonl").exists()
+    assert (run / "player-prompt-retry1.txt").read_text(encoding="utf-8") == prompts[1]
+
+
+def test_a_reached_usage_limit_is_not_retried(undecided):
+    request, runtime, _stopped, _gateway, _game_over = undecided
+    starts = []
+
+    def start(_prompt, out, *_args, **_kwargs):
+        starts.append(True)
+        return codex_failure(out, "You've hit your usage limit. Try again at 6:00 PM.")
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert "usage limit" in manifest["error"]
+    assert "recoveries" not in manifest
+    assert len(starts) == 1
+
+
+def test_a_player_that_keeps_stopping_gives_up_after_the_last_retry(undecided):
+    request, runtime, _stopped, _gateway, _game_over = undecided
+    starts = []
+
+    def start(_prompt, out, *_args, **_kwargs):
+        starts.append(True)
+        return codex_failure(out, CAPACITY)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert len(starts) == len(seat.RETRY_DELAYS) + 1
+    assert len(manifest["recoveries"]) == len(seat.RETRY_DELAYS)
+    assert "at capacity" in manifest["error"]
+
+
+def test_a_game_that_ends_while_waiting_to_retry_is_not_replayed(undecided, monkeypatch):
+    request, runtime, _stopped, gateway, game_over = undecided
+    monkeypatch.setattr(seat, "RETRY_DELAYS", (60,) * len(seat.RETRY_DELAYS))
+    starts, finished = [], []
+    gateway.finish_game = lambda: finished.append(True)
+    # The others finish the game while no player is connected for this seat.
+    monkeypatch.setattr(seat.time, "sleep", lambda _: starts and not finished and game_over())
+
+    def start(_prompt, out, *_args, **_kwargs):
+        starts.append(True)
+        return codex_failure(out, CAPACITY)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["games"][0]["terminal_reason"] == "game_over"
+    assert len(manifest["recoveries"]) == 1
+    assert len(starts) == 1
+    assert finished == [True]
+
+
+def test_a_game_decided_before_the_player_stopped_is_not_replayed(undecided):
+    request, runtime, _stopped, _gateway, game_over = undecided
+    starts = []
+
+    def start(_prompt, out, *_args, **_kwargs):
+        starts.append(True)
+        game_over()  # The game is decided, but this player crashed before reporting it.
+        return codex_failure(out, CAPACITY)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert "at capacity" in manifest["error"]
+    assert "recoveries" not in manifest
+    assert len(starts) == 1
+
+
+def test_provider_failure_reasons_name_the_cause():
+    assert providers.codex_failure_reason([{"type": "turn.failed", "error": {"message": CAPACITY}}]) == CAPACITY
+    assert providers.codex_failure_reason([{"type": "item.completed"}]) is None
+    limit = {"type": "result", "is_error": True, "result": "You've hit your session limit"}
+    assert claude_client.failure_reason([limit]) == "You've hit your session limit"
+    assert claude_client.failure_reason([{"type": "result", "is_error": False, "result": "done"}]) is None
+    assert providers.lasting_limit("You've hit your session limit")
+    assert not providers.lasting_limit(CAPACITY)
+    assert not providers.lasting_limit(None)
 
 
 @pytest.mark.parametrize("kind", ["command_execution", "file_change", "web_search"])
