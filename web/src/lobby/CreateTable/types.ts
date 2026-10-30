@@ -148,6 +148,7 @@ export interface CreateTableForm {
   llmChoices: Record<number, LlmSeatChoice>
   setLlmModel: (idx: number, modelId: string) => void
   setLlmEffort: (idx: number, effort: string) => void
-  setLlmBackup: (idx: number, modelId: string) => void
+  /** `value` is `llmBackupValue(provider, model)`, or '' for no backup. */
+  setLlmBackup: (idx: number, value: string) => void
   refreshLlmCatalog: () => Promise<void>
 }

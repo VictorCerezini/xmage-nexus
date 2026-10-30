@@ -393,7 +393,7 @@ export const zhs: TranslationSchema = {
     create_seat_llm_effort: '推理',
     create_seat_llm_backup: '备用模型',
     create_seat_llm_backup_none: '无',
-    create_seat_llm_backup_hint: '仅当上方模型在约 6 分钟的重试后仍满载时才接替。',
+    create_seat_llm_backup_hint: '当上方模型达到使用上限，或在约 6 分钟的重试后仍然失败时接替。',
     create_seat_llm_hint: '使用本机的登录：{auth}。前面的座位坐满后才会加入。',
     create_seat_llm_free_left: '今日剩余免费请求 {remaining} / {limit}',
     create_llm_catalog_failed: '模型座位不可用：{error}',

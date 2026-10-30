@@ -393,7 +393,7 @@ export const ru: TranslationSchema = {
     create_seat_llm_effort: 'Рассуждение',
     create_seat_llm_backup: 'Запасная модель',
     create_seat_llm_backup_none: 'Нет',
-    create_seat_llm_backup_hint: 'Подключается, только если модель выше всё ещё перегружена после примерно 6 минут повторных попыток.',
+    create_seat_llm_backup_hint: 'Подключается, если модель выше достигла лимита использования или всё ещё не работает после примерно 6 минут повторных попыток.',
     create_seat_llm_hint: 'Использует вход этого компьютера: {auth}. Садится, когда заняты места перед ним.',
     create_seat_llm_free_left: 'Сегодня осталось {remaining} из {limit} бесплатных запросов',
     create_llm_catalog_failed: 'Места для моделей недоступны: {error}',

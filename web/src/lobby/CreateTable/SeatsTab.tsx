@@ -314,6 +314,7 @@ function SeatEditor({ form, idx, seatNumber, findSeatDeck }: { form: CreateTable
             <LlmSeatFields
               idx={idx}
               provider={llmProvider}
+              providers={form.llmProviders}
               choice={llm}
               onModel={(m) => form.setLlmModel(idx, m)}
               onEffort={(e) => form.setLlmEffort(idx, e)}

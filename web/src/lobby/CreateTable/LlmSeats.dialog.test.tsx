@@ -35,6 +35,12 @@ const catalog: LlmCatalog = {
       { id: 'gpt-a', name: 'GPT A', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium', isDefault: false },
       { id: 'gpt-b', name: 'GPT B', efforts: ['low', 'xhigh'], defaultEffort: 'low', isDefault: true },
     ],
+  }, {
+    id: 'openrouter_free',
+    playerType: 'OpenRouter free',
+    playerName: 'OpenRouter',
+    auth: 'OpenRouter key',
+    models: [{ id: 'alpha', name: 'Alpha', efforts: ['default'], defaultEffort: 'default', isDefault: true }],
   }],
   unavailable: [{ id: 'claude_subscription', reason: 'not signed in' }],
 }
@@ -95,9 +101,10 @@ describe('model seats in the create table dialog', () => {
     expect(screen.getByTestId('seat-node-1').textContent).toContain('ChatGPT · GPT A')
     const backup = screen.getByTestId('seat-llm-backup-0') as HTMLSelectElement
     expect(backup.value).toBe('')
-    expect([...backup.options].map((o) => o.value)).toEqual(['', 'gpt-b'])
-    fireEvent.change(backup, { target: { value: 'gpt-b' } })
-    expect((screen.getByTestId('seat-llm-backup-0') as HTMLSelectElement).value).toBe('gpt-b')
+    expect([...backup.options].map((o) => o.value)).toEqual(['', 'chatgpt_subscription|gpt-b', 'openrouter_free|alpha'])
+    expect([...backup.querySelectorAll('optgroup')].map((g) => g.label)).toEqual(['ChatGPT', 'OpenRouter'])
+    fireEvent.change(backup, { target: { value: 'openrouter_free|alpha' } })
+    expect((screen.getByTestId('seat-llm-backup-0') as HTMLSelectElement).value).toBe('openrouter_free|alpha')
 
     for (let i = 0; i < 3 && !document.querySelector('.create-review'); i++) {
       const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
@@ -115,8 +122,9 @@ describe('model seats in the create table dialog', () => {
         provider: 'chatgpt_subscription',
         model: 'gpt-a',
         effort: 'high',
-        backupModel: 'gpt-b',
-        backupEffort: 'low',
+        backupProvider: 'openrouter_free',
+        backupModel: 'alpha',
+        backupEffort: 'default',
         deck: expect.objectContaining({ cards: expect.any(Array) }),
       },
     ])

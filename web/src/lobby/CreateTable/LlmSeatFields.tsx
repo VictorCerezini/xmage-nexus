@@ -2,11 +2,13 @@ import { useTranslation } from '../../i18n'
 import Field from '../../ui/Field'
 import Icon from '../../ui/Icon'
 import type { LlmProvider } from '../../net/types'
-import type { LlmSeatChoice } from './llmSeats'
+import { llmBackupValue, type LlmSeatChoice } from './llmSeats'
 
-export default function LlmSeatFields({ idx, provider, choice, onModel, onEffort, onBackup }: {
+export default function LlmSeatFields({ idx, provider, providers, choice, onModel, onEffort, onBackup }: {
   idx: number
   provider: LlmProvider
+  /** Every signed-in provider: any of their models may back this seat up. */
+  providers: LlmProvider[]
   choice: LlmSeatChoice
   onModel: (modelId: string) => void
   onEffort: (effort: string) => void
@@ -15,7 +17,10 @@ export default function LlmSeatFields({ idx, provider, choice, onModel, onEffort
   const { t } = useTranslation()
   const efforts = provider.models.find((m) => m.id === choice.model)?.efforts ?? []
   const quota = provider.freeRequestsToday
-  const backups = provider.models.filter((m) => m.id !== choice.model)
+  const backup = choice.backupModel ? llmBackupValue(choice.backupProvider ?? choice.provider, choice.backupModel) : ''
+  const backupGroups = providers
+    .map((p) => ({ provider: p, models: p.models.filter((m) => p.id !== choice.provider || m.id !== choice.model) }))
+    .filter((group) => group.models.length > 0)
   return (
     <>
       <Field label={t('lobby', 'create_seat_llm_model')}>
@@ -32,12 +37,16 @@ export default function LlmSeatFields({ idx, provider, choice, onModel, onEffort
           ))}
         </select>
       </Field>
-      {backups.length > 0 && (
+      {backupGroups.length > 0 && (
         <Field label={t('lobby', 'create_seat_llm_backup')} hint={t('lobby', 'create_seat_llm_backup_hint')}>
-          <select data-testid={`seat-llm-backup-${idx}`} value={choice.backupModel ?? ''} onChange={(e) => onBackup(e.target.value)} className="create-seat-select">
+          <select data-testid={`seat-llm-backup-${idx}`} value={backup} onChange={(e) => onBackup(e.target.value)} className="create-seat-select">
             <option value="">{t('lobby', 'create_seat_llm_backup_none')}</option>
-            {backups.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
+            {backupGroups.map((group) => (
+              <optgroup key={group.provider.id} label={group.provider.playerName}>
+                {group.models.map((m) => (
+                  <option key={m.id} value={llmBackupValue(group.provider.id, m.id)}>{m.name}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </Field>

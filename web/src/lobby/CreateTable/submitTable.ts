@@ -308,7 +308,9 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
       provider: llm.provider,
       model: llm.model,
       effort: llm.effort,
-      ...(llm.backupModel ? { backupModel: llm.backupModel, backupEffort: llm.backupEffort } : {}),
+      ...(llm.backupModel
+        ? { backupProvider: llm.backupProvider, backupModel: llm.backupModel, backupEffort: llm.backupEffort }
+        : {}),
       deck: fixed,
     })
   }

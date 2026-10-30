@@ -393,7 +393,7 @@ export const fr: TranslationSchema = {
     create_seat_llm_effort: 'Raisonnement',
     create_seat_llm_backup: 'Modèle de secours',
     create_seat_llm_backup_none: 'Aucun',
-    create_seat_llm_backup_hint: 'Prend le relais seulement si le modèle ci-dessus est encore saturé après environ 6 minutes de nouvelles tentatives.',
+    create_seat_llm_backup_hint: 'Prend le relais si le modèle ci-dessus atteint sa limite d’utilisation ou échoue encore après environ 6 minutes de nouvelles tentatives.',
     create_seat_llm_hint: 'Utilise la connexion de cet ordinateur : {auth}. Rejoint la table une fois les places précédentes occupées.',
     create_seat_llm_free_left: "Encore {remaining} requêtes gratuites sur {limit} aujourd'hui",
     create_llm_catalog_failed: 'Les places de modèle sont indisponibles : {error}',

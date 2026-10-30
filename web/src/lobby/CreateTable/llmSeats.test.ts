@@ -5,6 +5,7 @@ import {
   chooseLlmBackup,
   chooseLlmModel,
   defaultLlmChoice,
+  llmBackupValue,
   llmProviderOf,
   llmProviders,
   llmSeatValue,
@@ -90,26 +91,66 @@ describe('model seat helpers', () => {
 })
 
 describe('backup model', () => {
+  const claude: LlmProvider = {
+    id: 'claude_subscription',
+    playerType: 'Claude subscription',
+    playerName: 'Claude',
+    auth: 'existing Claude Code login',
+    models: [{ id: 'opus', name: 'Opus', efforts: ['medium', 'max'], defaultEffort: 'medium', isDefault: true }],
+  }
+  const both: LlmCatalog = { enabled: true, providers: [chatgpt, claude], unavailable: [] }
+  const providers = [chatgpt, claude]
   const start = { provider: 'chatgpt_subscription', model: 'gpt-a', effort: 'high' }
 
-  it('takes the reasoning level when the backup has it, and its default otherwise', () => {
-    const lowered = chooseLlmBackup(chatgpt, { ...start, effort: 'low' }, 'gpt-b')
-    expect(lowered).toEqual({ ...start, effort: 'low', backupModel: 'gpt-b', backupEffort: 'low' })
-    expect(chooseLlmBackup(chatgpt, start, 'gpt-b').backupEffort).toBe('low')
+  it('may be another provider\'s model, with its reasoning level when it has it and its default otherwise', () => {
+    expect(chooseLlmBackup(providers, start, llmBackupValue('claude_subscription', 'opus'))).toEqual({
+      ...start,
+      backupProvider: 'claude_subscription',
+      backupModel: 'opus',
+      backupEffort: 'medium',
+    })
+    const medium = { ...start, effort: 'medium' }
+    expect(chooseLlmBackup(providers, medium, llmBackupValue('claude_subscription', 'opus')).backupEffort).toBe('medium')
+  })
+
+  it('may be another model on the same plan', () => {
+    expect(chooseLlmBackup(providers, start, llmBackupValue('chatgpt_subscription', 'gpt-b'))).toEqual({
+      ...start,
+      backupProvider: 'chatgpt_subscription',
+      backupModel: 'gpt-b',
+      backupEffort: 'low',
+    })
   })
 
   it('is cleared by None, by an unknown model, and by choosing it as the main model', () => {
-    const backed = chooseLlmBackup(chatgpt, start, 'gpt-b')
-    expect(chooseLlmBackup(chatgpt, backed, '')).toEqual(start)
-    expect(chooseLlmBackup(chatgpt, backed, 'missing')).toEqual(start)
-    expect(chooseLlmBackup(chatgpt, start, 'gpt-a')).toEqual(start)
+    const backed = chooseLlmBackup(providers, start, llmBackupValue('chatgpt_subscription', 'gpt-b'))
+    expect(chooseLlmBackup(providers, backed, '')).toEqual(start)
+    expect(chooseLlmBackup(providers, backed, llmBackupValue('claude_subscription', 'missing'))).toEqual(start)
+    expect(chooseLlmBackup(providers, start, llmBackupValue('chatgpt_subscription', 'gpt-a'))).toEqual(start)
     expect(chooseLlmModel(chatgpt, backed, 'gpt-b')).toEqual({ provider: 'chatgpt_subscription', model: 'gpt-b', effort: 'low' })
+    const other = chooseLlmBackup(providers, start, llmBackupValue('claude_subscription', 'opus'))
+    expect(chooseLlmModel(chatgpt, other, 'gpt-b').backupModel).toBe('opus')
   })
 
-  it('survives a reasoning change and a reload, and drops when the catalog loses it', () => {
-    const saved = readSavedLlmChoices({ 0: { ...start, effort: 'low', backupModel: 'gpt-b' } })
-    expect(resolveLlmChoice(catalog, saved[0])).toEqual({ ...start, effort: 'low', backupModel: 'gpt-b', backupEffort: 'low' })
-    expect(resolveLlmChoice(catalog, { ...start, backupModel: 'gone' })).toEqual(start)
+  it('survives a reload, reads a 0.6.7 backup as the seat\'s own provider, and drops when the catalog loses it', () => {
+    const saved = readSavedLlmChoices({
+      0: { ...start, backupProvider: 'claude_subscription', backupModel: 'opus' },
+      1: { ...start, effort: 'low', backupModel: 'gpt-b' },
+    })
+    expect(resolveLlmChoice(both, saved[0])).toEqual({
+      ...start,
+      backupProvider: 'claude_subscription',
+      backupModel: 'opus',
+      backupEffort: 'medium',
+    })
+    expect(resolveLlmChoice(both, saved[1])).toEqual({
+      ...start,
+      effort: 'low',
+      backupProvider: 'chatgpt_subscription',
+      backupModel: 'gpt-b',
+      backupEffort: 'low',
+    })
+    expect(resolveLlmChoice(catalog, saved[0])).toEqual(start)
     expect(readSavedLlmChoices({ 0: { ...start, backupModel: 7 } })[0]).toEqual(start)
   })
 })

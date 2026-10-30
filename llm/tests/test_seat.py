@@ -306,7 +306,10 @@ def test_a_player_that_keeps_stopping_gives_up_after_the_last_retry(undecided):
     assert "at capacity" in manifest["error"]
 
 
-def test_a_model_still_at_capacity_after_every_retry_hands_the_game_to_the_backup(undecided):
+USAGE_LIMIT = "You've hit your usage limit. Try again at 1:56 AM."
+
+
+def test_a_model_still_failing_after_every_retry_hands_the_game_to_the_backup(undecided):
     request, runtime, _stopped, _gateway, game_over = undecided
     request.update(backup_model="gpt-6.1-terra", backup_reasoning="medium")
     models = []
@@ -323,13 +326,64 @@ def test_a_model_still_at_capacity_after_every_retry_hands_the_game_to_the_backu
     tries = len(seat.RETRY_DELAYS) + 1
     assert models == [("gpt-6-astra", "high")] * tries + [("gpt-6.1-terra", "medium")]
     assert manifest["status"] == "completed"
-    assert manifest["model_switch"] == {"game": 1, "from": "gpt-6-astra", "to": "gpt-6.1-terra", "reason": CAPACITY}
-    assert manifest["games"][0]["model"] == "gpt-6.1-terra"
+    assert manifest["model_switch"] == {
+        "game": 1,
+        "from": "chatgpt_subscription gpt-6-astra",
+        "to": "chatgpt_subscription gpt-6.1-terra",
+        "reason": CAPACITY,
+    }
+    assert manifest["games"][0]["model"] == "chatgpt_subscription gpt-6.1-terra"
     assert manifest["games"][0]["player_restarts"] == tries
     assert {entry["model"] for entry in manifest["recoveries"]} == {"gpt-6-astra"}
 
 
-def test_a_backup_model_at_capacity_too_gets_its_own_retries_then_the_seat_gives_up(undecided):
+def test_a_usage_limit_hands_the_game_to_another_providers_backup_at_once(undecided, monkeypatch):
+    request, runtime, _stopped, gateway, game_over = undecided
+    request.update(backup_provider="claude_subscription", backup_model="claude-opus-5-5", backup_reasoning="max")
+    new_players, prompts = [], []
+    gateway.new_player = lambda: new_players.append(True)
+
+    def start_codex(prompt, out, *_args, **_kwargs):
+        prompts.append(prompt)
+        return codex_failure(out, USAGE_LIMIT)
+
+    def start_claude(prompt, out, _err, _url, *, model, reasoning, tool_timeout_seconds):
+        assert (model, reasoning) == ("claude-opus-5-5", "max")
+        prompts.append(prompt)
+        out.write(json.dumps({"type": "result", "num_turns": 4, "usage": {"input_tokens": 7}}) + "\n")
+        out.flush()
+        game_over()
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    # Each provider starts its own CLI: no single start_player stands in for both.
+    chosen = {
+        "chatgpt_subscription": replace(seat.providers.get("chatgpt_subscription"), start=start_codex),
+        "claude_subscription": replace(seat.providers.get("claude_subscription"), start=start_claude),
+    }
+    monkeypatch.setattr(seat.providers, "get", lambda provider_id: chosen[provider_id])
+
+    assert seat.run_player(request, runtime=runtime) == 0
+    run = Path(request["run"])
+    manifest = json.loads((run / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["provider"] == "chatgpt_subscription"
+    assert manifest["model_switch"] == {
+        "game": 1,
+        "from": "chatgpt_subscription gpt-6-astra",
+        "to": "claude_subscription claude-opus-5-5",
+        "reason": USAGE_LIMIT,
+    }
+    assert manifest["recoveries"] == [{"game": 1, "attempt": 1, "reason": USAGE_LIMIT, "model": "gpt-6-astra"}]
+    assert manifest["games"][0]["model"] == "claude_subscription claude-opus-5-5"
+    # Each player's trace is read by its own provider: Codex's reader finds nothing in Claude's.
+    assert [entry["input_tokens"] for entry in manifest["usage"]] == [7]
+    assert new_players == [True]
+    assert prompts[1].endswith(seat.RESUME_PROMPT)
+    assert (run / "codex-events.jsonl").is_file()
+    assert (run / "claude-events-retry1.jsonl").is_file()
+
+
+def test_a_backup_that_fails_too_gets_its_own_retries_then_the_seat_gives_up(undecided):
     request, runtime, _stopped, _gateway, _game_over = undecided
     request.update(backup_model="gpt-6.1-terra", backup_reasoning="medium")
     models = []
@@ -345,29 +399,46 @@ def test_a_backup_model_at_capacity_too_gets_its_own_retries_then_the_seat_gives
     assert "at capacity" in manifest["error"]
 
 
-def test_the_backup_is_only_for_a_model_at_capacity(undecided):
+def test_a_backup_on_the_same_limited_plan_stops_the_seat_after_one_try(undecided):
     request, runtime, _stopped, _gateway, _game_over = undecided
     request.update(backup_model="gpt-6.1-terra", backup_reasoning="medium")
     models = []
 
     def start(_prompt, out, *_args, model, **_kwargs):
         models.append(model)
-        return codex_failure(out, "stream disconnected before completion")
+        return codex_failure(out, USAGE_LIMIT)
 
     assert seat.run_player(request, runtime=runtime, start_player=start) == 1
-    assert set(models) == {"gpt-6-astra"}
-    assert len(models) == len(seat.RETRY_DELAYS) + 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert models == ["gpt-6-astra", "gpt-6.1-terra"]
+    assert "usage limit" in manifest["error"]
 
 
 @pytest.mark.parametrize(
-    ("backup", "effort", "error"),
-    [("gpt-6-astra", "high", "must differ"), ("gpt-6.1-terra", "high", "reasoning level high")],
+    ("backup", "error"),
+    [
+        ({"backup_model": "gpt-6-astra", "backup_reasoning": "high"}, "must differ"),
+        ({"backup_model": "gpt-6.1-terra", "backup_reasoning": "high"}, "reasoning level high"),
+        (
+            {"backup_provider": "claude_subscription", "backup_model": "claude-opus-5-5", "backup_reasoning": "high"},
+            "effort level high",
+        ),
+        ({"backup_provider": "nobody", "backup_model": "x", "backup_reasoning": "default"}, "nobody"),
+    ],
 )
-def test_an_unusable_backup_model_is_rejected(harness, backup, effort, error):
+def test_an_unusable_backup_model_is_rejected(harness, backup, error):
     request, *_ = harness
-    request.update(backup_model=backup, backup_reasoning=effort)
-    with pytest.raises(ValueError, match=error):
+    request.update(backup)
+    with pytest.raises((ValueError, KeyError), match=error):
         seat.validate_request(request)
+
+
+def test_another_providers_backup_is_accepted(harness):
+    request, *_ = harness
+    request.update(backup_provider="claude_subscription", backup_model="claude-opus-5-5", backup_reasoning="max")
+    seat.validate_request(request)
+    request.update(backup_provider="chatgpt_subscription", backup_model="gpt-6.1-terra", backup_reasoning="medium")
+    seat.validate_request(request)
 
 
 def test_a_game_that_ends_while_waiting_to_retry_is_not_replayed(undecided, monkeypatch):

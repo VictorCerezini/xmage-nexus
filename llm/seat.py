@@ -27,8 +27,8 @@ MAX_WINS = 10
 NEXT_GAME_SECONDS = 600
 REPORT_GRACE_SECONDS = 120
 # Waits before another player process takes over a game whose player stopped mid-game (a busy model, a
-# dropped connection); a reached plan limit is not retried. A model still at capacity after the last one
-# hands the seat to its backup model, when it has one, which gets the same retries.
+# dropped connection); a reached plan limit is not retried. A plan limit, or a model still failing after the
+# last wait, hands the seat to its backup model when it has one, which gets the same retries.
 RETRY_DELAYS = (15, 30, 60, 120, 120)
 TABLE_PASSWORD_ENV = "XMAGE_BRIDGE_TABLE_PASSWORD"  # noqa: S105 - an environment variable name, not a password
 PROMPT = (
@@ -105,12 +105,21 @@ def validate_request(request):
     if not Path(request["deck"]).is_file():
         raise ValueError(f"The selected {provider.label} deck file does not exist")
     catalog = json.loads(Path(request["catalog"]).read_text(encoding="utf-8"))
-    entry = providers.catalog_entry(catalog, provider.id)
-    provider.validate_selection(entry, request["model"], request["reasoning"])
+    provider.validate_selection(providers.catalog_entry(catalog, provider.id), request["model"], request["reasoning"])
     if request.get("backup_model"):
-        if request["backup_model"] == request["model"]:
+        backup = backup_provider(request)
+        if backup.id == provider.id and request["backup_model"] == request["model"]:
             raise ValueError(f"The {provider.label} backup model must differ from the chosen model")
-        provider.validate_selection(entry, request["backup_model"], request["backup_reasoning"])
+        if engine == "mcp" and backup.id not in mcp_engine.PROVIDERS:
+            raise ValueError(f"The mcp engine does not support {backup.label} as a backup")
+        backup.validate_selection(
+            providers.catalog_entry(catalog, backup.id), request["backup_model"], request["backup_reasoning"]
+        )
+
+
+def backup_provider(request):
+    # A backup without its own provider (requests from 0.6.7) is another model of the seat's provider.
+    return providers.get(request.get("backup_provider") or request_provider(request).id)
 
 
 def wins_needed(request):
@@ -197,7 +206,6 @@ def run_player(request, *, start_player=None, runtime=None):
     local = runtime
     validate_request(request)
     provider = request_provider(request)
-    start_player = start_player or provider.start
     engine = request_engine(request)
     engine_label = "bridge" if engine == "bridge" else "mcp/ game server"
     run = Path(request["run"])
@@ -232,8 +240,8 @@ def run_player(request, *, start_player=None, runtime=None):
     bridge = None
     server = None
     mcp_game = {}
-    # The model this seat plays with now: the chosen one, or its backup once that took over.
-    playing = {"model": request["model"], "reasoning": request["reasoning"]}
+    # What this seat plays with now: the chosen model, or the backup (any provider's) once it took over.
+    playing = {"provider": provider, "model": request["model"], "reasoning": request["reasoning"]}
     started = time.monotonic()
 
     def log(name):
@@ -283,14 +291,15 @@ def run_player(request, *, start_player=None, runtime=None):
         def name(base):
             return retry_file(game_file(base, number), attempt)
 
-        events = run / name(provider.events_file)
+        player = playing["provider"]
+        events = run / name(player.events_file)
         if attempt:
             prompt += RESUME_PROMPT
         (run / name("player-prompt.txt")).write_text(prompt, encoding="utf-8")
-        agent = start_player(
+        agent = (start_player or player.start)(
             prompt,
-            log(name(provider.events_file)),
-            log(name(provider.stderr_file)),
+            log(name(player.events_file)),
+            log(name(player.stderr_file)),
             gateway.url,
             model=playing["model"],
             reasoning=playing["reasoning"],
@@ -298,7 +307,7 @@ def run_player(request, *, start_player=None, runtime=None):
             **({"tools": mcp_engine.TOOLS} if server else {}),
         )
         processes.append(agent)
-        event_paths.append(events)
+        event_paths.append((events, player))
         save_status("playing")
         ended_at = None
         stopped_after_report = False
@@ -313,29 +322,29 @@ def run_player(request, *, start_player=None, runtime=None):
                 gateway.finish_game()
                 ended_at = time.monotonic()
             if engine_stopped and ended_at is None:
-                raise RuntimeError(f"The {provider.label} {engine_label} stopped during play")
+                raise RuntimeError(f"The {player.label} {engine_label} stopped during play")
             if gateway.violations or gateway.call_count > MAX_CALLS:
                 raise RuntimeError("The game tool boundary or call limit was exceeded")
             if gateway.fatal_error is not None:
                 raise RuntimeError(gateway.fatal_error)
             if time.monotonic() - game_started > MAX_SECONDS:
                 raise TimeoutError("The interactive game exceeded its two-hour limit")
-            provider.require_game_only_events(read_complete_events(events))
+            player.require_game_only_events(read_complete_events(events))
             if ended_at is not None and time.monotonic() - ended_at > REPORT_GRACE_SECONDS:
                 local.stop_tree(agent)
                 stopped_after_report = True
                 break
             time.sleep(0.5)
         trace = read_complete_events(events)
-        provider.require_game_only_events(trace)
-        usage.extend(provider.usage(trace))
+        player.require_game_only_events(trace)
+        usage.extend(player.usage(trace))
         terminal_reason = decided(number)
         if terminal_reason is not None and (stopped_after_report or agent.returncode == 0):
             return terminal_reason, None
-        reason = provider.failure_reason(trace) or f"see {events.name}"
+        reason = player.failure_reason(trace) or f"see {events.name}"
         if terminal_reason is not None:
             # The game is over, so another player would have nothing left to play.
-            raise RuntimeError(f"{provider.label} stopped before a confirmed game result: {reason}")
+            raise RuntimeError(f"{player.label} stopped before a confirmed game result: {reason}")
         return None, reason
 
     def wait_to_retry(number, seconds):
@@ -354,9 +363,8 @@ def run_player(request, *, start_player=None, runtime=None):
                 return None
             time.sleep(0.5)
 
-    def can_switch(reason):
-        backup = request.get("backup_model")
-        return bool(backup) and playing["model"] != backup and providers.at_capacity(reason)
+    def can_switch():
+        return bool(request.get("backup_model")) and "model_switch" not in manifest
 
     def play_game(number):
         gateway = GameToolGateway(
@@ -388,22 +396,24 @@ def run_player(request, *, start_player=None, runtime=None):
             terminal_reason, reason = play_attempt(number, attempt, prompt, gateway, game_started, usage)
             if reason is None:
                 break
-            switching = tries == len(RETRY_DELAYS)
-            if providers.lasting_limit(reason) or (switching and not can_switch(reason)):
-                raise RuntimeError(f"{provider.label} stopped before a confirmed game result: {reason}")
+            # A reached plan limit does not come back within the game; anything else gets every retry first.
+            switching = providers.lasting_limit(reason) or tries == len(RETRY_DELAYS)
+            if switching and not can_switch():
+                raise RuntimeError(f"{playing['provider'].label} stopped before a confirmed game result: {reason}")
             attempt += 1
             manifest.setdefault("recoveries", []).append(
                 {"game": number, "attempt": attempt, "reason": reason, "model": playing["model"]}
             )
             if switching:
-                # The chosen model stayed at capacity through every retry: the backup plays the rest of the match.
+                # The backup plays the rest of the match; it may be another provider's model.
+                backup = backup_provider(request)
                 manifest["model_switch"] = {
                     "game": number,
-                    "from": playing["model"],
-                    "to": request["backup_model"],
+                    "from": f"{playing['provider'].id} {playing['model']}",
+                    "to": f"{backup.id} {request['backup_model']}",
                     "reason": reason,
                 }
-                playing.update(model=request["backup_model"], reasoning=request["backup_reasoning"])
+                playing.update(provider=backup, model=request["backup_model"], reasoning=request["backup_reasoning"])
                 tries, delay = 0, 0
             else:
                 delay = RETRY_DELAYS[tries]
@@ -423,7 +433,7 @@ def run_player(request, *, start_player=None, runtime=None):
                 "game_wall_seconds": round(time.monotonic() - game_started, 3),
                 "tool_calls": gateway.call_count,
                 **({"player_restarts": attempt} if attempt else {}),
-                **({"model": playing["model"]} if playing["model"] != request["model"] else {}),
+                **({"model": f"{playing['provider'].id} {playing['model']}"} if "model_switch" in manifest else {}),
                 "usage": usage,
             }
         )
@@ -604,7 +614,9 @@ def run_player(request, *, start_player=None, runtime=None):
         if gateways:
             manifest["tool_calls"] = sum(gateway.call_count for gateway in gateways)
             manifest["optimization"] = merged_stats([gateway.optimization_stats() for gateway in gateways])
-        manifest["usage"] = [usage for path in event_paths for usage in provider.usage(read_complete_events(path))]
+        manifest["usage"] = [
+            usage for path, player in event_paths for usage in player.usage(read_complete_events(path))
+        ]
         manifest["total_wall_seconds"] = round(time.monotonic() - started, 3)
         manifest["cleanup_complete"] = all(proc.poll() is not None for proc in processes)
         local.save_json(run / "manifest.json", manifest)

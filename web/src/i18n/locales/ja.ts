@@ -393,7 +393,7 @@ export const ja: TranslationSchema = {
     create_seat_llm_effort: '推論',
     create_seat_llm_backup: '予備モデル',
     create_seat_llm_backup_none: 'なし',
-    create_seat_llm_backup_hint: '上のモデルが約6分間の再試行後も混雑している場合にのみ引き継ぎます。',
+    create_seat_llm_backup_hint: '上のモデルが利用上限に達した場合、または約6分間の再試行後も失敗し続ける場合に引き継ぎます。',
     create_seat_llm_hint: 'このコンピューターのサインインを使用: {auth}。前の席が埋まってから参加します。',
     create_seat_llm_free_left: '本日の無料リクエスト残り {remaining} / {limit}',
     create_llm_catalog_failed: 'モデル席は利用できません: {error}',

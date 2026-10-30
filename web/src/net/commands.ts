@@ -148,7 +148,8 @@ export interface LlmSeatRequest {
   provider: string
   model?: string
   effort?: string
-  /** takes over when `model` stays at capacity through every retry */
+  /** takes over when `model` reaches its plan limit or keeps failing through every retry; any provider's */
+  backupProvider?: string
   backupModel?: string
   backupEffort?: string
   deck: DeckJson

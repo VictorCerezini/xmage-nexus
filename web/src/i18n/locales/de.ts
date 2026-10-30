@@ -393,7 +393,7 @@ export const de: TranslationSchema = {
     create_seat_llm_effort: 'Denkaufwand',
     create_seat_llm_backup: 'Ersatzmodell',
     create_seat_llm_backup_none: 'Keines',
-    create_seat_llm_backup_hint: 'Übernimmt nur, wenn das Modell oben nach etwa 6 Minuten Wiederholungsversuchen noch ausgelastet ist.',
+    create_seat_llm_backup_hint: 'Übernimmt, wenn das Modell oben sein Nutzungslimit erreicht oder nach etwa 6 Minuten Wiederholungsversuchen noch scheitert.',
     create_seat_llm_hint: 'Nutzt die Anmeldung dieses Computers: {auth}. Tritt bei, sobald die Plätze davor besetzt sind.',
     create_seat_llm_free_left: 'Heute noch {remaining} von {limit} kostenlosen Anfragen',
     create_llm_catalog_failed: 'Modellplätze sind nicht verfügbar: {error}',

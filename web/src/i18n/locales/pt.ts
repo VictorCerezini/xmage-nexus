@@ -393,7 +393,7 @@ export const pt: TranslationSchema = {
     create_seat_llm_effort: 'Raciocínio',
     create_seat_llm_backup: 'Modelo reserva',
     create_seat_llm_backup_none: 'Nenhum',
-    create_seat_llm_backup_hint: 'Só assume se o modelo acima continuar sem capacidade após cerca de 6 minutos de novas tentativas.',
+    create_seat_llm_backup_hint: 'Assume se o modelo acima atingir seu limite de uso ou continuar falhando após cerca de 6 minutos de novas tentativas.',
     create_seat_llm_hint: 'Usa o login deste computador: {auth}. Entra quando as vagas anteriores estiverem ocupadas.',
     create_seat_llm_free_left: 'Restam {remaining} de {limit} pedidos gratuitos hoje',
     create_llm_catalog_failed: 'As vagas de modelo não estão disponíveis: {error}',

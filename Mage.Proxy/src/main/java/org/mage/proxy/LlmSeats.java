@@ -223,10 +223,12 @@ final class LlmSeats {
             String backupModel = JsonArgs.str(entry, "backupModel", "");
             LlmCatalog.Selection backup = null;
             if (!backupModel.isEmpty()) {
-                if (backupModel.equals(selection.model)) {
+                // Any signed-in provider's model; a backup on the same plan shares its limits, the user's choice.
+                String backupProvider = JsonArgs.str(entry, "backupProvider", selection.provider);
+                if (backupProvider.equals(selection.provider) && backupModel.equals(selection.model)) {
                     throw new IllegalArgumentException("The backup model of model seat " + seat + " must differ from its model");
                 }
-                backup = LlmCatalog.select(current, selection.provider, backupModel, JsonArgs.str(entry, "backupEffort", ""));
+                backup = LlmCatalog.select(current, backupProvider, backupModel, JsonArgs.str(entry, "backupEffort", ""));
             }
             if (!entry.has("deck") || !entry.get("deck").isJsonObject()) {
                 throw new IllegalArgumentException("Model seat " + seat + " needs a deck");
@@ -295,6 +297,7 @@ final class LlmSeats {
         request.addProperty("model", plan.selection.model);
         request.addProperty("reasoning", plan.selection.effort);
         if (plan.backup != null) {
+            request.addProperty("backup_provider", plan.backup.provider);
             request.addProperty("backup_model", plan.backup.model);
             request.addProperty("backup_reasoning", plan.backup.effort);
         }

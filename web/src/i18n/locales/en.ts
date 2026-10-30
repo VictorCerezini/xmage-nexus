@@ -391,7 +391,7 @@ export const en = {
     create_seat_llm_effort: 'Reasoning',
     create_seat_llm_backup: 'Backup model',
     create_seat_llm_backup_none: 'None',
-    create_seat_llm_backup_hint: 'Takes over only if the model above is still at capacity after about 6 minutes of retries.',
+    create_seat_llm_backup_hint: 'Takes over if the model above reaches its usage limit, or is still failing after about 6 minutes of retries.',
     create_seat_llm_hint: "Uses this computer's sign-in: {auth}. It joins once the seats before it are taken.",
     create_seat_llm_free_left: '{remaining} of {limit} free requests left today',
     create_llm_catalog_failed: 'Model seats are unavailable: {error}',

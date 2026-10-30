@@ -564,11 +564,10 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     if (!current || !provider) return
     setLlmChoices((prev) => ({ ...prev, [idx]: chooseLlmModel(provider, current, modelId) }))
   }
-  const setLlmBackup = (idx: number, modelId: string) => {
+  const setLlmBackup = (idx: number, value: string) => {
     const current = activeLlm[idx]
-    const provider = current ? providers.find((p) => p.id === current.provider) : undefined
-    if (!current || !provider) return
-    setLlmChoices((prev) => ({ ...prev, [idx]: chooseLlmBackup(provider, current, modelId) }))
+    if (!current) return
+    setLlmChoices((prev) => ({ ...prev, [idx]: chooseLlmBackup(providers, current, value) }))
   }
   const setLlmEffort = (idx: number, effort: string) => {
     const current = activeLlm[idx]

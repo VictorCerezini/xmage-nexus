@@ -194,7 +194,9 @@ class LlmSeatsTest {
                 + "\"playerType\":\"ChatGPT subscription\",\"auth\":\"existing Codex ChatGPT login\","
                 + "\"account\":\"someone@example.com\",\"models\":["
                 + "{\"id\":\"gpt-6-luna\",\"name\":\"GPT-6-Luna\",\"efforts\":[\"low\",\"high\"],\"defaultEffort\":\"low\",\"isDefault\":true},"
-                + "{\"id\":\"gpt-6-astra\",\"name\":\"GPT-6-Astra\",\"efforts\":[\"low\",\"high\"],\"defaultEffort\":\"high\",\"isDefault\":false}]}],"
+                + "{\"id\":\"gpt-6-astra\",\"name\":\"GPT-6-Astra\",\"efforts\":[\"low\",\"high\"],\"defaultEffort\":\"high\",\"isDefault\":false}]},"
+                + "{\"id\":\"openrouter_free\",\"playerName\":\"OpenRouter\",\"playerType\":\"OpenRouter free\",\"auth\":\"key\","
+                + "\"models\":[{\"id\":\"a/alpha:free\",\"name\":\"Alpha\",\"efforts\":[\"default\"],\"defaultEffort\":\"default\",\"isDefault\":true}]}],"
                 + "\"unavailable\":[{\"id\":\"claude_subscription\",\"reason\":\"Claude Code is not signed in\"}]}")
                 .getBytes(StandardCharsets.UTF_8));
         return new LlmRuntime(dir, dir.resolve("python.exe"), catalog, maxSeats, builder -> {
@@ -416,8 +418,25 @@ class LlmSeatsTest {
         await("the launch", () -> processes.size() == 1);
         JsonObject request = processes.get(0).request();
         assertEquals("gpt-6-astra", request.get("model").getAsString());
+        assertEquals("chatgpt_subscription", request.get("backup_provider").getAsString());
         assertEquals("gpt-6-luna", request.get("backup_model").getAsString());
         assertEquals("low", request.get("backup_reasoning").getAsString());
+    }
+
+    @Test
+    void aBackupModelMayComeFromAnotherProvider() throws Exception {
+        LlmSeats seats = seats(4);
+        JsonObject args = table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"effort\":\"high\","
+                + "\"backupProvider\":\"openrouter_free\",\"backupModel\":\"a/alpha:free\"") + "]");
+        seats.start(seats.prepare(args), args, TABLE);
+
+        await("the launch", () -> processes.size() == 1);
+        JsonObject request = processes.get(0).request();
+        assertEquals("chatgpt_subscription", request.get("provider").getAsString());
+        assertEquals("ChatGPT 2", request.get("username").getAsString());
+        assertEquals("openrouter_free", request.get("backup_provider").getAsString());
+        assertEquals("a/alpha:free", request.get("backup_model").getAsString());
+        assertEquals("default", request.get("backup_reasoning").getAsString());
     }
 
     @Test
@@ -429,6 +448,8 @@ class LlmSeatsTest {
                 "no model gpt-9");
         assertRefused(seats, table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"backupModel\":\"gpt-6-luna\","
                 + "\"backupEffort\":\"max\"") + "]"), "no reasoning level max");
+        assertRefused(seats, table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"backupProvider\":\"claude_subscription\","
+                + "\"backupModel\":\"claude-opus-5-5\"") + "]"), "not available");
     }
 
     @Test
