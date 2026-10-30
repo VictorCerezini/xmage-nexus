@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { LlmCatalog, LlmProvider } from '../../net/types'
 import {
   activeLlmChoices,
+  chooseLlmBackup,
   chooseLlmModel,
   defaultLlmChoice,
   llmProviderOf,
@@ -85,5 +86,30 @@ describe('model seat helpers', () => {
     })).toEqual({ 0: { provider: 'p', model: 'm', effort: 'e' } })
     expect(readSavedLlmChoices(null)).toEqual({})
     expect(readSavedLlmChoices([1, 2])).toEqual({})
+  })
+})
+
+describe('backup model', () => {
+  const start = { provider: 'chatgpt_subscription', model: 'gpt-a', effort: 'high' }
+
+  it('takes the reasoning level when the backup has it, and its default otherwise', () => {
+    const lowered = chooseLlmBackup(chatgpt, { ...start, effort: 'low' }, 'gpt-b')
+    expect(lowered).toEqual({ ...start, effort: 'low', backupModel: 'gpt-b', backupEffort: 'low' })
+    expect(chooseLlmBackup(chatgpt, start, 'gpt-b').backupEffort).toBe('low')
+  })
+
+  it('is cleared by None, by an unknown model, and by choosing it as the main model', () => {
+    const backed = chooseLlmBackup(chatgpt, start, 'gpt-b')
+    expect(chooseLlmBackup(chatgpt, backed, '')).toEqual(start)
+    expect(chooseLlmBackup(chatgpt, backed, 'missing')).toEqual(start)
+    expect(chooseLlmBackup(chatgpt, start, 'gpt-a')).toEqual(start)
+    expect(chooseLlmModel(chatgpt, backed, 'gpt-b')).toEqual({ provider: 'chatgpt_subscription', model: 'gpt-b', effort: 'low' })
+  })
+
+  it('survives a reasoning change and a reload, and drops when the catalog loses it', () => {
+    const saved = readSavedLlmChoices({ 0: { ...start, effort: 'low', backupModel: 'gpt-b' } })
+    expect(resolveLlmChoice(catalog, saved[0])).toEqual({ ...start, effort: 'low', backupModel: 'gpt-b', backupEffort: 'low' })
+    expect(resolveLlmChoice(catalog, { ...start, backupModel: 'gone' })).toEqual(start)
+    expect(readSavedLlmChoices({ 0: { ...start, backupModel: 7 } })[0]).toEqual(start)
   })
 })

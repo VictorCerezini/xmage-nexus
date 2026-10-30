@@ -27,7 +27,8 @@ MAX_WINS = 10
 NEXT_GAME_SECONDS = 600
 REPORT_GRACE_SECONDS = 120
 # Waits before another player process takes over a game whose player stopped mid-game (a busy model, a
-# dropped connection); a reached plan limit is not retried.
+# dropped connection); a reached plan limit is not retried. A model still at capacity after the last one
+# hands the seat to its backup model, when it has one, which gets the same retries.
 RETRY_DELAYS = (15, 30, 60, 120, 120)
 TABLE_PASSWORD_ENV = "XMAGE_BRIDGE_TABLE_PASSWORD"  # noqa: S105 - an environment variable name, not a password
 PROMPT = (
@@ -104,7 +105,12 @@ def validate_request(request):
     if not Path(request["deck"]).is_file():
         raise ValueError(f"The selected {provider.label} deck file does not exist")
     catalog = json.loads(Path(request["catalog"]).read_text(encoding="utf-8"))
-    provider.validate_selection(providers.catalog_entry(catalog, provider.id), request["model"], request["reasoning"])
+    entry = providers.catalog_entry(catalog, provider.id)
+    provider.validate_selection(entry, request["model"], request["reasoning"])
+    if request.get("backup_model"):
+        if request["backup_model"] == request["model"]:
+            raise ValueError(f"The {provider.label} backup model must differ from the chosen model")
+        provider.validate_selection(entry, request["backup_model"], request["backup_reasoning"])
 
 
 def wins_needed(request):
@@ -226,6 +232,8 @@ def run_player(request, *, start_player=None, runtime=None):
     bridge = None
     server = None
     mcp_game = {}
+    # The model this seat plays with now: the chosen one, or its backup once that took over.
+    playing = {"model": request["model"], "reasoning": request["reasoning"]}
     started = time.monotonic()
 
     def log(name):
@@ -284,8 +292,8 @@ def run_player(request, *, start_player=None, runtime=None):
             log(name(provider.events_file)),
             log(name(provider.stderr_file)),
             gateway.url,
-            model=request["model"],
-            reasoning=request["reasoning"],
+            model=playing["model"],
+            reasoning=playing["reasoning"],
             tool_timeout_seconds=MAX_SECONDS + 60,
             **({"tools": mcp_engine.TOOLS} if server else {}),
         )
@@ -333,7 +341,7 @@ def run_player(request, *, start_player=None, runtime=None):
     def wait_to_retry(number, seconds):
         """Wait before the next player takes over; the game's result if it ended meanwhile."""
         deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
+        while True:
             check_session(owner, created, run)
             if engine_process().poll() is not None:
                 raise RuntimeError(f"The {provider.label} {engine_label} stopped during play")
@@ -342,8 +350,13 @@ def run_player(request, *, start_player=None, runtime=None):
             terminal_reason = decided(number)
             if terminal_reason is not None:
                 return terminal_reason
+            if time.monotonic() >= deadline:
+                return None
             time.sleep(0.5)
-        return None
+
+    def can_switch(reason):
+        backup = request.get("backup_model")
+        return bool(backup) and playing["model"] != backup and providers.at_capacity(reason)
 
     def play_game(number):
         gateway = GameToolGateway(
@@ -370,15 +383,32 @@ def run_player(request, *, start_player=None, runtime=None):
         game_started = time.monotonic()
         usage = []
         attempt = 0
+        tries = 0
         while True:
             terminal_reason, reason = play_attempt(number, attempt, prompt, gateway, game_started, usage)
             if reason is None:
                 break
-            if attempt == len(RETRY_DELAYS) or providers.lasting_limit(reason):
+            switching = tries == len(RETRY_DELAYS)
+            if providers.lasting_limit(reason) or (switching and not can_switch(reason)):
                 raise RuntimeError(f"{provider.label} stopped before a confirmed game result: {reason}")
-            manifest.setdefault("recoveries", []).append({"game": number, "attempt": attempt + 1, "reason": reason})
             attempt += 1
-            terminal_reason = wait_to_retry(number, RETRY_DELAYS[attempt - 1])
+            manifest.setdefault("recoveries", []).append(
+                {"game": number, "attempt": attempt, "reason": reason, "model": playing["model"]}
+            )
+            if switching:
+                # The chosen model stayed at capacity through every retry: the backup plays the rest of the match.
+                manifest["model_switch"] = {
+                    "game": number,
+                    "from": playing["model"],
+                    "to": request["backup_model"],
+                    "reason": reason,
+                }
+                playing.update(model=request["backup_model"], reasoning=request["backup_reasoning"])
+                tries, delay = 0, 0
+            else:
+                delay = RETRY_DELAYS[tries]
+                tries += 1
+            terminal_reason = wait_to_retry(number, delay)
             if terminal_reason is not None:
                 # The game ended while no player was connected (the others won, or the table ended it).
                 gateway.finish_game()
@@ -393,6 +423,7 @@ def run_player(request, *, start_player=None, runtime=None):
                 "game_wall_seconds": round(time.monotonic() - game_started, 3),
                 "tool_calls": gateway.call_count,
                 **({"player_restarts": attempt} if attempt else {}),
+                **({"model": playing["model"]} if playing["model"] != request["model"] else {}),
                 "usage": usage,
             }
         )

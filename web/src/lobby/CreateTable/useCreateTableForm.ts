@@ -54,6 +54,7 @@ import { submitCreateTable, runDemoTable as runDemoTableCommand } from './submit
 import { loadLlmCatalog } from '../../state/llmSeats'
 import {
   activeLlmChoices,
+  chooseLlmBackup,
   chooseLlmModel,
   defaultLlmChoice,
   llmProviderOf,
@@ -563,6 +564,12 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     if (!current || !provider) return
     setLlmChoices((prev) => ({ ...prev, [idx]: chooseLlmModel(provider, current, modelId) }))
   }
+  const setLlmBackup = (idx: number, modelId: string) => {
+    const current = activeLlm[idx]
+    const provider = current ? providers.find((p) => p.id === current.provider) : undefined
+    if (!current || !provider) return
+    setLlmChoices((prev) => ({ ...prev, [idx]: chooseLlmBackup(provider, current, modelId) }))
+  }
   const setLlmEffort = (idx: number, effort: string) => {
     const current = activeLlm[idx]
     if (!current) return
@@ -755,6 +762,7 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     llmChoices: activeLlm,
     setLlmModel,
     setLlmEffort,
+    setLlmBackup,
     refreshLlmCatalog,
     resetToDefaults,
   }

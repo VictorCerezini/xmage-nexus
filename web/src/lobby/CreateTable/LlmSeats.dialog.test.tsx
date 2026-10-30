@@ -93,6 +93,11 @@ describe('model seats in the create table dialog', () => {
     expect(effort().value).toBe('low')
     fireEvent.change(effort(), { target: { value: 'high' } })
     expect(screen.getByTestId('seat-node-1').textContent).toContain('ChatGPT · GPT A')
+    const backup = screen.getByTestId('seat-llm-backup-0') as HTMLSelectElement
+    expect(backup.value).toBe('')
+    expect([...backup.options].map((o) => o.value)).toEqual(['', 'gpt-b'])
+    fireEvent.change(backup, { target: { value: 'gpt-b' } })
+    expect((screen.getByTestId('seat-llm-backup-0') as HTMLSelectElement).value).toBe('gpt-b')
 
     for (let i = 0; i < 3 && !document.querySelector('.create-review'); i++) {
       const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
@@ -105,7 +110,15 @@ describe('model seats in the create table dialog', () => {
     const args = vi.mocked(cmds.createTable).mock.calls[0][0]
     expect(args.playerTypes).toEqual(['HUMAN', 'HUMAN'])
     expect(args.llmSeats).toEqual([
-      { seat: 2, provider: 'chatgpt_subscription', model: 'gpt-a', effort: 'high', deck: expect.objectContaining({ cards: expect.any(Array) }) },
+      {
+        seat: 2,
+        provider: 'chatgpt_subscription',
+        model: 'gpt-a',
+        effort: 'high',
+        backupModel: 'gpt-b',
+        backupEffort: 'low',
+        deck: expect.objectContaining({ cards: expect.any(Array) }),
+      },
     ])
     await waitFor(() => expect(cmds.joinTable).toHaveBeenCalledTimes(1))
     expect(cmds.joinTable).toHaveBeenCalledWith(expect.objectContaining({ tableId: 'table-llm', playerType: 'HUMAN' }))

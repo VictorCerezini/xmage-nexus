@@ -46,6 +46,14 @@ def lasting_limit(reason):
     return reason is not None and any(words in reason.lower() for words in LASTING_LIMITS)
 
 
+# The provider has no room for this model right now; another of its models may still play.
+AT_CAPACITY = ("at capacity", "overloaded", "try a different model")
+
+
+def at_capacity(reason):
+    return reason is not None and any(words in reason.lower() for words in AT_CAPACITY)
+
+
 def codex_game_only_events(events):
     for event in events:
         if event.get("type") == "item.completed" and event["item"].get("type") in {

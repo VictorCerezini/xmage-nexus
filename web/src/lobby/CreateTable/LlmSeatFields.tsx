@@ -4,16 +4,18 @@ import Icon from '../../ui/Icon'
 import type { LlmProvider } from '../../net/types'
 import type { LlmSeatChoice } from './llmSeats'
 
-export default function LlmSeatFields({ idx, provider, choice, onModel, onEffort }: {
+export default function LlmSeatFields({ idx, provider, choice, onModel, onEffort, onBackup }: {
   idx: number
   provider: LlmProvider
   choice: LlmSeatChoice
   onModel: (modelId: string) => void
   onEffort: (effort: string) => void
+  onBackup: (modelId: string) => void
 }) {
   const { t } = useTranslation()
   const efforts = provider.models.find((m) => m.id === choice.model)?.efforts ?? []
   const quota = provider.freeRequestsToday
+  const backups = provider.models.filter((m) => m.id !== choice.model)
   return (
     <>
       <Field label={t('lobby', 'create_seat_llm_model')}>
@@ -30,6 +32,16 @@ export default function LlmSeatFields({ idx, provider, choice, onModel, onEffort
           ))}
         </select>
       </Field>
+      {backups.length > 0 && (
+        <Field label={t('lobby', 'create_seat_llm_backup')} hint={t('lobby', 'create_seat_llm_backup_hint')}>
+          <select data-testid={`seat-llm-backup-${idx}`} value={choice.backupModel ?? ''} onChange={(e) => onBackup(e.target.value)} className="create-seat-select">
+            <option value="">{t('lobby', 'create_seat_llm_backup_none')}</option>
+            {backups.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+        </Field>
+      )}
       <span className="wizard-hint-box"><Icon name="bot" size={11} /> {t('lobby', 'create_seat_llm_hint', { auth: provider.auth })}</span>
       {typeof quota?.remaining === 'number' && typeof quota.limit === 'number' && (
         <span className="wizard-hint-box">{t('lobby', 'create_seat_llm_free_left', { remaining: quota.remaining, limit: quota.limit })}</span>

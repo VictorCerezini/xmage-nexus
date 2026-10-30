@@ -39,7 +39,13 @@ def harness(tmp_path, monkeypatch):
         json.dumps(
             {
                 "providers": [
-                    {"id": "chatgpt_subscription", "models": [{"id": "gpt-6-astra", "efforts": ["medium", "high"]}]},
+                    {
+                        "id": "chatgpt_subscription",
+                        "models": [
+                            {"id": "gpt-6-astra", "efforts": ["medium", "high"]},
+                            {"id": "gpt-6.1-terra", "efforts": ["medium"]},
+                        ],
+                    },
                     {"id": "claude_subscription", "models": [{"id": "claude-opus-5-5", "efforts": ["medium", "max"]}]},
                     {"id": "openrouter_free", "models": [{"id": "a/alpha:free", "efforts": ["default", "low"]}]},
                     {"id": "zai_coding_plan", "models": [{"id": "glm-5.3", "efforts": ["default", "max"]}]},
@@ -258,7 +264,9 @@ def test_a_player_stopped_by_a_busy_model_is_replaced_and_finishes_the_game(unde
     run = Path(request["run"])
     manifest = json.loads((run / "manifest.json").read_text())
     assert manifest["status"] == "completed"
-    assert manifest["recoveries"] == [{"game": 1, "attempt": 1, "reason": CAPACITY}]
+    assert manifest["recoveries"] == [{"game": 1, "attempt": 1, "reason": CAPACITY, "model": "gpt-6-astra"}]
+    assert "model_switch" not in manifest
+    assert "model" not in manifest["games"][0]
     assert manifest["games"][0]["player_restarts"] == 1
     assert new_players == [True]
     assert seat.RESUME_PROMPT not in prompts[0]
@@ -296,6 +304,70 @@ def test_a_player_that_keeps_stopping_gives_up_after_the_last_retry(undecided):
     assert len(starts) == len(seat.RETRY_DELAYS) + 1
     assert len(manifest["recoveries"]) == len(seat.RETRY_DELAYS)
     assert "at capacity" in manifest["error"]
+
+
+def test_a_model_still_at_capacity_after_every_retry_hands_the_game_to_the_backup(undecided):
+    request, runtime, _stopped, _gateway, game_over = undecided
+    request.update(backup_model="gpt-6.1-terra", backup_reasoning="medium")
+    models = []
+
+    def start(_prompt, out, *_args, model, reasoning, **_kwargs):
+        models.append((model, reasoning))
+        if model == "gpt-6-astra":
+            return codex_failure(out, CAPACITY)
+        game_over()
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    tries = len(seat.RETRY_DELAYS) + 1
+    assert models == [("gpt-6-astra", "high")] * tries + [("gpt-6.1-terra", "medium")]
+    assert manifest["status"] == "completed"
+    assert manifest["model_switch"] == {"game": 1, "from": "gpt-6-astra", "to": "gpt-6.1-terra", "reason": CAPACITY}
+    assert manifest["games"][0]["model"] == "gpt-6.1-terra"
+    assert manifest["games"][0]["player_restarts"] == tries
+    assert {entry["model"] for entry in manifest["recoveries"]} == {"gpt-6-astra"}
+
+
+def test_a_backup_model_at_capacity_too_gets_its_own_retries_then_the_seat_gives_up(undecided):
+    request, runtime, _stopped, _gateway, _game_over = undecided
+    request.update(backup_model="gpt-6.1-terra", backup_reasoning="medium")
+    models = []
+
+    def start(_prompt, out, *_args, model, **_kwargs):
+        models.append(model)
+        return codex_failure(out, CAPACITY)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    tries = len(seat.RETRY_DELAYS) + 1
+    assert models == ["gpt-6-astra"] * tries + ["gpt-6.1-terra"] * tries
+    assert "at capacity" in manifest["error"]
+
+
+def test_the_backup_is_only_for_a_model_at_capacity(undecided):
+    request, runtime, _stopped, _gateway, _game_over = undecided
+    request.update(backup_model="gpt-6.1-terra", backup_reasoning="medium")
+    models = []
+
+    def start(_prompt, out, *_args, model, **_kwargs):
+        models.append(model)
+        return codex_failure(out, "stream disconnected before completion")
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    assert set(models) == {"gpt-6-astra"}
+    assert len(models) == len(seat.RETRY_DELAYS) + 1
+
+
+@pytest.mark.parametrize(
+    ("backup", "effort", "error"),
+    [("gpt-6-astra", "high", "must differ"), ("gpt-6.1-terra", "high", "reasoning level high")],
+)
+def test_an_unusable_backup_model_is_rejected(harness, backup, effort, error):
+    request, *_ = harness
+    request.update(backup_model=backup, backup_reasoning=effort)
+    with pytest.raises(ValueError, match=error):
+        seat.validate_request(request)
 
 
 def test_a_game_that_ends_while_waiting_to_retry_is_not_replayed(undecided, monkeypatch):

@@ -403,6 +403,32 @@ class LlmSeatsTest {
         assertFalse(events.stream().anyMatch(json -> json.contains("table-pw")));
         assertEquals("bridge", request.get("engine").getAsString());
         assertFalse(request.has("proxy_url"));
+        assertFalse(request.has("backup_model"));
+    }
+
+    @Test
+    void aBackupModelReachesTheSeatWithItsOwnReasoningLevel() throws Exception {
+        LlmSeats seats = seats(4);
+        JsonObject args = table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"effort\":\"high\","
+                + "\"backupModel\":\"gpt-6-luna\",\"backupEffort\":\"low\"") + "]");
+        seats.start(seats.prepare(args), args, TABLE);
+
+        await("the launch", () -> processes.size() == 1);
+        JsonObject request = processes.get(0).request();
+        assertEquals("gpt-6-astra", request.get("model").getAsString());
+        assertEquals("gpt-6-luna", request.get("backup_model").getAsString());
+        assertEquals("low", request.get("backup_reasoning").getAsString());
+    }
+
+    @Test
+    void anUnusableBackupModelIsRefused() throws Exception {
+        LlmSeats seats = seats(4);
+        assertRefused(seats, table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"backupModel\":\"gpt-6-astra\"") + "]"),
+                "must differ");
+        assertRefused(seats, table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"backupModel\":\"gpt-9\"") + "]"),
+                "no model gpt-9");
+        assertRefused(seats, table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"backupModel\":\"gpt-6-luna\","
+                + "\"backupEffort\":\"max\"") + "]"), "no reasoning level max");
     }
 
     @Test

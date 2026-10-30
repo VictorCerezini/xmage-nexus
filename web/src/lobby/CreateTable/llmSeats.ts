@@ -8,6 +8,10 @@ export interface LlmSeatChoice {
   provider: string
   model: string
   effort: string
+  /** Takes over when `model` stays at capacity through every retry; absent for none. */
+  backupModel?: string
+  /** The backup's reasoning level: `effort` when the backup has it. Set by `resolveLlmChoice`. */
+  backupEffort?: string
 }
 
 /** A model seat ready for `createTable`: `seat` is 1-based into `playerTypes`, `idx` indexes `seatConfigs`. */
@@ -44,7 +48,19 @@ export function defaultLlmChoice(provider: LlmProvider): LlmSeatChoice | null {
 export function chooseLlmModel(provider: LlmProvider, choice: LlmSeatChoice, modelId: string): LlmSeatChoice {
   const model = provider.models.find((m) => m.id === modelId)
   if (!model) return choice
-  return { provider: provider.id, model: model.id, effort: effortFor(model, choice.effort) }
+  const next: LlmSeatChoice = { provider: provider.id, model: model.id, effort: effortFor(model, choice.effort) }
+  return withBackup(provider, next, choice.backupModel)
+}
+
+/** Sets the backup model ('' for none); a backup equal to the chosen model or unknown to the provider is dropped. */
+export function chooseLlmBackup(provider: LlmProvider, choice: LlmSeatChoice, modelId: string): LlmSeatChoice {
+  return withBackup(provider, choice, modelId)
+}
+
+function withBackup(provider: LlmProvider, choice: LlmSeatChoice, backupId: string | undefined): LlmSeatChoice {
+  const { backupModel: _model, backupEffort: _effort, ...rest } = choice
+  const backup = backupId && backupId !== choice.model ? provider.models.find((m) => m.id === backupId) : undefined
+  return backup ? { ...rest, backupModel: backup.id, backupEffort: effortFor(backup, choice.effort) } : rest
 }
 
 /** The choice as the catalog can serve it now, or null when its provider is gone. */
@@ -52,7 +68,7 @@ export function resolveLlmChoice(catalog: LlmCatalog | null | undefined, choice:
   const provider = llmProviders(catalog).find((p) => p.id === choice.provider)
   if (!provider) return null
   if (!provider.models.some((m) => m.id === choice.model)) return defaultLlmChoice(provider)
-  return chooseLlmModel(provider, choice, choice.model)
+  return withBackup(provider, chooseLlmModel(provider, choice, choice.model), choice.backupModel)
 }
 
 /** The model seats that apply: allowed for this table, on a HUMAN seat, with a provider the catalog has. */
@@ -94,9 +110,9 @@ export function readSavedLlmChoices(raw: unknown): Record<number, LlmSeatChoice>
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     const idx = Number(key)
     if (!Number.isInteger(idx) || idx < 0 || !value || typeof value !== 'object') continue
-    const { provider, model, effort } = value as Record<string, unknown>
+    const { provider, model, effort, backupModel } = value as Record<string, unknown>
     if (typeof provider === 'string' && typeof model === 'string' && typeof effort === 'string') {
-      out[idx] = { provider, model, effort }
+      out[idx] = typeof backupModel === 'string' && backupModel ? { provider, model, effort, backupModel } : { provider, model, effort }
     }
   }
   return out

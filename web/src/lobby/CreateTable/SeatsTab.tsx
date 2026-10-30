@@ -317,6 +317,7 @@ function SeatEditor({ form, idx, seatNumber, findSeatDeck }: { form: CreateTable
               choice={llm}
               onModel={(m) => form.setLlmModel(idx, m)}
               onEffort={(e) => form.setLlmEffort(idx, e)}
+              onBackup={(m) => form.setLlmBackup(idx, m)}
             />
           )}
           {!form.isDraftLimited && (

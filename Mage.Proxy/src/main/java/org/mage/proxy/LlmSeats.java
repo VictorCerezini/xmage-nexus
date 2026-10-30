@@ -47,12 +47,15 @@ final class LlmSeats {
     static final class Plan {
         final int seat;
         final LlmCatalog.Selection selection;
+        /** The model that takes over when the chosen one stays at capacity; null for none. */
+        final LlmCatalog.Selection backup;
         final DeckCardLists deck;
         final String engine;
 
-        Plan(int seat, LlmCatalog.Selection selection, DeckCardLists deck, String engine) {
+        Plan(int seat, LlmCatalog.Selection selection, LlmCatalog.Selection backup, DeckCardLists deck, String engine) {
             this.seat = seat;
             this.selection = selection;
+            this.backup = backup;
             this.deck = deck;
             this.engine = engine;
         }
@@ -217,6 +220,14 @@ final class LlmSeats {
             }
             LlmCatalog.Selection selection = LlmCatalog.select(current, JsonArgs.str(entry, "provider", ""),
                     JsonArgs.str(entry, "model", ""), JsonArgs.str(entry, "effort", ""));
+            String backupModel = JsonArgs.str(entry, "backupModel", "");
+            LlmCatalog.Selection backup = null;
+            if (!backupModel.isEmpty()) {
+                if (backupModel.equals(selection.model)) {
+                    throw new IllegalArgumentException("The backup model of model seat " + seat + " must differ from its model");
+                }
+                backup = LlmCatalog.select(current, selection.provider, backupModel, JsonArgs.str(entry, "backupEffort", ""));
+            }
             if (!entry.has("deck") || !entry.get("deck").isJsonObject()) {
                 throw new IllegalArgumentException("Model seat " + seat + " needs a deck");
             }
@@ -229,7 +240,7 @@ final class LlmSeats {
             if (!BRIDGE.equals(engine) && !MCP.equals(engine)) {
                 throw new IllegalArgumentException("Model seat " + seat + " has an unknown engine: " + engine);
             }
-            plans.add(new Plan(seat, selection, deck, engine));
+            plans.add(new Plan(seat, selection, backup, deck, engine));
         }
         int live = NAMES.live();
         if (live + plans.size() > runtime.maxSeats()) {
@@ -283,6 +294,10 @@ final class LlmSeats {
         request.addProperty("provider", plan.selection.provider);
         request.addProperty("model", plan.selection.model);
         request.addProperty("reasoning", plan.selection.effort);
+        if (plan.backup != null) {
+            request.addProperty("backup_model", plan.backup.model);
+            request.addProperty("backup_reasoning", plan.backup.effort);
+        }
         request.addProperty("catalog", runtime.catalog().toString());
         request.addProperty("table_id", tableId.toString());
         request.addProperty("table_password", JsonArgs.str(args, "password", ""));

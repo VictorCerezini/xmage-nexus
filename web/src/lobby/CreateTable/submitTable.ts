@@ -303,7 +303,14 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
       setBusy(false)
       return
     }
-    llmSeats.push({ seat: llm.seat, provider: llm.provider, model: llm.model, effort: llm.effort, deck: fixed })
+    llmSeats.push({
+      seat: llm.seat,
+      provider: llm.provider,
+      model: llm.model,
+      effort: llm.effort,
+      ...(llm.backupModel ? { backupModel: llm.backupModel, backupEffort: llm.backupEffort } : {}),
+      deck: fixed,
+    })
   }
 
   const seatSkills = effectiveSeatTypes.map((_, i) => seatConfigs[i]?.skill ?? 2)
