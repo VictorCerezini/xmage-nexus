@@ -50,7 +50,7 @@ async function previewBoxes(page: Page): Promise<{ card: Rect; preview: Rect; bo
     return {
       card: rectOf(preview?.querySelector('.floating-card-main') ?? null),
       preview: rectOf(preview),
-      board: rectOf(preview?.closest('.board-shell') ?? null),
+      board: rectOf(document.querySelector('.board-shell')),
       viewport: { width: window.innerWidth, height: window.innerHeight },
     }
   })

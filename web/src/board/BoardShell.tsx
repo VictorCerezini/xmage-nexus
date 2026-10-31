@@ -6,6 +6,7 @@ import HandRail from './HandRail'
 import HandRow from './HandRow'
 import FloatingCardPreview from './FloatingCardPreview'
 import FlyingCardOverlay from './FlyingCardOverlay'
+import { OutsideTableZoom } from './TableZoom'
 import type { BoardPresenter } from './useBoardPresenter'
 import { useStore, useSettings, isMulliganDecision } from '../state/store'
 import { useChromeActions } from '../game/chromeActions'
@@ -92,13 +93,15 @@ export default function BoardShell({ className, testId, presenter, handBar = nul
           targetIds={handBar.targetIds}
         />
       )}
-      <FloatingCardPreview
-        card={presenter.floatingCard}
-        anchorRect={presenter.anchorRect}
-        boardRect={presenter.boardRef.current?.getBoundingClientRect() ?? null}
-        leaving={presenter.previewLeaving}
-      />
-      <FlyingCardOverlay />
+      <OutsideTableZoom>
+        <FloatingCardPreview
+          card={presenter.floatingCard}
+          anchorRect={presenter.anchorRect}
+          boardRect={presenter.boardRef.current?.getBoundingClientRect() ?? null}
+          leaving={presenter.previewLeaving}
+        />
+        <FlyingCardOverlay />
+      </OutsideTableZoom>
     </div>
   )
 }

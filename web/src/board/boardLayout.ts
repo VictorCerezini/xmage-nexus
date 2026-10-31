@@ -27,3 +27,21 @@ export function effectiveBoardLayout(
   if (totalPlayers > MAX_BOARD_PLAYERS) return 'standard'
   return resolveBoardLayout(layout, manual, opponentCount)
 }
+
+/** The all-boards view applies only where the other layouts cannot show everyone. */
+export function showsAllBoards(allBoardsView: boolean, totalPlayers: number): boolean {
+  return allBoardsView && totalPlayers > MAX_BOARD_PLAYERS
+}
+
+/**
+ * Seats for the all-boards view, clockwise in turn order from the bottom-left corner, which is
+ * mine: the next players fill the top row left to right and the rest come back along the bottom.
+ */
+export function allBoardsRows<P extends { playerId: string }>(players: readonly P[], myId?: string): { top: P[]; bottom: P[] } {
+  const start = Math.max(0, players.findIndex((p) => p.playerId === myId))
+  const seats = [...players.slice(start), ...players.slice(0, start)]
+  const [first, ...rest] = seats
+  if (!first) return { top: [], bottom: [] }
+  const columns = Math.ceil(seats.length / 2)
+  return { top: rest.slice(0, columns), bottom: [first, ...rest.slice(columns).reverse()] }
+}

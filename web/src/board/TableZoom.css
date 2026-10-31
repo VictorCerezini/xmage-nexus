@@ -1,0 +1,26 @@
+.game-stage.is-table-zoomed {
+  cursor: grab;
+}
+
+.game-stage.is-table-dragging,
+.game-stage.is-table-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* The preview follows the card it opened from, which the drag is moving away. */
+.game-stage.is-table-dragging ~ .game-zoom-layer .floating-card-preview {
+  display: none;
+}
+
+.game-zoom-layer {
+  display: contents;
+}
+
+.table-zoom-reset {
+  position: fixed;
+  top: var(--sp-2);
+  left: 50%;
+  z-index: 40;
+  transform: translateX(-50%);
+}

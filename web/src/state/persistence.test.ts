@@ -593,6 +593,15 @@ describe('persistence', () => {
     })
   })
 
+  describe('all boards view persistence', () => {
+    it('is off by default and stays on across a save and load', () => {
+      expect(DEFAULT_APPEARANCE.allBoardsView).toBe(false)
+      expect(loadAppearanceSettings().allBoardsView).toBe(false)
+      saveAppearanceSettings({ ...DEFAULT_APPEARANCE, allBoardsView: true })
+      expect(loadAppearanceSettings().allBoardsView).toBe(true)
+    })
+  })
+
   describe('audio settings persistence', () => {
     it('returns defaults when nothing is stored', () => {
       expect(loadAudioSettings()).toEqual(DEFAULT_AUDIO_SETTINGS)

@@ -235,6 +235,24 @@
   color: var(--fg-1);
 }
 
+/* All boards at once: a grid of every board, or one opponent above the own board when off. */
+.opt-preview-all {
+  position: absolute;
+  inset: var(--sp-2);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-2);
+}
+
+.opt-preview-all.is-on {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.opt-preview-all-board {
+  border-radius: var(--r-sm);
+  background: var(--shade-4);
+}
+
 /* Main board with side panel (BRD-6): one large board and a narrow panel of copies, or the
  * opponents' row above one wide board when the switch is off. */
 .opt-preview-spot {

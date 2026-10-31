@@ -102,7 +102,10 @@ function runAction(action: GalleryAction): void {
 
 export default function GalleryScreen() {
   const entries = useMemo(() => buildGalleryEntries(), [])
-  const [activeId, setActiveId] = useState(() => entries[0]?.id ?? '')
+  const [activeId, setActiveId] = useState(() => {
+    const linked = decodeURIComponent(window.location.hash.split('/')[2] ?? '')
+    return entries.some((e) => e.id === linked) ? linked : entries[0]?.id ?? ''
+  })
   const active = entries.find((e) => e.id === activeId) ?? entries[0]
   const savedState = useRef(getState())
   const savedLang = useRef(getLanguage())
@@ -144,6 +147,7 @@ export default function GalleryScreen() {
         ...base.settings,
         boardLayout: active.boardLayout ?? base.settings.boardLayout,
         boardSpotlight: active.boardSpotlight ?? base.settings.boardSpotlight,
+        allBoardsView: active.allBoardsView ?? base.settings.allBoardsView,
         gameUi: active.gameUi ?? base.settings.gameUi,
         uiScale: active.uiScale ?? base.settings.uiScale,
         cjkBoost: active.cjkBoost ?? base.settings.cjkBoost,

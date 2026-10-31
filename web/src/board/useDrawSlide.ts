@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { fxMotionAllowed, fxMotionDuration, fxOpacityAllowed, fxOpacityDuration } from './fx'
 import { drawnCardIds, drawOffset, handReturnPile, pileAnchor } from './drawSlide'
+import { tableZoomOf } from './tableView'
 
 export type DrawMode = 'slide' | 'fade'
 
@@ -60,8 +61,9 @@ export function useDrawSlide(
         const pile = handReturnPile(id)
         const anchorRect = (pile ? anchorElement(scope, { scope: anchorScope, select: pileAnchor(anchorSelect, pile) })?.getBoundingClientRect() : null) ?? libraryRect
         const offset = anchorRect ? drawOffset(anchorRect, slot.getBoundingClientRect()) : { dx: 0, dy: 0 }
-        slot.style.setProperty('--draw-dx', `${offset.dx}px`)
-        slot.style.setProperty('--draw-dy', `${offset.dy}px`)
+        const zoom = tableZoomOf(slot)
+        slot.style.setProperty('--draw-dx', `${offset.dx / zoom}px`)
+        slot.style.setProperty('--draw-dy', `${offset.dy / zoom}px`)
         slot.style.setProperty('--draw-ms', `${ms}ms`)
       }
     }

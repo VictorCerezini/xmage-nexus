@@ -6,7 +6,7 @@ import BoardDemo from './BoardDemo'
 import '../appearance/playmats.css'
 import './OptionPreview.css'
 
-export type OptionPreviewKind = 'handCost' | 'manaSource' | 'rendered' | 'boardFill' | 'boardSpotlight' | 'handRail' | 'handRow' | 'stackCaption'
+export type OptionPreviewKind = 'handCost' | 'manaSource' | 'rendered' | 'boardFill' | 'boardSpotlight' | 'allBoards' | 'handRail' | 'handRow' | 'stackCaption'
 
 const HAND_SAMPLE = [
   { name: 'Shivan Dragon', cost: '{4}{R}{R}' },
@@ -74,6 +74,14 @@ function RenderedPreview({ on }: { on: boolean }) {
   return (
     <span className="opt-preview-rendered">
       {on ? <RenderedCard card={RENDERED_SAMPLE} /> : <span className="opt-preview-image-card"><Art name="Shivan Dragon" /></span>}
+    </span>
+  )
+}
+
+function AllBoardsPreview({ on }: { on: boolean }) {
+  return (
+    <span className={`opt-preview-all${on ? ' is-on' : ''}`}>
+      {Array.from({ length: on ? 6 : 2 }, (_, i) => <span key={i} className="opt-preview-all-board" />)}
     </span>
   )
 }
@@ -153,6 +161,7 @@ export default function OptionPreview({ kind, on = true }: { kind: OptionPreview
       {kind === 'rendered' && <RenderedPreview on={on} />}
       {kind === 'boardFill' && <Tiles fill={on} />}
       {kind === 'boardSpotlight' && <SpotlightPreview on={on} />}
+      {kind === 'allBoards' && <AllBoardsPreview on={on} />}
       {kind === 'handRail' && <HandRailPreview on={on} />}
       {kind === 'handRow' && <HandRowPreview on={on} />}
       {kind === 'stackCaption' && <StackCaptionPreview on={on} />}

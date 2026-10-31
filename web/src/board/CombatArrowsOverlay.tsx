@@ -74,6 +74,14 @@ export default function CombatArrowsOverlay({
     }
 
     const boardRect = boardEl.getBoundingClientRect()
+    // The arrows are drawn inside the zoomed interface, which scales them along with the board.
+    const zoom = boardEl.offsetWidth > 0 ? boardRect.width / boardEl.offsetWidth : 1
+    const unzoomed = (rect: DOMRect) => zoom === 1 ? rect : new DOMRect(
+      boardRect.left + (rect.left - boardRect.left) / zoom,
+      boardRect.top + (rect.top - boardRect.top) / zoom,
+      rect.width / zoom,
+      rect.height / zoom,
+    )
     const newArrows: ArrowItem[] = []
 
     const defeatedPlayerIds = new Set(
@@ -97,7 +105,7 @@ export default function CombatArrowsOverlay({
     const getCenter = (id: string): { x: number; y: number; rect: DOMRect } | null => {
       if (isDefeatedOrLost(id)) return null
       const centerOf = (el: Element) => {
-        const rect = el.getBoundingClientRect()
+        const rect = unzoomed(el.getBoundingClientRect())
         if (rect.width > 0 && rect.height > 0) {
           // Centros a píxel entero: los rects traen fracciones que varían unas
           // milésimas entre sesiones (layout de WebKit) y, si el punto cae en

@@ -65,6 +65,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: 'board-layout', section: 'board', tab: 'layout', group: (t) => t('lobby', 'appearance_board_title'), label: (t) => t('lobby', 'appearance_board_title'), hint: (t) => t('lobby', 'appearance_board_hint') },
   { id: 'board-fill', section: 'board', tab: 'layout', group: fieldHand, label: (t) => t('lobby', 'board_fill_show'), hint: (t) => t('lobby', 'board_fill_show_hint') },
   { id: 'board-spotlight', section: 'board', tab: 'layout', group: fieldHand, label: (t) => t('lobby', 'board_spotlight_show'), hint: (t) => t('lobby', 'board_spotlight_show_hint') },
+  { id: 'all-boards', section: 'board', tab: 'layout', group: fieldHand, label: (t) => t('lobby', 'all_boards_show'), hint: (t) => t('lobby', 'all_boards_show_hint') },
   { id: 'hand-rail', section: 'board', tab: 'layout', group: fieldHand, label: (t) => t('lobby', 'hand_rail_show'), hint: (t) => t('lobby', 'hand_rail_show_hint') },
   { id: 'hand-row', section: 'board', tab: 'layout', group: fieldHand, label: (t) => t('lobby', 'hand_row_show'), hint: (t) => t('lobby', 'hand_row_show_hint') },
   { id: 'card-style', section: 'board', tab: 'cards', group: (t) => t('lobby', 'card_style_title'), label: (t) => t('lobby', 'card_style_title'), hint: (t) => t('lobby', 'card_style_hint') },

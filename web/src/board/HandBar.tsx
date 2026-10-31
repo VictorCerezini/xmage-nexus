@@ -172,7 +172,9 @@ export default function HandBar({
         .map((panel) => panel.getBoundingClientRect())
         .filter((r) => r.width > 0 && r.top < barRect.bottom && r.bottom > barRect.top)
       const reserve = computeHandSideReserve({ left: hostRect.left, right: hostRect.right }, panels)
-      const availW = hostRect.width - reserve.left - reserve.right
+      // The zoom scales these rects; the sizing below is in unzoomed pixels.
+      const zoom = host.offsetWidth > 0 ? hostRect.width / host.offsetWidth : 1
+      const availW = (hostRect.width - reserve.left - reserve.right) / zoom
       if (availW <= 0) return
       const sizing = computeHandBarSizing(availW, entries.length)
       setSideReserve(reserve)

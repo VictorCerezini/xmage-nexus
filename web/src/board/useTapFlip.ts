@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
+import { tableZoomOf } from './tableView'
 import { fxMotionAllowed } from './fx'
 
 const DURATION_MS = 260
@@ -29,10 +30,14 @@ export function useTapFlip(el: HTMLElement | null): void {
     const next = new Map<string, Spot>()
     const moves: { node: HTMLElement; dx: number; dy: number; tapChanged: boolean }[] = []
     let anyTapChanged = false
+    // Measured against the scope in unzoomed pixels: dragging or zooming the view moves every
+    // card on screen, and that must not read as the cards having changed place.
+    const origin = el.getBoundingClientRect()
+    const zoom = tableZoomOf(el)
     el.querySelectorAll<HTMLElement>('[data-card-id][data-tapped]').forEach((node) => {
       const id = node.dataset.cardId as string
       const r = node.getBoundingClientRect()
-      const spot: Spot = { x: r.left + r.width / 2, y: r.top + r.height / 2, tapped: node.dataset.tapped ?? '' }
+      const spot: Spot = { x: (r.left + r.width / 2 - origin.left) / zoom, y: (r.top + r.height / 2 - origin.top) / zoom, tapped: node.dataset.tapped ?? '' }
       next.set(id, spot)
       const before = previous.current.get(id)
       if (!before) return

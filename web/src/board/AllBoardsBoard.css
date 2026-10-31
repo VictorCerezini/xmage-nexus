@@ -1,0 +1,22 @@
+/* The pod's cells and zones, on as many columns as the table needs. Unlike the 2×2 pod, the
+   hand spans the whole shell: the own seat's cell can be narrow. */
+.all-boards-board .hand-bar {
+  right: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* The hand and the action prompt float over the shell: keep the bottom row's seats clear of
+   them, or they would hide those players' life totals. */
+.all-boards-board {
+  --all-boards-hand-clearance: 104px;
+  --all-boards-dial-clearance: 270px;
+}
+
+.all-boards-board:has(.hand-bar) .pod-row--bottom {
+  padding-bottom: var(--all-boards-hand-clearance);
+}
+
+.all-boards-board .pod-row--bottom {
+  padding-right: var(--all-boards-dial-clearance);
+}

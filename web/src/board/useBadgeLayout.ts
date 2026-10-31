@@ -1,5 +1,6 @@
 import { useLayoutEffect, type RefObject } from 'react'
 import { resolveBadgeLayout, type BadgeBox } from './badgeLayout'
+import { tableZoomOf } from './tableView'
 
 function zoneRect(el: HTMLElement): DOMRect {
   const kids = [...el.children].filter((c) => c instanceof HTMLElement) as HTMLElement[]
@@ -44,7 +45,7 @@ export function useBadgeLayout(slotRef: RefObject<HTMLElement | null>): void {
       const { shifts, hidden } = resolveBadgeLayout(boxes, { top: slotRect.top, bottom: slotRect.bottom })
       zones.forEach((z, i) => {
         const dy = shifts.get(String(i)) ?? 0
-        if (dy) z.style.translate = `0 ${dy}px`
+        if (dy) z.style.translate = `0 ${dy / tableZoomOf(slot)}px`
         if (hidden.has(String(i))) z.setAttribute('data-badge-hidden', 'true')
       })
     }

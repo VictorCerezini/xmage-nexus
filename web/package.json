@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "try:all-boards": "vite --port 5199 --open /#/gallery/board:all-boards-6",
     "build": "npm run gen-splash-i18n && tsc -b && vite build",
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.e2e.json",
     "lint": "oxlint src e2e",

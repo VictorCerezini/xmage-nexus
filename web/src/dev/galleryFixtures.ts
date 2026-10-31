@@ -132,6 +132,8 @@ export interface GalleryEntry {
   boardLayout?: 'standard' | 'pod' | 'arena'
   /** Main board with side panel (`boardSpotlight`, BRD-6); omitted = the viewer's setting. */
   boardSpotlight?: boolean
+  /** All boards at once on tables of 5+ (`allBoardsView`); omitted = the viewer's setting. */
+  allBoardsView?: boolean
   seatFocus?: string
   /** Table interface for this state; omitted = the viewer's setting. */
   gameUi?: GameUi
@@ -5285,6 +5287,67 @@ export function buildGalleryEntries(): GalleryEntry[] {
 
   // Variantes de tablero: settings.boardLayout real decide el layout efectivo
   // (`effectiveBoardLayout`: pod/arena solo con rivales; >4 jugadores ⇒ standard).
+  if (FOUR_PLAYER_GAME) {
+    const opp = opponentPlayer(FOUR_PLAYER_GAME)
+    const tableOf = (players: number) => {
+      let table: GameView = FOUR_PLAYER_GAME
+      for (let i = 5; i <= players; i++) table = withClonedOpponent(table, opp, `c${i}`, `Player ${i}`)
+      return table
+    }
+    for (const players of [5, 6, 8, 10]) {
+      entries.push({
+        id: `board:all-boards-${players}`,
+        group: 'Tablero',
+        label: `All boards (${players} players)`,
+        description: `FFA of ${players} with the all-boards setting on. Scroll to zoom, hold the middle button to drag.`,
+        phase: 'game',
+        game: tableOf(players),
+        gameId: GANG_BLOCK_FRAME?.gameId ?? null,
+        allBoardsView: true,
+      })
+    }
+    const crowded = (table: GameView): GameView => ({
+      ...table,
+      players: table.players?.map((p) => {
+        const cards = Object.entries(p.battlefield ?? {})
+        const copies = cards.flatMap(([id, card]) => Array.from({ length: 6 }, (_, i) => {
+          const copyId = `${id}-x${i}`
+          return [copyId, { ...card, id: copyId }] as const
+        }))
+        return { ...p, battlefield: Object.fromEntries(copies) as typeof p.battlefield }
+      }),
+    })
+    entries.push({
+      id: 'board:all-boards-crowded-6',
+      group: 'Tablero',
+      label: 'All boards (6 players, crowded)',
+      description: 'A late game: every player with many permanents.',
+      phase: 'game',
+      game: crowded(tableOf(6)),
+      gameId: GANG_BLOCK_FRAME?.gameId ?? null,
+      allBoardsView: true,
+    }, {
+      id: 'board:all-boards-classic-6',
+      group: 'Tablero',
+      label: 'All boards (6 players, classic interface)',
+      description: 'The all-boards view on the classic interface, with its control strip.',
+      phase: 'game',
+      game: tableOf(6),
+      gameId: GANG_BLOCK_FRAME?.gameId ?? null,
+      allBoardsView: true,
+      gameUi: 'v1',
+    })
+    entries.push({
+      id: 'board:one-board-6',
+      group: 'Tablero',
+      label: 'One board at a time (6 players)',
+      description: 'The same table of 6 with the all-boards setting off.',
+      phase: 'game',
+      game: tableOf(6),
+      gameId: GANG_BLOCK_FRAME?.gameId ?? null,
+      allBoardsView: false,
+    })
+  }
   entries.push({
     id: 'board:pod-4',
     group: 'Tablero',

@@ -290,6 +290,8 @@ function LayoutTab() {
           value={settings.boardFill} onChange={(v) => setSetting('boardFill', v)} />
         <OptionSwitch id="board-spotlight" kind="boardSpotlight" label={t('lobby', 'board_spotlight_show')} hint={t('lobby', 'board_spotlight_show_hint')}
           value={settings.boardSpotlight} onChange={(v) => setSetting('boardSpotlight', v)} />
+        <OptionSwitch id="all-boards" kind="allBoards" label={t('lobby', 'all_boards_show')} hint={t('lobby', 'all_boards_show_hint')}
+          value={settings.allBoardsView} onChange={(v) => setSetting('allBoardsView', v)} />
         <OptionSwitch id="hand-rail" kind="handRail" label={t('lobby', 'hand_rail_show')} hint={t('lobby', 'hand_rail_show_hint')}
           value={settings.handRail} onChange={(v) => setSetting('handRail', v)} />
         <OptionSwitch id="hand-row" kind="handRow" label={t('lobby', 'hand_row_show')} hint={t('lobby', 'hand_row_show_hint')}

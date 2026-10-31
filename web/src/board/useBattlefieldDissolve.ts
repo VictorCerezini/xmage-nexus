@@ -3,6 +3,7 @@ import type { PlayerView } from '../net/types'
 import { fxMotionAllowed, fxMotionDuration } from './fx'
 import { cardNodesIn } from './cardNodes'
 import { boardWipeDelay } from './boardWipe'
+import { tableZoomOf } from './tableView'
 
 export const DISSOLVE_MS = 300
 export const DISSOLVE_GHOST_TAIL_MS = 100
@@ -67,11 +68,12 @@ function spawnGhost(node: HTMLElement, box: Box, host: HTMLElement | null, ghost
 
   const inHost = host?.isConnected === true
   const origin = inHost ? host.getBoundingClientRect() : null
+  const zoom = inHost ? tableZoomOf(host) : 1
   const left = inHost && origin && host
-    ? box.cx - box.width / 2 - origin.left - host.clientLeft + host.scrollLeft
+    ? (box.cx - origin.left) / zoom - box.width / 2 - host.clientLeft + host.scrollLeft
     : box.cx - box.width / 2
   const top = inHost && origin && host
-    ? box.cy - box.height / 2 - origin.top - host.clientTop + host.scrollTop
+    ? (box.cy - origin.top) / zoom - box.height / 2 - host.clientTop + host.scrollTop
     : box.cy - box.height / 2
   ghost.style.position = inHost ? 'absolute' : 'fixed'
   ghost.style.left = `${left}px`

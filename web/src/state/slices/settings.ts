@@ -59,6 +59,7 @@ export interface SettingsState {
   handRow: boolean
   boardFill: boolean
   boardSpotlight: boolean
+  allBoardsView: boolean
   boardSpotlightPanel: number
   stackCaption: boolean
   gameUi: GameUi
@@ -94,6 +95,7 @@ export function loadAppearanceSlice() {
     handRow: normalizeHandRow(appearance.handRow),
     boardFill: normalizeBoardFill(appearance.boardFill),
     boardSpotlight: normalizeBoardSpotlight(appearance.boardSpotlight),
+    allBoardsView: appearance.allBoardsView === true,
     boardSpotlightPanel: normalizeBoardSpotlightPanel(appearance.boardSpotlightPanel),
     stackCaption: normalizeStackCaption(appearance.stackCaption),
     gameUi: normalizeGameUi(appearance.gameUi),

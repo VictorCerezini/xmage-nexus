@@ -70,7 +70,9 @@ import { SPACE_PASS_REGION_SELECTOR, SPACE_SHORTCUT_OFF_SELECTOR } from '../ui/c
 import { crossZonePlayables } from '../board/crossZone'
 import { resolveTargetHits, targetZoneKindOf } from '../board/targetZones'
 import { combatActorsFrom } from '../state/gameUtils'
-import { effectiveBoardLayout } from '../board/boardLayout'
+import { effectiveBoardLayout, showsAllBoards } from '../board/boardLayout'
+import AllBoardsBoard from '../board/AllBoardsBoard'
+import TableZoom, { OutsideTableZoom, TableZoomLayerContext } from '../board/TableZoom'
 import { MAX_BOARD_PLAYERS, spectatorHomeSeat } from '../board/boardShared'
 import { useOverlayGutters } from './useOverlayGutters'
 import { useTranslation } from '../i18n'
@@ -143,6 +145,8 @@ export default function GameScreen() {
   const gameRootRef = useRef<HTMLDivElement>(null)
   const gameBodyRef = useRef<HTMLDivElement>(null)
   const boardWrapRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [zoomLayer, setZoomLayer] = useState<HTMLElement | null>(null)
   const v2 = settings.gameUi === 'v2'
   const [drawerTab, setDrawerTab] = useState<DrawerTab | null>(null)
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab | null>(null)
@@ -403,6 +407,7 @@ export default function GameScreen() {
       : effectiveBoardLayout(settings.boardLayout, settings.boardLayoutManual ?? false, opps.length, totalPlayers)
   const isArenaLayout = effectiveLayout === 'arena'
   const isPodLayout = effectiveLayout === 'pod'
+  const allBoards = showsAllBoards(settings.allBoardsView, totalPlayers)
   const seatLiveIds = liveOpponentIds(game?.players)
   const seatFocus = useSeatFocus(seatLiveIds, game)
   const seatPillsClickable = v2 && isArenaLayout && !isSpectator && seatLiveIds.length >= 2
@@ -430,7 +435,7 @@ export default function GameScreen() {
   useOverlayGutters(boardWrapRef, v2 && isArenaLayout, `${isSpectator}|${!!game}|${chromeLeft}|${chromeRight}`)
 
   const stripCenter = (
-        isPodLayout || (v2 && isArenaLayout) || spotlightOn ? (
+        isPodLayout || allBoards || (v2 && isArenaLayout) || spotlightOn ? (
           <TurnOrderRing
             players={game?.players ?? []}
             activePlayerId={game?.activePlayerId ?? ''}
@@ -557,12 +562,14 @@ export default function GameScreen() {
     <PromptSlotProvider value={promptSlot} hand={handPromptSlot} onHandSlot={setHandPromptSlot}>
       <ChromeActionsContext.Provider value={v2 ? chromeActions : null}>
       <DividerSlotContext.Provider value={setDividerSlot}>
+      <TableZoomLayerContext.Provider value={zoomLayer}>
         <div
           className={`game board-surface${v2 ? ' game--v2' : ''}${rewindView ? ' game--rewind' : ''}`}
           ref={gameRootRef}
           data-rewind={rewindView ? 'true' : undefined}
           style={{ zoom: inverseZoom(settings.uiScale) }}
         >
+          <div className="game-stage" ref={stageRef}>
           {v2 ? (
             <>
               <header className="game-top game-top--v2">{topBar}</header>
@@ -584,7 +591,9 @@ export default function GameScreen() {
               {playmatId !== 'classic' && (
                 <div className="playmat-layer" data-playmat={playmatId} data-testid="playmat-layer" style={matStyle} aria-hidden="true" />
               )}
-              {isArenaLayout ? (
+              {allBoards ? (
+                <AllBoardsBoard {...boardProps} />
+              ) : isArenaLayout ? (
                 spotlightOn ? (
                   <SpotlightBoard {...boardProps} homeId={homeId ?? ''} mainId={spotlight.mainId!} onSelectSeat={spotlight.select} />
                 ) : (
@@ -597,15 +606,17 @@ export default function GameScreen() {
               )}
               <LowLifeVignette game={displayGame} />
               {settings.turnRecap && <TurnRecapStrip />}
-              <FeedbackOverlay />
-              <ImpactOverlay />
-              <CoinFlipOverlay />
-              <ShuffleOverlay />
-              <LibraryPeekOverlay />
-              <DiceRollOverlay />
-              <DesignationOverlay />
-              <ProjectileOverlay />
-              <HandRevealOverlay />
+              <OutsideTableZoom>
+                <FeedbackOverlay />
+                <ImpactOverlay />
+                <CoinFlipOverlay />
+                <ShuffleOverlay />
+                <LibraryPeekOverlay />
+                <DiceRollOverlay />
+                <DesignationOverlay />
+                <ProjectileOverlay />
+                <HandRevealOverlay />
+              </OutsideTableZoom>
               {v2 && stackCount > 0 && (
                 <StackDeck
                   stack={displayStack}
@@ -649,6 +660,9 @@ export default function GameScreen() {
               combatMode={combat?.mode ?? null}
             />
           </div>
+          </div>
+          <div className="game-zoom-layer" ref={setZoomLayer} />
+          <TableZoom stageRef={stageRef} />
           <PriorityOrbLayer orbs={priorityOrbs} onDone={doneOrb} />
           <FeedbackDialog />
           <UserRequestDialog />
@@ -666,6 +680,7 @@ export default function GameScreen() {
           <SideboardScreen />
           <TournamentPanel />
         </div>
+      </TableZoomLayerContext.Provider>
       </DividerSlotContext.Provider>
       </ChromeActionsContext.Provider>
     </PromptSlotProvider>
