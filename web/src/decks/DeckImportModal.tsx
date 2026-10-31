@@ -4,6 +4,7 @@ import { useState, useMemo, useRef } from 'react'
 import { canReadClipboard } from '../utils/clipboard'
 import { parseAnyDeck } from './parseDck'
 import type { DeckCard } from '../lobby/decks'
+import type { DeckStackPiles } from './stackPiles'
 import Icon from '../ui/Icon'
 import DialogShell from '../ui/DialogShell'
 import { useTranslation } from '../i18n'
@@ -14,6 +15,7 @@ export interface ImportResult {
   cards: DeckCard[]
   sideboard: DeckCard[]
   commanders?: DeckCard[]
+  stackPiles?: DeckStackPiles
   mode: 'add' | 'replace'
 }
 
@@ -93,6 +95,7 @@ export function DeckImportModal({
       cards: parsed.cards,
       sideboard: parsed.sideboard,
       commanders: parsed.commanders,
+      stackPiles: parsed.stackPiles,
       mode,
     })
     onClose()

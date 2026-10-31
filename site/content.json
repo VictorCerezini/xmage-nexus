@@ -9,17 +9,18 @@
     "stack": "XMage Server 1.4.62-V1 · Mage.Proxy (Java 17) · React 19 + Vite + TS"
   },
   "release": {
-    "version": "0.4.3",
-    "date": "2026-10-04",
-    "tag": "v0.4.3",
+    "version": "0.7.0",
+    "date": "2026-10-28",
+    "tag": "v0.7.0",
     "status": "published",
-    "notes": "v0.4.3: upgrades the XMage engine to 1.4.62-V1 (beta.xmage.today) and ships rebuilt components (server + proxy) from the nexus fork. Upstream 1.4.62 fixes the oneway thread-pool leak itself, so the fork delegation patch is dropped; golden frames and all contract guards were re-recorded against 1.4.62.",
+    "notes": "v0.7.0: the interface is rebuilt for simplicity and for phones. The lobby groups tables by state, one deck editor replaces the stacks screen, the card inspector shows the battlefield state, settings become a searchable side menu and the game side panel v2 lands. Components are reused from v0.6.2 (no Java changes since then).",
     "highlights": [
-      "XMage 1.4.62-V1: new sets/cards and engine fixes from upstream",
-      "Thread-pool leak fix now comes from upstream (idle thread expiry) - the nexus one-file patch is retired",
-      "All 119+ golden frames re-recorded against 1.4.62 and validated (contract + replay)",
-      "Components are rebuilt in this release (server + proxy 1.4.62)",
-      "Dual server flavors (beta + XDHS) keep working; XDHS updated to its own 1.6.1 engine"
+      "Lobby: tables grouped by state, one aligned line per table, coloured format chips, filters folded away on phones",
+      "One deck editor: piles grouped by type, mana value, colour, identity, rarity, EDH power or freely, with sheets on phones",
+      "Card inspector: battlefield state, Front/Back for double-faced cards, bottom sheet below 760 px",
+      "Settings: searchable side menu with a live board preview, drill-down on phones",
+      "Game side panel v2: tab icons with log, chat, deck tracker, commander and mechanics views",
+      "In-browser demo retired"
     ],
     "downloads": [
       { "os": "Windows", "arch": "x64", "label": "Windows (x64)", "url": "https://github.com/Adamychen/xmage-nexus/releases/latest" },
@@ -34,7 +35,7 @@
     "i18n": {
       "es": {
         "skip": "Saltar al contenido",
-        "nav": { "demo": "Cómo jugar", "features": "Features", "formats": "Formatos", "download": "Descarga", "roadmap": "Roadmap", "status": "Status", "cta": "Descargar", "try": "Demo" },
+        "nav": { "demo": "Cómo jugar", "features": "Features", "formats": "Formatos", "download": "Descarga", "roadmap": "Roadmap", "status": "Status", "cta": "Descargar" },
         "hero": {
           "eyebrow": "Cliente de MTG no oficial para el motor de reglas XMage",
           "title": "XMage en tu navegador, sin instalar Java",
@@ -43,13 +44,9 @@
           "secondaryCta": "Ver en GitHub",
           "playCta": "Probar ahora",
           "playNote": "Partidas reales · abre el cliente y elige tu servidor · sin instalar nada",
-          "demoCta": "Probar la demo",
-          "demoNote": "Demo interactiva: el cliente real con datos de ejemplo, sin instalar ni crear cuenta. Las partidas siguen un guion.",
           "trust": ["React 19 + TypeScript", "XMage 1.4.62-V1", "Proxy multi-tenant", "Web o escritorio"]
         },
         "demoTitle": "Así se juega",
-        "demoOpen": "Abrir la demo interactiva",
-        "demoOpenNote": "Recorre el lobby, el ranking ELO, el creador de mazos con EDHREC, los ajustes y 12 escenarios de partida.",
         "demoSubtitle": "Sin descargas ni cuentas: abre la web y en segundos estás en una mesa. Clips de partidas reales sobre el motor de XMage.",
         "demoSteps": [
           { "title": "Entra sin instalar nada", "desc": "Elige servidor, pon tu nombre y crea una mesa contra la IA o contra otros jugadores. Todo en el navegador.", "clip": "login-and-create-table", "alt": "Lobby de XMage Nexus creando una mesa" },
@@ -131,7 +128,7 @@
       },
       "en": {
         "skip": "Skip to content",
-        "nav": { "demo": "How to play", "features": "Features", "formats": "Formats", "download": "Download", "roadmap": "Roadmap", "status": "Status", "cta": "Download", "try": "Demo" },
+        "nav": { "demo": "How to play", "features": "Features", "formats": "Formats", "download": "Download", "roadmap": "Roadmap", "status": "Status", "cta": "Download" },
         "hero": {
           "eyebrow": "Unofficial MTG client for the XMage rules engine",
           "title": "XMage in your browser, no Java install",
@@ -140,13 +137,9 @@
           "secondaryCta": "View on GitHub",
           "playCta": "Play now",
           "playNote": "Real games · opens the client, pick your server · no install",
-          "demoCta": "Try the demo",
-          "demoNote": "Interactive demo: the real client on sample data, no install or account. Games follow a script.",
           "trust": ["React 19 + TypeScript", "XMage 1.4.62-V1", "Multi-tenant proxy", "Web or desktop"]
         },
         "demoTitle": "See it in action",
-        "demoOpen": "Open the interactive demo",
-        "demoOpenNote": "Tour the lobby, ELO ranking, deck builder with EDHREC, settings and 12 playable scenarios.",
         "demoSubtitle": "No downloads, no account: open the page and you're at a table in seconds. Real gameplay clips on the XMage engine.",
         "demoSteps": [
           { "title": "Join without installing", "desc": "Pick a server, type a name and create a table against the AI or other players. All in your browser.", "clip": "login-and-create-table", "alt": "XMage Nexus lobby creating a table" },
@@ -239,7 +232,7 @@
     { "id": 1, "name": "Web Client: login + lobby + board", "status": "done", "date": "2026-08-08", "desc": "React 19 + Vite, lobby, chat, live tables/users, HD card cache, 1v1 board + spectator." },
     { "id": 2, "name": "Full Interaction", "status": "done", "date": "2026-09-12", "desc": "London mulligan, priority loops, visual targeting, mana payment, combat UI, X-costs, modals, counters. Live 2026-09-12: tokens (Dragon Fodder), auras (Rancor), counters (Ballista X=2), planeswalkers (Jace +2/Brainstorm), equipment + evasion (Serra flying/vigilance/haste/shroud), order dialogs, Bo3 sideboard via raw WS (UI submit validated live 2026-09-18; see COMPONENT_PARITY U4/U11)." },
     { "id": 2.5, "name": "1v1 Competitive Parity", "status": "done", "date": "2026-09-12", "desc": "Card selection modals (HD CardGrid), phase stops/shortcuts (F4-F11; F1 does not exist by design), match clocks, DFCs/Sagas, interactive discard from revealed hand (Thoughtseize). Live 2026-09-12: no-clock timer hidden via isUnlimitedTime, singular pile viewer, spectator game chat, honest seat/password error paths." },
-    { "id": 3, "name": "Visual Polish, Audio & Deck Builder", "status": "done", "date": "2026-09-03", "desc": "Web Audio engine (22 sfx, 4 buses incl. adaptive generative music), VFX (donut color pie, bars, shake, spell-weight slam, hit sparks, destroy/exile/token deaths, countered-spell shatter, transform flip, bounce swirl, life-gain motes, library riffle, flicker, monarch/initiative passing, elimination crack, dice rolls, phasing, mulligan deal, day/night sky, sacrifice, spell copies, planeswalker ultimates, revealed-card flip, mana spent flying to the stack, goad badge, library running out, blocker lunge, low-life vignette, foil + 3D-tilt preview, cinematic end screen with match stats), selectable playmats (7 static + 2 animated, one tinted by colour identity), in-app deck builder (Scryfall full syntax t:creature c:red cmc<=3 o:haste, help, 9-lang, curve+donut, vertical CMC sort, plain/dck/arena export+clipboard, file drag-drop, goldfish T1-3)." },
+    { "id": 3, "name": "Visual Polish, Audio & Deck Builder", "status": "done", "date": "2026-09-03", "desc": "Web Audio engine (22 sfx, 4 buses incl. adaptive generative music), VFX (donut color pie, bars, shake, spell-weight slam, hit sparks, destroy/exile/token deaths, countered-spell shatter, transform flip, bounce swirl, life-gain motes, library riffle, flicker, monarch/initiative passing, elimination crack, dice rolls, phasing, mulligan deal, day/night sky, sacrifice, spell copies, planeswalker ultimates, revealed-card flip, mana spent flying to the stack, goad badge, library running out, blocker lunge, low-life vignette, foil + 3D-tilt preview, cinematic end screen with match stats), selectable playmats (7 static + 2 animated, one tinted by colour identity), in-app deck builder (Scryfall full syntax t:creature c:red cmc<=3 o:haste, help, 9-lang, curve+donut, vertical CMC sort, plain/dck/arena export+clipboard, file drag-drop, goldfish T1-3). Deck editor reworked 2026-10-28: one editor with Piles and List views, free piles saved in the .dck LAYOUT with each copy placed on its own, Separate/Together copies, a sideboard band and a phone layout." },
     { "id": 4, "name": "Desktop Packaging (Tauri)", "status": "done", "date": "2026-09-19", "desc": "Tauri launcher (Windows/macOS/Linux) with server + proxy + jlinked JRE on first run and signed auto-updater (latest.json); published as v0.1.0 (2026-09-10), v0.2.0 (2026-09-19), v0.3.0 (2026-09-27), v0.4.0 (2026-09-30), v0.4.1 (2026-10-01, beta + XDHS flavors), v0.4.2 (2026-10-02, signed macOS bundle) and v0.4.3 (2026-10-04, XMage 1.4.62-V1 with rebuilt components). Clean-machine install validation (SmartScreen/Gatekeeper) still tracked in ROADMAP §4.1 V7." },
     { "id": 5, "name": "Advanced Formats & Tournaments", "status": "done", "date": "2026-09-13", "desc": "Commander pod (PodBoard 2x2 render clamp 4 — server supports FFA 3-10 — + TurnOrderRing + CommanderDamageMatrix), Booster Draft & Sealed (8-player, DraftScreen + ConstructScreen), Swiss/SE brackets (TournamentBracket/Panel) + Replay entry from the match history (view-only; transport controls pending). Live 2026-09-13: Sealed Elimination end-to-end (audit-sealed-2, joinTournament discovery, auto-submit, 40-card game to Finished) + tournament wizard with real data (19 types). Draft picks and sealed ConstructScreen submit via web UI validated live 2026-09-14." },
     { "id": 6, "name": "Wizard Crear Mesa — cierre de gaps vs desktop NewTableDialog", "status": "done", "date": "2026-09-06", "desc": "NumPlayers (min/max del oráculo, Commander/FFA 3-10), asientos por plaza SeatConfig[] (tipo+deck), validación deck↔game (port checkMatchOptions), limited fix F8 + limited:true, wins 1-5, mulligans 0-5, persistencia mage_createTable_v1, proxy contrato extendido (mulliganType/customLife/Hand/planeChase/bannedUsers), Custom Options UI (badge Custom(n)), draft exhaustive 21 tournamentTypes + 46 draftCubes (draftCubeName), simDecks por plaza. Delta 2026-09-06: skill por plaza 1-10 (seatSkills web→SimManager→SimPlayer) + skill propia, UI de vetados y de rondas (0=auto), range/attack por flags del servidor, validación por paso, hint vivo por plaza. F11: plazas HUMAN en espera (solo-humanos, tipos normalizados a enum canónico). F6 emblemas fuera de alcance. Docs history/lobby_roadmap §F, oráculo server-state-schema.json." }
@@ -253,7 +246,7 @@
     { "category": "Connectivity & Lobby", "feature": "Table Filters & Private Messaging", "official": "yes", "nexus": "yes", "phase": "Completed" },
     { "category": "Connectivity & Lobby", "feature": "Match Clocks / Visible Timers", "official": "yes", "nexus": "yes", "phase": "Completed" },
     { "category": "Deck Management", "feature": "Predefined / JSON Deck Loading", "official": "yes", "nexus": "yes", "phase": "Completed" },
-    { "category": "Deck Management", "feature": "Full In-App Deck Builder (Scryfall)", "official": "yes", "nexus": "yes", "phase": "Completed" },
+    { "category": "Deck Management", "feature": "Full In-App Deck Builder (Scryfall): one editor with Piles and List views; piles grouped by type, mana value, colour, colour identity, EDH power, rarity or freely (each copy placed on its own) and saved in the .dck LAYOUT; sideboard band. Every XMage DragCardGrid grouping is covered", "official": "yes", "nexus": "yes", "phase": "Completed" },
     { "category": "Deck Management", "feature": "Text / Arena / Standard Import & Export (file picker first, detected format marked in the select, bulk printing resolution, legality review)", "official": "yes", "nexus": "yes", "phase": "Completed" },
     { "category": "In-Game Board", "feature": "Hand, Battlefield (HD Art) — card overlay toggles: hand cost pips, P/T badge, summoning-sickness indicator", "official": "yes", "nexus": "yes", "phase": "Completed" },
     { "category": "In-Game Board", "feature": "Stack, Library, Graveyard, Exile", "official": "yes", "nexus": "yes", "phase": "Completed" },

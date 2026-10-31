@@ -17,13 +17,15 @@ test that names the decision.
 | `mana.md` | `MNA` | Paying costs: sources, pool, smart payment, X |
 | `lobby.md` | `LBY` | Login, table list, creating and joining tables, waiting room, invites |
 | `board.md` | `BRD` | Battlefield bands per kind, multiplayer seats, focusing one opponent's board |
-| `settings.md` | `SET` | Player settings not owned by another area: card preview size |
+| `settings.md` | `SET` | The settings dialog (menu, groups, search, board preview, phone list) and the settings no other area owns |
 | `decks.md` | `DCK` | Deck gallery, deck builder, stacks view |
 | `appearance.md` | `APR` | Light and dark appearance, which surfaces stay dark, contrast in both |
+| `cards.md` | `CRD` | Looking at a card: the card inspector's state, faces, layout and text |
 | `accessibility.md` | `ACC` | Reduce Transparency, Increase Contrast, text and touch sizes, safe areas, phone login, hover |
+| `panel.md` | `PNL` | The game's side panel: header and tabs, log, chat, deck tracker, commander damage, mechanics |
 
 Areas without a file yet are written the first time someone changes them (see `ROADMAP.md` §4.12).
-Candidates: stack, game log and chat, draft, spectating.
+Candidates: stack, draft, spectating.
 
 ## What goes where
 

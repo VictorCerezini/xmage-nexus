@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { fakeOnly } from './support/fake-mode'
 import { withFakeServer } from './support/fake-backend'
-import { installCapture, login, type CaptureBuffers } from './support/start-game'
+import { installCapture, login, openCreateDialog, type CaptureBuffers } from './support/start-game'
 import { makeBaseScenario } from '../fixtures/fake'
 import { LLM_FAIL_REASON, llmSeatsScenario } from '../fixtures/scenarios/llmSeats'
 import { TABLE } from '../fixtures/table-names'
@@ -12,7 +12,7 @@ const NEXT = /Siguiente|Next/
 const CREATE = /Crear Mesa|Create Table/
 
 async function openSeatsStep(page: Page, tableName: string) {
-  await page.getByRole('button', { name: /Nueva|New/i }).first().click()
+  await openCreateDialog(page)
   await expect(page.getByRole('heading', { name: /Nueva mesa|Crear Mesa|Create Table/i })).toBeVisible()
   await page.getByPlaceholder(/Modern Casual Bo3/).fill(tableName)
   for (let i = 0; i < 3; i++) await page.getByRole('button', { name: NEXT }).click()

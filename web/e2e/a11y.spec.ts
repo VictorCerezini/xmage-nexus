@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { fakeOnly } from './support/fake-mode'
 import { withFakeServer } from './support/fake-backend'
-import { login } from './support/start-game'
+import { login, openCreateDialog } from './support/start-game'
 import { makeBaseScenario } from '../fixtures/fake'
 import { playerGameView } from '../src/__fixtures__/gameViews'
 
@@ -32,7 +32,7 @@ test('the lobby has no WCAG A/AA violations @a11y', async ({ page }) => {
 test('the create-table dialog has no WCAG A/AA violations @a11y', async ({ page }) => {
   await withFakeServer(scenario, async () => {
     await login(page, 'a11y-user')
-    await page.getByRole('button', { name: /Nueva/i }).first().click()
+    await openCreateDialog(page)
     await expect(page.getByRole('heading', { name: /Nueva mesa|Crear Mesa/i })).toBeVisible()
     expect(await violations(page, '.dlg-panel')).toEqual([])
   })
@@ -52,6 +52,12 @@ test('every settings section has no WCAG A/AA violations @a11y', async ({ page }
       const id = await nav.getAttribute('data-testid')
       await nav.click()
       for (const v of await violations(page, '[data-testid="settings-modal"]')) found.push(`${id}: ${v}`)
+      if (id === 'settings-nav-board') {
+        for (const tab of ['cards', 'overlays', 'table']) {
+          await page.getByTestId(`settings-board-tab-${tab}`).click()
+          for (const v of await violations(page, '[data-testid="settings-modal"]')) found.push(`${id}/${tab}: ${v}`)
+        }
+      }
     }
     expect(found).toEqual([])
   })

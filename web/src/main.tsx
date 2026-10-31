@@ -14,10 +14,6 @@ installErrorCapture()
 preloadInitialLocale()
 
 async function start() {
-  if (__DEMO__) {
-    const { seedDemoSession } = await import('./demo/boot')
-    await seedDemoSession()
-  }
   // before the first render: the reload reconnect and the login both read the answer
   await loadFriendsJoin()
   createRoot(document.getElementById('root')!).render(

@@ -66,6 +66,7 @@ const WHITELIST = new Set<string>([
   'game.tab_chat',
   'game.tab_log',
   'game.visual_feed',
+  'game.chat_lobby_short',
   'lobby.create_option_booster_draft',
   'lobby.create_option_elimination',
   'lobby.create_option_sealed',
@@ -93,7 +94,6 @@ const WHITELIST = new Set<string>([
   'keywords.opus_name',
   'keywords.station_name',
   'keywords.warp_name',
-  'demo.scenario_planeswalker_title',
 ])
 
 function flatten(obj: TranslationSchema): Record<string, string> {
