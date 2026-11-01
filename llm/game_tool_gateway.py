@@ -264,6 +264,10 @@ class GameToolGateway:
         """Answer every later game call with game_over, so this player never acts in the match's next game."""
         self.game_finished = True
 
+    def resume_game(self):
+        """A rollback brought this player back into the game it had been eliminated from."""
+        self.game_finished = False
+
     def close(self):
         self.server.shutdown()
         self.server.server_close()

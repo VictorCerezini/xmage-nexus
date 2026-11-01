@@ -93,10 +93,16 @@ const ELIMINATION_YOU_RE = /^you\s+(?:have\s+)?lost the game\b/i
 export function sniffElimination(message: string, gameId: string | null | undefined): void {
   if (!gameId) return
   const s = getState()
-  if (s.gameId !== gameId || s.elimination?.gameId === gameId) return
   const me = s.game?.players?.find((p) => p.controlled)
   if (!me) return
   const text = cleanMageText(message)
+  // A rollback to before the loss: the player is back, and can be eliminated again.
+  if (s.gameId === gameId && s.elimination?.gameId === gameId
+    && text.trim().toLowerCase() === `${me.name.trim().toLowerCase()} returns to the game`) {
+    setState({ elimination: null })
+    return
+  }
+  if (s.gameId !== gameId || s.elimination?.gameId === gameId) return
   if (ELIMINATION_YOU_RE.test(text)) {
     setState({ elimination: { gameId, dismissed: false } })
     return

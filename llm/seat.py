@@ -194,7 +194,10 @@ def match_line(log_text, username, event):
 def native_terminal_reason(log_text, username):
     if f"[{username}] Game over: " in log_text:
         return "game_over"
-    if f"[{username}] Player death detected from game log" in log_text:
+    # A rollback to before the elimination brings the player back, and they can be eliminated again.
+    eliminated = log_text.rfind(f"[{username}] Player death detected from game log")
+    returned = log_text.rfind(f"[{username}] Player returned to the game after a rollback")
+    if eliminated > returned:
         return "player_eliminated"
     return None
 
@@ -339,6 +342,9 @@ def run_player(request, *, start_player=None, runtime=None):
         player.require_game_only_events(trace)
         usage.extend(player.usage(trace))
         terminal_reason = decided(number)
+        if terminal_reason is None and ended_at is not None:
+            # A rollback brought the player back while it was reporting the elimination.
+            terminal_reason = "player_eliminated"
         if terminal_reason is not None and (stopped_after_report or agent.returncode == 0):
             return terminal_reason, None
         reason = player.failure_reason(trace) or f"see {events.name}"
@@ -362,6 +368,23 @@ def run_player(request, *, start_player=None, runtime=None):
             if time.monotonic() >= deadline:
                 return None
             time.sleep(0.5)
+
+    def wait_for_return(number, game_started):
+        """Stay at the table once eliminated: True when a rollback brought this player back, False once
+        the game is over for everyone. No model runs meanwhile."""
+        while True:
+            check_session(owner, created, run)
+            if bridge.poll() is not None or time.monotonic() - game_started > MAX_SECONDS:
+                return False
+            reason = decided(number)
+            if reason is None:
+                return True
+            text = bridge_text()
+            if reason != "player_eliminated" or games_started(text, request["username"]) > number:
+                return False
+            if match_line(text, request["username"], "Match over") is not None:
+                return False
+            time.sleep(1)
 
     def can_switch():
         return bool(request.get("backup_model")) and "model_switch" not in manifest
@@ -395,6 +418,15 @@ def run_player(request, *, start_player=None, runtime=None):
         while True:
             terminal_reason, reason = play_attempt(number, attempt, prompt, gateway, game_started, usage)
             if reason is None:
+                if terminal_reason == "player_eliminated" and wait_for_return(number, game_started):
+                    attempt += 1
+                    manifest.setdefault("recoveries", []).append(
+                        {"game": number, "attempt": attempt, "reason": "returned by a rollback", "model": playing["model"]}
+                    )
+                    gateway.resume_game()
+                    gateway.new_player()
+                    continue
+                terminal_reason = decided(number) or terminal_reason
                 break
             # A reached plan limit does not come back within the game; anything else gets every retry first.
             switching = providers.lasting_limit(reason) or tries == len(RETRY_DELAYS)

@@ -137,6 +137,17 @@ describe('sniffElimination', () => {
     })
   })
 
+  it('a rollback that returns the player clears the elimination', () => {
+    sniffElimination('Me has lost the game', 'game-1')
+    expect(getState().elimination).not.toBeNull()
+    sniffElimination('Opp returns to the game', 'game-1')
+    expect(getState().elimination).not.toBeNull()
+    sniffElimination('Me returns to the game', 'game-1')
+    expect(getState().elimination).toBeNull()
+    sniffElimination('Me has lost the game', 'game-1')
+    expect(getState().elimination).not.toBeNull()
+  })
+
   it('marca eliminado cuando el jugador controlado pierde la partida', () => {
     sniffElimination('Me has lost the game', 'game-1')
     expect(getState().elimination).toEqual({ gameId: 'game-1', dismissed: false })

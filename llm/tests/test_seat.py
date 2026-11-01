@@ -176,6 +176,17 @@ def test_seat_outside_player_count_is_rejected(harness):
         ("[ChatGPT 2] Game over: test", "game_over"),
         ("[ChatGPT 2] Player death detected from game log", "player_eliminated"),
         ("[ChatGPT 3] Player death detected from game log", None),
+        (
+            "[ChatGPT 2] Player death detected from game log\n"
+            "[ChatGPT 2] Player returned to the game after a rollback",
+            None,
+        ),
+        (
+            "[ChatGPT 2] Player death detected from game log\n"
+            "[ChatGPT 2] Player returned to the game after a rollback\n"
+            "[ChatGPT 2] Player death detected from game log",
+            "player_eliminated",
+        ),
         ("[ChatGPT 2] Zombie game detected: declaring game dead", None),
         ("[ChatGPT 2] CRITICAL: sendPlayerBoolean failed", None),
     ],
@@ -238,10 +249,14 @@ def undecided(harness, monkeypatch):
         bridge_log.append(log)
         return SimpleNamespace(poll=lambda: None)
 
-    def game_over():
-        bridge_log[0].write(f"[{request['username']}] Game over: fake test result\n")
+    def bridge_says(line):
+        bridge_log[0].write(f"[{request['username']}] {line}\n")
         bridge_log[0].flush()
 
+    def game_over():
+        bridge_says("Game over: fake test result")
+
+    game_over.bridge_says = bridge_says
     runtime.launch_bridge = launch_bridge
     monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
     monkeypatch.setattr(seat, "RETRY_DELAYS", (0,) * len(seat.RETRY_DELAYS))
@@ -460,6 +475,55 @@ def test_a_game_that_ends_while_waiting_to_retry_is_not_replayed(undecided, monk
     assert len(manifest["recoveries"]) == 1
     assert len(starts) == 1
     assert finished == [True]
+
+
+def test_a_rollback_brings_an_eliminated_player_back_into_the_game(undecided, monkeypatch):
+    request, runtime, _stopped, gateway, game_over = undecided
+    prompts, resumed = [], []
+    gateway.finish_game = lambda: None
+    gateway.resume_game = lambda: resumed.append(True)
+
+    def start(prompt, out, *_args, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            game_over.bridge_says("Player death detected from game log")
+        else:
+            game_over()
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    def later(_seconds):
+        if len(prompts) == 1 and not resumed:
+            game_over.bridge_says("Player returned to the game after a rollback")
+
+    monkeypatch.setattr(seat.time, "sleep", later)
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["games"][0]["terminal_reason"] == "game_over"
+    assert manifest["recoveries"][0]["reason"] == "returned by a rollback"
+    assert resumed == [True]
+    assert len(prompts) == 2
+    assert seat.RESUME_PROMPT in prompts[1]
+
+
+def test_an_eliminated_player_stays_until_the_game_ends_for_everyone(undecided, monkeypatch):
+    request, runtime, _stopped, gateway, game_over = undecided
+    starts, resumed = [], []
+    gateway.finish_game = lambda: None
+    gateway.resume_game = lambda: resumed.append(True)
+
+    def start(_prompt, *_args, **_kwargs):
+        starts.append(True)
+        game_over.bridge_says("Player death detected from game log")
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    monkeypatch.setattr(seat.time, "sleep", lambda _: game_over())
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["games"][0]["terminal_reason"] == "game_over"
+    assert resumed == []
+    assert len(starts) == 1
 
 
 def test_a_game_decided_before_the_player_stopped_is_not_replayed(undecided):

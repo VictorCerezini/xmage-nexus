@@ -380,17 +380,24 @@ public final class BridgeCallbackProcessorService
         }
     }
 
+    /** Game log lines colour the name, and "Claude 1" must not match a line about "Claude 10". */
+    static boolean logSays(String message, String username, String what) {
+        return message != null && message.replaceAll("<[^>]*>", "").contains(username + " " + what);
+    }
+
     @Override
     public void handleChatMessage(Object data) {
         if (data instanceof ChatMessage chatMessage) {
             if (chatMessage.getMessageType() == ChatMessage.MessageType.GAME) {
                 String message = chatMessage.getMessage();
                 if (!processorState.gameState().playerDead()
-                        && message != null
-                        && message.contains("has lost the game")
-                        && message.contains(username)) {
+                        && logSays(message, username, "has lost the game")) {
                     processorState.gameState().markPlayerDead();
                     logger.info("[" + username + "] Player death detected from game log");
+                } else if (processorState.gameState().playerDead()
+                        && logSays(message, username, "returns to the game")) {
+                    processorState.gameState().clearPlayerDead();
+                    logger.info("[" + username + "] Player returned to the game after a rollback");
                 }
             } else if (chatMessage.getMessageType() == ChatMessage.MessageType.TALK) {
                 String user = chatMessage.getUsername();
