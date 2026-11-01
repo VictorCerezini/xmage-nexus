@@ -112,11 +112,6 @@
   flex: 1 1 0;
 }
 
-.pod-board.pod-board--br-out .hand-bar {
-  width: calc(100% - var(--seat-strip-w));
-  max-width: calc(100% - var(--seat-strip-w));
-}
-
 .pod-cell,
 .pod-row,
 .arena-opp-cell {

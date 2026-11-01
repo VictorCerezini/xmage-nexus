@@ -30,7 +30,19 @@ const HAND_DRAG_THRESHOLD_PX = 8
 const HAND_SIDE_PANELS = '.pz-bottom-row, [data-testid="game-dock"], .spotlight-panel'
 const SCALED_COPY = '.spotlight-copy'
 const SPOTLIGHT_MAIN_ROW = '.spotlight-main .pz-bottom-row'
+const PLAYER_ROW = '.pz-bottom-row'
+const SEAT_CELL = '.pod-cell'
+const MY_SEAT_CELL = '.pod-cell--me'
 import './targetZone.css'
+
+/** What the hand must stay clear of. The player row stretches across its seat, so it counts by what
+ *  it draws, and only in the player's own seat: other seats sit above the hand, not beside it. */
+function handSidePanels(scope: HTMLElement): Element[] {
+  return Array.from(scope.querySelectorAll<HTMLElement>(HAND_SIDE_PANELS))
+    .filter((panel) => !panel.closest(SCALED_COPY) && !panel.matches(SPOTLIGHT_MAIN_ROW))
+    .filter((panel) => !panel.closest(SEAT_CELL) || panel.closest(MY_SEAT_CELL))
+    .flatMap((panel) => (panel.matches(PLAYER_ROW) ? Array.from(panel.children) : [panel]))
+}
 
 /** Printed mana cost as bubbles over the card's top edge (split cards show
  *  both halves). The server never sends the reduced cost of a card in hand.
@@ -163,34 +175,51 @@ export default function HandBar({
     const host = el.parentElement ?? el
     const scope = el.closest<HTMLElement>('.board-wrap') ?? host
 
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => measure())
+    const watched = new WeakSet<Element>()
+    const watch = (target: Element) => {
+      if (watched.has(target)) return
+      watched.add(target)
+      ro?.observe(target)
+    }
+
     const measure = () => {
       const hostRect = host.getBoundingClientRect()
       if (hostRect.width <= 0) return
-      const barRect = el.getBoundingClientRect()
-      const panels = Array.from(scope.querySelectorAll<HTMLElement>(HAND_SIDE_PANELS))
-        .filter((panel) => !panel.closest(SCALED_COPY) && !panel.matches(SPOTLIGHT_MAIN_ROW))
-        .map((panel) => panel.getBoundingClientRect())
-        .filter((r) => r.width > 0 && r.top < barRect.bottom && r.bottom > barRect.top)
-      const reserve = computeHandSideReserve({ left: hostRect.left, right: hostRect.right }, panels)
-      // The zoom scales these rects; the sizing below is in unzoomed pixels.
+      // The zoom scales these rects; everything below is in unzoomed pixels.
       const zoom = host.offsetWidth > 0 ? hostRect.width / host.offsetWidth : 1
-      const availW = (hostRect.width - reserve.left - reserve.right) / zoom
-      if (availW <= 0) return
-      const sizing = computeHandBarSizing(availW, entries.length)
-      setSideReserve(reserve)
+      // In a pod the hand lives in the player's quadrant; the all-boards table shares its whole width.
+      const seat = el.closest('.all-boards-board') ? null : scope.querySelector(MY_SEAT_CELL)
+      const seatRect = seat?.getBoundingClientRect()
+      const bandRect = seatRect && seatRect.width > 0 ? seatRect : hostRect
+      const panelEls = handSidePanels(scope)
+      panelEls.forEach((panel) => {
+        watch(panel)
+        // The row itself resizes when the seat does, which moves what it draws.
+        if (panel.parentElement?.matches(PLAYER_ROW)) watch(panel.parentElement)
+      })
+      // Which panels the hand reaches is judged by the tallest hand this width allows, never by the
+      // current one: its height follows from this very measure, and would make the answer depend on the past.
+      const handTop = hostRect.bottom - computeHandBarSizing(bandRect.width / zoom, entries.length).barHeight * zoom
+      const panels = panelEls
+        .map((panel) => panel.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.top < hostRect.bottom && r.bottom > handTop)
+        .map((r) => ({ left: (r.left - bandRect.left) / zoom, right: (r.right - bandRect.left) / zoom }))
+      const bandW = bandRect.width / zoom
+      const taken = computeHandSideReserve({ left: 0, right: bandW }, panels)
+      const left = (bandRect.left - hostRect.left) / zoom + taken.left
+      const right = (hostRect.right - bandRect.right) / zoom + taken.right
+      const sizing = computeHandBarSizing(bandW - taken.left - taken.right, entries.length)
+      setSideReserve((prev) => (prev.left === left && prev.right === right ? prev : { left, right }))
       setCardW(sizing.cardW)
       setGap(sizing.gap)
       setHoverScale(computeHandHoverScale(sizing.cardW, window.innerHeight))
       setViewportH(window.innerHeight)
     }
 
+    watch(host)
     measure()
     window.addEventListener('resize', measure)
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
-    ro?.observe(host)
-    scope.querySelectorAll<HTMLElement>(HAND_SIDE_PANELS).forEach((panel) => {
-      if (!panel.closest(SCALED_COPY)) ro?.observe(panel)
-    })
     const mo = typeof MutationObserver === 'undefined' ? null : new MutationObserver(measure)
     mo?.observe(scope, { childList: true })
     return () => {

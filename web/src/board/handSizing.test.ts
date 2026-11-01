@@ -19,6 +19,7 @@ import {
   HAND_BAR_MAX_CARD_W,
   HAND_BAR_MAX_GAP,
   HAND_BAR_MAX_SPAN,
+  HAND_BAR_MIN_BAND_W,
   HAND_BAR_MIN_CARD_W,
   HAND_BAR_MIN_VISIBLE_RATIO,
   HAND_BAR_PANEL_GAP_PX,
@@ -153,6 +154,18 @@ describe('the hand stays in the centre band between the side panels', () => {
 
   it('HND-2: a right panel reserves its inner edge plus the gap on the right', () => {
     expect(computeHandSideReserve(band, [dock])).toEqual({ left: 0, right: 1008 - 742 + HAND_BAR_PANEL_GAP_PX })
+  })
+
+  it('HND-2: panels that would leave too narrow a band give way in proportion', () => {
+    const wide = { left: 0, right: 900 }
+    const reserve = computeHandSideReserve(band, [wide, dock])
+    expect(band.right - band.left - reserve.left - reserve.right).toBeCloseTo(HAND_BAR_MIN_BAND_W)
+    expect(reserve.left / reserve.right).toBeCloseTo((900 + HAND_BAR_PANEL_GAP_PX) / (1008 - 742 + HAND_BAR_PANEL_GAP_PX))
+  })
+
+  it('HND-2: a band narrower than the minimum keeps nothing reserved', () => {
+    const narrow = { left: 0, right: HAND_BAR_MIN_BAND_W - 10 }
+    expect(computeHandSideReserve(narrow, [{ left: 0, right: 40 }])).toEqual({ left: 0, right: 0 })
   })
 
   it('both sides reserve independently', () => {

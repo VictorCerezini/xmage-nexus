@@ -254,14 +254,15 @@ test('HND-1: the own hand spans the whole bottom row of a 1v1 pod @fullflow @han
       }
       return { bar: rectOf(bar), pod: rectOf(pod) }
     })
+    // La banda va del panel propio al de la derecha (HND-2): lo que importa es que no se quede en la mitad izquierda.
     expect(
       boxes.bar.width,
-      'la mano ocupa toda la fila inferior del pod',
-    ).toBeGreaterThanOrEqual(boxes.pod.width * 0.9)
+      'la mano ocupa la fila inferior del pod entre sus paneles',
+    ).toBeGreaterThanOrEqual(boxes.pod.width * 0.6)
     expect(
-      boxes.bar.x,
-      'la mano empieza en el borde izquierdo del pod',
-    ).toBeLessThanOrEqual(boxes.pod.x + 2)
+      boxes.bar.x + boxes.bar.width,
+      'la mano pasa de la mitad del pod',
+    ).toBeGreaterThan(boxes.pod.x + boxes.pod.width * 0.75)
 
     await expectHandBarLayout(page)
     expect(pageErrors).toEqual([])

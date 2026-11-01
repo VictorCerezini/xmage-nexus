@@ -10,6 +10,8 @@ export const HAND_BAR_PADDING_X = 24
 export const HAND_BAR_PADDING_Y = 12
 /** Clear space kept between the hand's centre band and a side panel it sits beside. */
 export const HAND_BAR_PANEL_GAP_PX = 16
+/** The narrowest band side panels may leave the hand: past it they give way, so the hand stays on the table. */
+export const HAND_BAR_MIN_BAND_W = 160
 
 export const HAND_BAR_PEEK_RATIO = 0.5
 /** How far below the band a resting card is pushed, in band heights (`--hand-sink-k` in HandBar.css). */
@@ -90,7 +92,8 @@ export interface HandSideReserve {
 }
 
 /** The part of the hand's band that side panels take from each edge. A panel left of the band's
- *  centre reserves its inner edge (plus the gap) from the left edge; one right of it, from the right. */
+ *  centre reserves its inner edge (plus the gap) from the left edge; one right of it, from the right.
+ *  Both give way in proportion when they would leave less than the minimum band. */
 export function computeHandSideReserve(band: HandSpan, panels: HandSpan[]): HandSideReserve {
   const mid = (band.left + band.right) / 2
   const reserve = { left: 0, right: 0 }
@@ -103,7 +106,10 @@ export function computeHandSideReserve(band: HandSpan, panels: HandSpan[]): Hand
       if (inset > 0) reserve.right = Math.max(reserve.right, inset + HAND_BAR_PANEL_GAP_PX)
     }
   }
-  return reserve
+  const taken = reserve.left + reserve.right
+  const room = Math.max(0, band.right - band.left - HAND_BAR_MIN_BAND_W)
+  if (taken <= room) return reserve
+  return { left: (reserve.left * room) / taken, right: (reserve.right * room) / taken }
 }
 
 export function computeHandBarSizing(availW: number, count: number): HandBarSizing {

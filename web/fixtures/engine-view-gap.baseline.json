@@ -81,6 +81,7 @@
       "draws",
       "drawsFromBottom",
       "drawsOnOpponentsTurn",
+      "gaveUp",
       "hand",
       "human",
       "idleTimeout",
@@ -136,6 +137,7 @@
       "gameOptions",
       "gameStopped",
       "id",
+      "leftPlayerCards",
       "meldCards",
       "minimumDeckSize",
       "mulligan",
@@ -155,8 +157,8 @@
     ]
   },
   "meta": {
-    "gapHash": "c240cf56be59a5e1fc5638f0bca14cc0fb310da6717cb49198ddb517ce4a18a6",
-    "sourceCommit": "5a8f9f71e46567e3f518ee30f598b35fc06e5a5a",
-    "generatedAt": "2026-10-25T23:38:55.688Z"
+    "gapHash": "f59ac7b8fbcfcc781d7d400229f2015eab6ee66dce72f6db4578f8331f4884e1",
+    "sourceCommit": "3964a06373c6c0329503e94e9d5759a1245632a1",
+    "generatedAt": "2026-11-01T20:20:36.075Z"
   }
 }

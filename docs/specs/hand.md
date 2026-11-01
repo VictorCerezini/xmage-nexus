@@ -26,12 +26,17 @@ As cards are added the fan spreads across the width it has (at most 1100 px) whi
 keeps its size; only when each card would show less than 35% of its width do the cards shrink,
 down to a 64 px minimum. A bigger hand never gets bigger cards. The fan lives in the centre band
 between the bottom-left player panel (with its mana pool) and the command wheel on the right, and
-never covers either.
+never covers either. Only what the player's own seat draws counts as a panel, however wide that seat
+grows when its neighbours are out; other seats never do. In a pod the band is the player's cell. The
+result does not depend on what the hand looked like before, and when panels would leave it less
+than 160 px they give way: the hand stays inside the window whichever seats are out.
 
 - Why: the sizing solved for a pitch the CSS never rendered, so 15 cards collapsed into ~195 px of
   a 1008 px bar with 92 px cards (`ac89f94a5b`); the spread hand then covered the mana pool row and
-  the command wheel, so the band is measured from the panels (`77b4dc20b6`).
-- Guard: `src/board/handSizing.test.ts` · `src/board/HandBar.test.tsx` · `e2e/hand-width.spec.ts` · `e2e/hand-bar.spec.ts`
+  the command wheel, so the band is measured from the panels (`77b4dc20b6`). That measure took the
+  whole player row as a panel, so seats going out in multiplayer pushed the hand past the window edge:
+  a discard could not be answered and the game hung, and a refresh only helped sometimes.
+- Guard: `src/board/handSizing.test.ts` · `src/board/HandBar.test.tsx` · `e2e/hand-width.spec.ts` · `e2e/hand-bar.spec.ts` · `e2e/hand-seats.spec.ts`
 
 ### HND-3 · Pointing at a hand card grows it in place, with no floating preview
 The card under the pointer straightens and grows until it is legible (about 260 px wide, never
