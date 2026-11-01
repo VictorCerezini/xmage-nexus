@@ -3606,6 +3606,21 @@ public class TestPlayer implements Player {
     }
 
     @Override
+    public void markGaveUp() {
+        computerPlayer.markGaveUp();
+    }
+
+    @Override
+    public boolean hasGivenUp() {
+        return computerPlayer.hasGivenUp();
+    }
+
+    @Override
+    public void returnToGame() {
+        computerPlayer.returnToGame();
+    }
+
+    @Override
     public boolean hasLeft() {
         return computerPlayer.hasLeft();
     }

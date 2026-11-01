@@ -138,6 +138,7 @@ public abstract class PlayerImpl implements Player, Serializable {
 
     // conceded or connection lost game
     protected boolean left;
+    protected boolean gaveUp; // conceded, quit or closed the game: a rollback doesn't bring them back
     // set if the player quits the complete match
     protected boolean quit;
     // set if the player lost match because of priority timeout
@@ -247,6 +248,7 @@ public abstract class PlayerImpl implements Player, Serializable {
         this.turns = player.turns;
 
         this.left = player.left;
+        this.gaveUp = player.gaveUp;
         this.quit = player.quit;
         this.timerTimeout = player.timerTimeout;
         this.idleTimeout = player.idleTimeout;
@@ -469,6 +471,7 @@ public abstract class PlayerImpl implements Player, Serializable {
 
         // reset is necessary because in tournament player will be used for each round
         this.left = false;
+        this.gaveUp = false;
         this.quit = false;
         this.timerTimeout = false;
         this.idleTimeout = false;
@@ -2721,6 +2724,7 @@ public abstract class PlayerImpl implements Player, Serializable {
 
     @Override
     public void concede(Game game) {
+        this.gaveUp = true;
         game.setConcedingPlayer(playerId);
 
         lost(game); // it's ok to be ignored by "can't lose abilities" here (setConcedingPlayer done all work above)
@@ -2807,6 +2811,23 @@ public abstract class PlayerImpl implements Player, Serializable {
     @Override
     public boolean hasLeft() {
         return this.left;
+    }
+
+    @Override
+    public void markGaveUp() {
+        this.gaveUp = true;
+    }
+
+    @Override
+    public boolean hasGivenUp() {
+        return this.gaveUp;
+    }
+
+    @Override
+    public void returnToGame() {
+        this.loses = false;
+        this.left = false;
+        this.abortReset();
     }
 
     @Override

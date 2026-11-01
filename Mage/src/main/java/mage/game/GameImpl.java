@@ -120,6 +120,7 @@ public abstract class GameImpl implements Game {
     protected transient PlayerQueryEventSource playerQueryEventSource = new PlayerQueryEventSource();
 
     protected Map<UUID, Card> gameCards = new HashMap<>();
+    protected Map<UUID, Card> leftPlayerCards = new HashMap<>(0); // a rollback can bring their owner back
     protected Map<UUID, MeldCard> meldCards = new HashMap<>(0);
 
     protected Map<Zone, Map<UUID, MageObject>> lki = new EnumMap<>(Zone.class);
@@ -237,6 +238,7 @@ public abstract class GameImpl implements Game {
         //this.playerQueryEventSource = game.playerQueryEventSource; // client-server part, not need on copy/simulations
 
         this.gameCards = CardUtil.deepCopyObject(game.gameCards);
+        this.leftPlayerCards = CardUtil.deepCopyObject(game.leftPlayerCards);
         this.meldCards = CardUtil.deepCopyObject(game.meldCards);
 
         this.lki = CardUtil.deepCopyObject(game.lki);
@@ -1110,6 +1112,7 @@ public abstract class GameImpl implements Game {
     @Override
     public void cleanUp() {
         gameCards.clear();
+        leftPlayerCards.clear();
         meldCards.clear();
     }
 
@@ -3624,6 +3627,7 @@ public abstract class GameImpl implements Game {
             Entry<UUID, Card> entry = it.next();
             Card card = entry.getValue();
             if (card.isOwnedBy(playerId)) {
+                leftPlayerCards.put(entry.getKey(), card);
                 it.remove();
             }
         }
@@ -4211,6 +4215,25 @@ public abstract class GameImpl implements Game {
             gameStates.clear();
             // because restore uses the objects without copy each copy the state again
             gameStatesRollBack.put(getTurnNum(), state.copy());
+
+            // state restore keeps who lost on purpose (see PlayerImpl.restore), so whoever lost after
+            // that turn started would have their board back but stay out of the game
+            for (Player playerObject : getPlayers().values()) {
+                Player playerBefore = restore.getPlayer(playerObject.getId());
+                if (playerBefore != null && playerBefore.isInGame()
+                        && (playerObject.hasLost() || playerObject.hasLeft())
+                        && !playerObject.hasGivenUp() && !playerObject.hasWon() && !playerObject.hasDrew()) {
+                    playerObject.returnToGame();
+                    leftPlayerCards.entrySet().removeIf(entry -> {
+                        if (!entry.getValue().isOwnedBy(playerObject.getId())) {
+                            return false;
+                        }
+                        gameCards.put(entry.getKey(), entry.getValue());
+                        return true;
+                    });
+                    informPlayers(playerObject.getLogName() + " returns to the game");
+                }
+            }
 
             for (Player playerObject : getPlayers().values()) {
                 if (playerObject.isInGame()) {

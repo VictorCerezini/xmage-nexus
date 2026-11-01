@@ -576,6 +576,18 @@ public interface Player extends MageItem, Copyable<Player> {
 
     void leave();
 
+    /**
+     * The player conceded, quit or closed the game, so a rollback must not bring them back.
+     */
+    void markGaveUp();
+
+    boolean hasGivenUp();
+
+    /**
+     * Rollback to before the player lost: they are in the game again.
+     */
+    void returnToGame();
+
     void concede(Game game);
 
     /**

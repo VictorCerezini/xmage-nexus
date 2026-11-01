@@ -281,6 +281,10 @@ public class GameSessionPlayer extends GameSessionWatcher {
     public void quitGame() {
         if (game != null) {
             final Player player = game.getPlayer(playerId);
+            if (player != null) {
+                // also for a player who already lost: nobody is left to play if a rollback returned them
+                player.markGaveUp();
+            }
             if (player != null && player.isInGame()) {
                 callExecutor.execute(
                         () -> {
