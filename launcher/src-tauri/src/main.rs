@@ -289,6 +289,10 @@ fn rotate_log(path: &Path) {
     }
 }
 
+/// The server's memory limit. Java's default, a quarter of the RAM, is what a big table of
+/// mad bots runs out of: the server then stops answering and the players get disconnected.
+const SERVER_MAX_RAM: &str = "-XX:MaxRAMPercentage=90";
+
 fn java_bin(jre_dir: &Path) -> PathBuf {
     if cfg!(windows) {
         jre_dir.join("bin").join("java.exe")
@@ -555,6 +559,7 @@ fn bootstrap(app: &AppHandle, remote: Option<ComponentsManifest>) -> Result<(), 
     // The server's built-in settings wrote here without a size limit; nothing writes it any more.
     let _ = std::fs::remove_file(server_data.join("mageserver.log"));
     let mut server_cmd = Command::new(&java);
+    server_cmd.arg(SERVER_MAX_RAM);
     server_cmd.arg(format!(
         "-Dlog4j.configuration={}",
         layout::file_url(&log_config)
