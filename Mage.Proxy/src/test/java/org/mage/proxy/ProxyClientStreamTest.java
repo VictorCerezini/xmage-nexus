@@ -263,10 +263,49 @@ class ProxyClientStreamTest {
     }
 
     @Test
-    void aSessionLostRightAfterItsRelinkWasTakenOverByAnotherLogin() {
+    void relinksOnlyStopWhenSeveralInARowDidNotLast() {
         long now = 10_000_000;
-        assertTrue(ProxyClient.isSuperseded(true, now - 1000, now));
-        assertFalse(ProxyClient.isSuperseded(false, now - 1000, now), "a first loss relinks");
-        assertFalse(ProxyClient.isSuperseded(true, now - ProxyClient.SUPERSEDED_WINDOW_MS, now), "a relink long ago relinks again");
+        int max = ProxyClient.MAX_QUICK_RELINKS;
+        assertFalse(ProxyClient.relinksStoppedLasting(true, 1, now - 1000, now), "a struggling server may drop a relink");
+        assertFalse(ProxyClient.relinksStoppedLasting(true, max - 1, now - 1000, now));
+        assertTrue(ProxyClient.relinksStoppedLasting(true, max, now - 1000, now));
+        assertFalse(ProxyClient.relinksStoppedLasting(false, max, now - 1000, now), "a loss after a real login relinks");
+        assertFalse(ProxyClient.relinksStoppedLasting(true, max, now - ProxyClient.QUICK_RELINK_WINDOW_MS, now), "a relink long ago lasted");
+    }
+
+    @Test
+    void onlyARelinkThatDidNotLastCountsTowardsGivingUp() {
+        long now = 10_000_000;
+        assertEquals(1, ProxyClient.countRelink(false, 3, now - 1000, now), "the first relink after a real login");
+        assertEquals(4, ProxyClient.countRelink(true, 3, now - 1000, now));
+        assertEquals(1, ProxyClient.countRelink(true, 3, now - ProxyClient.QUICK_RELINK_WINDOW_MS, now), "the last one lasted");
+    }
+
+    private static ClientCallback userMessage(String... lines) {
+        ClientCallback cb = new ClientCallback(ClientCallbackMethod.SHOW_USERMESSAGE, null, new ArrayList<>(List.of(lines)));
+        cb.setMessageId(1);
+        return cb;
+    }
+
+    @Test
+    void theServerSaysWhenAnotherLoginTookOver() {
+        assertTrue(ProxyClient.isLoggedInElsewhereNotice(userMessage("Error while connecting to server", ProxyClient.LOGGED_IN_ELSEWHERE_NOTICE)));
+        assertFalse(ProxyClient.isLoggedInElsewhereNotice(userMessage("Error while connecting to server", "Wrong username or password.")));
+        assertFalse(ProxyClient.isLoggedInElsewhereNotice(new ClientCallback(ClientCallbackMethod.GAME_UPDATE, GAME)));
+    }
+
+    @Test
+    void anotherLoginEndsTheSessionWithoutARelink() throws Exception {
+        WebSocket page = conn();
+        client.attach(page, "1", null, -1);
+        client.onCallback(userMessage("Error while connecting to server", ProxyClient.LOGGED_IN_ELSEWHERE_NOTICE));
+        client.disconnected(true, true);
+
+        List<JsonObject> frames = gateway.to(page);
+        assertEquals(1, frames.stream().filter(f -> "serverLink".equals(f.get("type").getAsString())).count());
+        assertTrue(frames.stream().anyMatch(f -> "serverLink".equals(f.get("type").getAsString())
+                && "superseded".equals(f.get("reason").getAsString())));
+        assertEquals(1, frames.stream().filter(f -> "disconnected".equals(f.get("type").getAsString())).count());
+        assertFalse(client.isRelinking());
     }
 }

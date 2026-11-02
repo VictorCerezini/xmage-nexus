@@ -98,11 +98,20 @@ public class ProxyClient implements MageClient, CommandContext {
     private volatile long lastLoginAt = 0;
     private volatile boolean lastLoginWasRelink = false;
     /**
-     * A session logged in again by the relink that is lost again this soon was taken over by
-     * another login of the same account (the server disconnects the older instance of a user,
-     * which looks exactly like a lost link): relinking again would start a login fight.
+     * What the server sends a session it disconnects for another login of the same account: that
+     * disconnection looks exactly like a lost link, and relinking would start a login fight.
      */
-    static final long SUPERSEDED_WINDOW_MS = 120_000;
+    static final String LOGGED_IN_ELSEWHERE_NOTICE = "This account was logged in somewhere else.";
+    private volatile boolean superseded = false;
+    /** A relink whose session is lost again this soon did not last. */
+    static final long QUICK_RELINK_WINDOW_MS = 120_000;
+    /**
+     * How many relinks in a row that did not last to try before giving up. A struggling server
+     * drops a session more than once, so a few must be allowed; the limit is for a server that
+     * sends no notice, where two logins of an account would keep logging each other out.
+     */
+    static final int MAX_QUICK_RELINKS = 5;
+    private volatile int quickRelinks = 0;
 
     private final SimManager simManager;
     private final LlmSeats llmSeats;
@@ -193,7 +202,7 @@ public class ProxyClient implements MageClient, CommandContext {
             logger.info("The XMage server stopped answering this session's pings");
             connected = false;
             if (lastConnection != null) {
-                startRelink();
+                linkLost();
             } else {
                 broadcastDisconnected();
             }
@@ -487,6 +496,7 @@ public class ProxyClient implements MageClient, CommandContext {
         // BEFORE connectStart: the reconnect restore of the new session can arrive while
         // the login is still running and must survive it.
         sequencer.reset();
+        superseded = false;
         synchronized (handshakeBuffer) {
             handshakeBuffer.clear();
         }
@@ -587,24 +597,49 @@ public class ProxyClient implements MageClient, CommandContext {
     @Override
     public void disconnected(boolean askToReconnect, boolean keepMySessionActive) {
         connected = false;
-        if (expectDisconnect || relinking) {
+        if (expectDisconnect || relinking || superseded) {
             return;
         }
         if (!released && lastConnection != null) {
-            if (isSuperseded(lastLoginWasRelink, lastLoginAt, System.currentTimeMillis())) {
-                logger.info("Session lost again right after a relink: another login of this account took over");
-                broadcastLink("failed", 0, "superseded");
-                broadcastDisconnected();
-                return;
-            }
-            startRelink();
+            linkLost();
             return;
         }
         broadcastDisconnected();
     }
 
-    static boolean isSuperseded(boolean lastLoginWasRelink, long lastLoginAt, long now) {
-        return lastLoginWasRelink && now - lastLoginAt < SUPERSEDED_WINDOW_MS;
+    private void linkLost() {
+        if (relinksStoppedLasting(lastLoginWasRelink, quickRelinks, lastLoginAt, System.currentTimeMillis())) {
+            logger.warning("Giving up on the link to the XMage server: " + quickRelinks + " relinks in a row did not last");
+            broadcastLink("failed", 0);
+            broadcastDisconnected();
+            return;
+        }
+        startRelink();
+    }
+
+    static boolean relinksStoppedLasting(boolean lastLoginWasRelink, int quickRelinks, long lastLoginAt, long now) {
+        return lastLoginWasRelink && quickRelinks >= MAX_QUICK_RELINKS && now - lastLoginAt < QUICK_RELINK_WINDOW_MS;
+    }
+
+    static int countRelink(boolean lastLoginWasRelink, int quickRelinks, long lastLoginAt, long now) {
+        return lastLoginWasRelink && now - lastLoginAt < QUICK_RELINK_WINDOW_MS ? quickRelinks + 1 : 1;
+    }
+
+    private void loggedInElsewhere() {
+        logger.info("Another login of this account took over");
+        superseded = true;
+        connected = false;
+        broadcastLink("failed", 0, "superseded");
+        broadcastDisconnected();
+    }
+
+    static boolean isLoggedInElsewhereNotice(ClientCallback callback) {
+        if (callback.getMethod() != ClientCallbackMethod.SHOW_USERMESSAGE) {
+            return false;
+        }
+        callback.decompressData();
+        String text = CallbackEvents.userMessageText(callback.getData());
+        return text != null && text.contains(LOGGED_IN_ELSEWHERE_NOTICE);
     }
 
     private void broadcastDisconnected() {
@@ -675,7 +710,7 @@ public class ProxyClient implements MageClient, CommandContext {
         int attempt = 0;
         relinkAttempts = 0;
         try {
-            while (!released && lastConnection != null && System.currentTimeMillis() < deadline) {
+            while (!released && !superseded && lastConnection != null && System.currentTimeMillis() < deadline) {
                 attempt++;
                 relinkAttempts = attempt;
                 broadcastLink("retrying", attempt);
@@ -692,7 +727,7 @@ public class ProxyClient implements MageClient, CommandContext {
             Thread.currentThread().interrupt();
         }
         relinking = false;
-        if (!released && lastConnection != null) {
+        if (!released && !superseded && lastConnection != null) {
             logger.warning("Could not restore the link to the XMage server");
             broadcastLink("failed", attempt);
             broadcastDisconnected();
@@ -733,7 +768,9 @@ public class ProxyClient implements MageClient, CommandContext {
                     rememberLiveSession(live.getHost(), live.getUsername());
                 }
                 lobby.publishSoon();
-                lastLoginAt = System.currentTimeMillis();
+                long now = System.currentTimeMillis();
+                quickRelinks = countRelink(lastLoginWasRelink, quickRelinks, lastLoginAt, now);
+                lastLoginAt = now;
                 lastLoginWasRelink = true;
             }
             return ok;
@@ -806,6 +843,10 @@ public class ProxyClient implements MageClient, CommandContext {
 
     @Override
     public void onCallback(ClientCallback callback) {
+        if (isLoggedInElsewhereNotice(callback)) {
+            loggedInElsewhere();
+            return;
+        }
         sequencer.offer(callback);
     }
 
