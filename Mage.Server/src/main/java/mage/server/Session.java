@@ -38,6 +38,8 @@ public class Session {
     private static final Pattern digitsPattern = Pattern.compile("[0-9]");
 
     public static final String REGISTRATION_DISABLED_MESSAGE = "Registration has been disabled on the server. You can use any name and empty password to login.";
+    // the proxy recognizes a takeover by this text
+    public static final String LOGGED_IN_ELSEWHERE_MESSAGE = "This account was logged in somewhere else.";
 
     // Connection and reconnection logic:
     // - server allows only one user intance (user name for search, userId for memory/db store)
@@ -355,6 +357,15 @@ public class Session {
                         if (ANON_IDENTIFY_BY_HOST && Objects.equals(anotherUser.getHost(), host)) {
                             // if user reconnects by itself then must hide another instance message
                             reason = DisconnectReason.AnotherUserInstanceSilent;
+                        }
+
+                        // a kicked client can't tell this from a lost link and would log in again,
+                        // taking the account back; not on the client's own reconnect, nor in this
+                        // thread: a dead client's callback must not hold up the login
+                        Session anotherSession = managerFactory.sessionManager().getSession(anotherUser.getSessionId()).orElse(null);
+                        if (anotherSession != null && !canDisconnectAnyDueSessionRestore) {
+                            managerFactory.threadExecutor().getCallExecutor().execute(
+                                    () -> anotherSession.sendErrorMessageToClient(LOGGED_IN_ELSEWHERE_MESSAGE));
                         }
 
                         managerFactory.userManager().disconnect(anotherUser.getId(), reason);
