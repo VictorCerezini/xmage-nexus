@@ -22,7 +22,7 @@ No API key is read from or written to the repository. The supervisor came from
 - Java 17 or later for the bridge.
 - An XMage server built from the engine branch `llm-seats-engine` (short IDs,
   sequence counter, structured events, lazy card loading). The bridge does not
-  compile against stock 1.4.62 artifacts.
+  compile against stock 1.4.63 artifacts.
 - At least one of the three CLIs, signed in.
 
 ## Setup

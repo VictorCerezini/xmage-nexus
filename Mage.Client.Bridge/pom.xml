@@ -9,7 +9,7 @@
          language model and exposes its game tools over MCP (from mage-bench). -->
     <groupId>org.mage</groupId>
     <artifactId>mage-client-bridge</artifactId>
-    <version>1.4.62</version>
+    <version>1.4.63</version>
     <packaging>jar</packaging>
     <name>Mage Client Bridge (LLM seat)</name>
     <description>Headless XMage client that plays a seat for a language model through MCP game tools.</description>
