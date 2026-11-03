@@ -20,6 +20,8 @@ class Provider:
     usage: Callable
     # The CLI's own explanation when a game stops early, or None when the trace has none.
     failure_reason: Callable = lambda _events: None
+    # True when a new player on the same model would stop the same way, such as a model no longer served.
+    lasting_failure: Callable = lambda _events: False
 
 
 def codex_usage(events):
@@ -97,6 +99,7 @@ PROVIDERS = {
             require_game_only_events=opencode_client.require_game_only_events,
             usage=opencode_client.usage,
             failure_reason=openrouter_client.failure_reason,
+            lasting_failure=opencode_client.lasting_error,
         ),
         Provider(
             id=zai_client.PROVIDER,
@@ -110,6 +113,7 @@ PROVIDERS = {
             require_game_only_events=opencode_client.require_game_only_events,
             usage=opencode_client.usage,
             failure_reason=zai_client.failure_reason,
+            lasting_failure=opencode_client.lasting_error,
         ),
     )
 }

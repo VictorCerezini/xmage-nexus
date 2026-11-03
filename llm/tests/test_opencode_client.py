@@ -138,6 +138,19 @@ def test_error_message_is_the_last_error_event():
     assert opencode_client.error_message([tool_event("mage_x")]) is None
 
 
+def test_a_missing_model_or_refused_key_is_a_lasting_error():
+    def error(status, *, retryable):
+        return [{"type": "error", "error": {"data": {"message": "x", "statusCode": status, "isRetryable": retryable}}}]
+
+    assert opencode_client.lasting_error(error(404, retryable=False))
+    assert opencode_client.lasting_error(error(401, retryable=False))
+    assert not opencode_client.lasting_error(error(429, retryable=True))
+    assert not opencode_client.lasting_error(error(500, retryable=False))
+    assert not opencode_client.lasting_error(error(404, retryable=True))
+    assert not opencode_client.lasting_error([{"type": "error", "error": {"data": {"message": "x"}}}])
+    assert not opencode_client.lasting_error([tool_event("mage_x")])
+
+
 def test_opencode_model_listing_is_parsed():
     text = (
         "openrouter/a/alpha:free\n"

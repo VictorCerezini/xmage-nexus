@@ -54,6 +54,10 @@ def failure_reason(events):
         return opencode_client.with_hint(
             message, "Free models are often busy: choose another free model, or try again later."
         )
+    if opencode_client.error_data(events).get("statusCode") == 404:
+        return opencode_client.with_hint(
+            message, "OpenRouter no longer serves this model: refresh the model list and choose another."
+        )
     return message
 
 

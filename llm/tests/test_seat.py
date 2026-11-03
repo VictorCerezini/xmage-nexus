@@ -429,6 +429,74 @@ def test_a_backup_on_the_same_limited_plan_stops_the_seat_after_one_try(undecide
     assert "usage limit" in manifest["error"]
 
 
+GONE = "This model is unavailable for free. The paid version is available now - use this slug instead: a/alpha"
+BUSY = "[Google AI Studio] a/alpha:free is temporarily rate-limited upstream."
+
+
+def opencode_failure(out, message, status, *, retryable):
+    error = {"name": "APIError", "data": {"message": message, "statusCode": status, "isRetryable": retryable}}
+    out.write(json.dumps({"type": "error", "error": error}) + "\n")
+    out.flush()
+    return SimpleNamespace(poll=lambda: 1, returncode=1)
+
+
+def openrouter_seat(request):
+    request.update(provider="openrouter_free", model="a/alpha:free", reasoning="default")
+
+
+def test_a_model_openrouter_no_longer_serves_stops_the_seat_without_retries(undecided):
+    request, runtime, _stopped, _gateway, _game_over = undecided
+    openrouter_seat(request)
+    starts = []
+
+    def start(_prompt, out, *_args, **_kwargs):
+        starts.append(True)
+        return opencode_failure(out, GONE, 404, retryable=False)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert "no longer serves this model" in manifest["error"]
+    assert "recoveries" not in manifest
+    assert len(starts) == 1
+
+
+def test_a_model_openrouter_no_longer_serves_hands_the_game_to_the_backup_at_once(undecided):
+    request, runtime, _stopped, _gateway, game_over = undecided
+    openrouter_seat(request)
+    request.update(backup_provider="zai_coding_plan", backup_model="glm-5.3", backup_reasoning="default")
+    models = []
+
+    def start(_prompt, out, *_args, model, **_kwargs):
+        models.append(model)
+        if model == "a/alpha:free":
+            return opencode_failure(out, GONE, 404, retryable=False)
+        game_over()
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert models == ["a/alpha:free", "glm-5.3"]
+    assert manifest["status"] == "completed"
+    assert manifest["model_switch"]["to"] == "zai_coding_plan glm-5.3"
+    assert len(manifest["recoveries"]) == 1
+
+
+def test_a_rate_limited_free_model_still_gets_every_retry(undecided):
+    request, runtime, _stopped, _gateway, _game_over = undecided
+    openrouter_seat(request)
+    starts = []
+
+    def start(_prompt, out, *_args, **_kwargs):
+        starts.append(True)
+        return opencode_failure(out, BUSY, 429, retryable=True)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert len(starts) == len(seat.RETRY_DELAYS) + 1
+    assert "choose another free model" in manifest["error"]
+
+
 @pytest.mark.parametrize(
     ("backup", "error"),
     [

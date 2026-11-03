@@ -82,6 +82,14 @@ def test_failure_reason_adds_rate_limit_and_daily_limit_hints():
     assert openrouter_client.failure_reason([]) is None
 
 
+def test_failure_reason_says_a_model_no_longer_served_needs_another_choice():
+    gone = "This model is unavailable for free. The paid version is available now - use this slug instead: n/model"
+    events = [{"type": "error", "error": {"data": {"message": gone, "statusCode": 404, "isRetryable": False}}}]
+    assert openrouter_client.failure_reason(events) == (
+        gone + ". OpenRouter no longer serves this model: refresh the model list and choose another."
+    )
+
+
 def test_catalog_lists_only_free_text_models_with_tools():
     catalog = openrouter_client.read_catalog(
         listing(

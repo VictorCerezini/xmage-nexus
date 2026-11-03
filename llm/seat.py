@@ -288,8 +288,8 @@ def run_player(request, *, start_player=None, runtime=None):
         return mcp_engine.winner(match_line(game_text, request["username"], "Game over"))
 
     def play_attempt(number, attempt, prompt, gateway, game_started, usage):
-        """Run one player process on this game: (terminal_reason, None) once the game is decided for this
-        player, or (None, why it stopped) when it stopped first."""
+        """Run one player process on this game: (terminal_reason, None, False) once the game is decided for
+        this player, or (None, why it stopped, whether the same model would stop again) when it stopped first."""
 
         def name(base):
             return retry_file(game_file(base, number), attempt)
@@ -346,12 +346,12 @@ def run_player(request, *, start_player=None, runtime=None):
             # A rollback brought the player back while it was reporting the elimination.
             terminal_reason = "player_eliminated"
         if terminal_reason is not None and (stopped_after_report or agent.returncode == 0):
-            return terminal_reason, None
+            return terminal_reason, None, False
         reason = player.failure_reason(trace) or f"see {events.name}"
         if terminal_reason is not None:
             # The game is over, so another player would have nothing left to play.
             raise RuntimeError(f"{player.label} stopped before a confirmed game result: {reason}")
-        return None, reason
+        return None, reason, player.lasting_failure(trace)
 
     def wait_to_retry(number, seconds):
         """Wait before the next player takes over; the game's result if it ended meanwhile."""
@@ -416,7 +416,7 @@ def run_player(request, *, start_player=None, runtime=None):
         attempt = 0
         tries = 0
         while True:
-            terminal_reason, reason = play_attempt(number, attempt, prompt, gateway, game_started, usage)
+            terminal_reason, reason, lasting = play_attempt(number, attempt, prompt, gateway, game_started, usage)
             if reason is None:
                 if terminal_reason == "player_eliminated" and wait_for_return(number, game_started):
                     attempt += 1
@@ -428,8 +428,9 @@ def run_player(request, *, start_player=None, runtime=None):
                     continue
                 terminal_reason = decided(number) or terminal_reason
                 break
-            # A reached plan limit does not come back within the game; anything else gets every retry first.
-            switching = providers.lasting_limit(reason) or tries == len(RETRY_DELAYS)
+            # A reached plan limit or a model the provider refuses does not come back within the game;
+            # anything else gets every retry first.
+            switching = lasting or providers.lasting_limit(reason) or tries == len(RETRY_DELAYS)
             if switching and not can_switch():
                 raise RuntimeError(f"{playing['provider'].label} stopped before a confirmed game result: {reason}")
             attempt += 1

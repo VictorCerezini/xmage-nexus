@@ -161,12 +161,29 @@ def usage(events):
     return [totals]
 
 
-def error_message(events):
-    """The provider's own message from OpenCode's last error event, or None."""
+def error_data(events):
+    """OpenCode's last error event's details (message, statusCode, isRetryable), or None."""
     errors = [event for event in events if event.get("type") == "error"]
     if not errors:
         return None
-    return (errors[-1].get("error") or {}).get("data", {}).get("message") or "OpenCode reported an error"
+    return (errors[-1].get("error") or {}).get("data") or {}
+
+
+def error_message(events):
+    """The provider's own message from OpenCode's last error event, or None."""
+    data = error_data(events)
+    if data is None:
+        return None
+    return data.get("message") or "OpenCode reported an error"
+
+
+# A missing model, a refused key or no credit fails the same way on every try; a busy model may not.
+LASTING_STATUSES = (401, 402, 403, 404)
+
+
+def lasting_error(events):
+    data = error_data(events) or {}
+    return data.get("statusCode") in LASTING_STATUSES and data.get("isRetryable") is not True
 
 
 def with_hint(message, hint):
