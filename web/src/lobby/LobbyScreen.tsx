@@ -183,6 +183,7 @@ export default function LobbyScreen() {
         onOpenAbout={() => setShowAbout(true)}
         onOpenWiki={() => setShowWiki(true)}
         hasNews={unseenNews}
+        onNewsSeen={refreshNews}
       />
 
       <ErrorBanner
@@ -512,6 +513,7 @@ export default function LobbyScreen() {
           watchingMatchId={bracket.watchingMatchId}
           tournamentId={bracket.bracketTournamentId}
           canQuit={bracket.canQuit}
+          updatedAt={bracket.bracketUpdatedAt}
         />
       )}
       {showSettings && (

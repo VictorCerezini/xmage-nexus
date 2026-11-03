@@ -45,8 +45,8 @@ triage. See `web/INTERACTION_COVERAGE.md`.
   the proxy; `build.mjs` stops it on its own) — afterwards `node scripts/ctl.mjs restart proxy`
 - Full build (server + plugins + proxy): `node scripts/build.mjs` (engine
   steps run inside the fork checkout; the proxy builds standalone in this repo)
-- XMage version: **1.4.62-V1** (upstream magefree/mage; merge of tag `xmage_1.4.62V1`).
-  Proxy jar: `Mage.Proxy/target/mage-proxy-1.4.62.jar`. A second proxy flavor is built against the
+- XMage version: **1.4.63-V1** (upstream magefree/mage; merge of tag `xmage_1.4.63V1`).
+  Proxy jar: `Mage.Proxy/target/mage-proxy-1.4.63.jar`. A second proxy flavor is built against the
   **XDHS fork** (xenohedron/mage, tag `1.6.1-XDHS-r2`) for `mage.xdhs.net`:
   `mage-proxy-1.6.1.jar` + `patches/xdhs/*.patch` + `-Dmage.version=1.6.1`
   (see `patches/xdhs/README.md`; launcher component `proxy-xdhs`, host script
@@ -55,7 +55,17 @@ triage. See `web/INTERACTION_COVERAGE.md`.
   the proxy won't connect: the fork must be updated (fetch upstream + merge, in
   `../xmage-fork`) and everything rebuilt. The `Upstream XMage release` workflow
   (`scripts/check-upstream-release.mjs`, every 6 h) fails as soon as magefree/mage tags a newer
-  release than the fork's `MageVersion`; that failure email is the signal to do it.
+  release than the fork's `MageVersion`; that failure email is the signal to do it. The
+  `Upstream XMage upgrade` workflow (`.github/workflows/upstream-upgrade.yml`, every 6 h and on
+  demand) prepares the routine part: it merges the release tag into `nexus-upgrade/xmage_<release>`
+  (a conflict opens an issue listing the files), moves every reference to the release on
+  `upgrade/xmage_<release>` with `scripts/bump-xmage-version.mjs`, opens a draft PR with the manual
+  steps left and runs `Web client CI` on it, which builds an `upgrade/xmage_*` branch against its
+  `nexus-upgrade/xmage_*` fork branch. Merging that PR fast-forwards `nexus`; releasing stays manual.
+  XMage releases usually touch their own `.github/workflows`, which `GITHUB_TOKEN` may not push: the
+  `XMAGE_UPGRADE_TOKEN` secret (fine-grained, this repo: Contents, Pull requests, Issues, Workflows)
+  makes it fully automatic; without it the run opens an issue with the three commands to push the
+  merge by hand, and the next run carries on.
 - Smoke test against the public server: works via the proxy (WS probe: login, SIM table, WATCHGAME/GAME_INIT/updates).
   **Anonymous login to `beta.xmage.today` is stable** (measured 2026-09-20: 17/17 logins, ~1.6 s each).
   The former "intermittent beta handshake bug" was a **misdiagnosis**: the server rejects any username
@@ -80,7 +90,7 @@ triage. See `web/INTERACTION_COVERAGE.md`.
 The goal is a client that works against `beta.xmage.today`, but the public server is shared, latency-prone
 and not reproducible. So the **oracle for
 "real protocol" in CI is the local XMage server** (`node scripts/ctl.mjs restart all` →
-`localhost:17171`, same 1.4.62-V1 fork). The recorder captures real frames and the fake-mode tests
+`localhost:17171`, same 1.4.63-V1 fork). The recorder captures real frames and the fake-mode tests
 replay them, giving drift detection without depending on beta:
 
 - `scripts/rec-lib.mjs` + `scripts/record.mjs <mechanic|all>` — a single WS recorder that drives a
@@ -116,7 +126,7 @@ This repo has three independent concerns, each developable on its own:
   this repo. Resolution order (`scripts/lib.mjs` `forkDir()`):
   `NEXUS_FORK_DIR` env → `../xmage-fork` → error with instructions. Clone it
   once: `git clone https://github.com/Adamychen/xmage-nexus.git -b nexus ../xmage-fork`
-  (branch `nexus` = upstream tag `xmage_1.4.62V1` + our test-mode/view patches;
+  (branch `nexus` = upstream tag `xmage_1.4.63V1` + our test-mode/view patches;
   upstream releases merge cleanly there). Rebuild only when the XMage version
   changes or the test-mode patches change.
 

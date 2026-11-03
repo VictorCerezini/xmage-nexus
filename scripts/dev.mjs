@@ -82,7 +82,7 @@ function llmMissing() {
 }
 
 function startProxy() {
-  const jar = `${import.meta.dirname}/../Mage.Proxy/target/mage-proxy-1.4.62.jar`
+  const jar = `${import.meta.dirname}/../Mage.Proxy/target/mage-proxy-1.4.63.jar`
   if (!fs.existsSync(jar)) {
     logError(`proxy jar missing — run: node scripts/build.mjs`)
     return null

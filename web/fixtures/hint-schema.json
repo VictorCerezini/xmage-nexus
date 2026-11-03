@@ -30,7 +30,7 @@
         "Mage.Common/src/main/java"
       ]
     },
-    "forkVersion": "1.4.62"
+    "forkVersion": "1.4.63"
   },
   "restrictRequirementTexts": [
     {
@@ -307,6 +307,10 @@
       {
         "name": "RenownedHint",
         "path": "Mage/src/main/java/mage/abilities/hint/common/RenownedHint.java"
+      },
+      {
+        "name": "StrangeNewWorldsHint",
+        "path": "Mage/src/main/java/mage/abilities/hint/common/StrangeNewWorldsHint.java"
       },
       {
         "name": "TeamworkCostWasPaidHint",

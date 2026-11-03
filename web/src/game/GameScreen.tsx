@@ -659,6 +659,7 @@ export default function GameScreen() {
               combatChosen={combat?.chosen ?? []}
               combatMode={combat?.mode ?? null}
             />
+            <TournamentPanel />
           </div>
           </div>
           <div className="game-zoom-layer" ref={setZoomLayer} />
@@ -678,7 +679,6 @@ export default function GameScreen() {
             onTargetClick={onTargetClick}
           />
           <SideboardScreen />
-          <TournamentPanel />
         </div>
       </TableZoomLayerContext.Provider>
       </DividerSlotContext.Provider>

@@ -110,6 +110,7 @@ export default function CardSlot({
   const sleeve = useSleeveFor(card.controllerId)
   const resolvedImgUrl = useCardImageUrl(card, !faceDown && !demo)
   const imgUrl = demo ? demo.artUrl : resolvedImgUrl
+  const isDemo = demo !== undefined
   const isFaceDownCard = faceDown || card.faceDown === true
   const showBack = faceDown || (card.faceDown === true && !imgUrl)
   const renderedFace = settings.cardRender === 'rendered' && !compact && !demo && !showBack
@@ -221,7 +222,7 @@ export default function CardSlot({
 
   useLayoutEffect(() => {
     const el = slotRef.current
-    if (!el || !effectiveId) return
+    if (!el || !effectiveId || isDemo) return
 
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false
@@ -237,7 +238,7 @@ export default function CardSlot({
           const curZone = el.closest('.opponent-zone, .player-zone, .stack-zone, .hand-zone')
           const curZoneClass = curZone ? curZone.className.split(' ')[0] : ''
           const controlTint = controlChangeTint(String(effectiveId))
-          const shift = el.closest('.creatures-band, .permanents-band, .bz-marquee') ? creatureShiftOf(String(effectiveId)) : null
+          const shift = el.closest('.creatures-band, .permanents-band, .bz-marquee, .bz-marquee-band') ? creatureShiftOf(String(effectiveId)) : null
           if (commandFrom || !prevZone || !curZoneClass || prevZone !== curZoneClass || controlTint || shift) {
             const sourceSize = commandFrom ? commandFrom.size : getPreviousCardSize(effectiveId)
             const flyIn = (toRect: DOMRect) => {
@@ -283,7 +284,7 @@ export default function CardSlot({
         )
       }
     }
-  }, [effectiveId, card])
+  }, [effectiveId, card, isDemo])
 
   useLayoutEffect(() => {
     const el = slotRef.current

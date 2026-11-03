@@ -2,8 +2,9 @@ import type { Dispatch, SetStateAction } from 'react'
 import type { GameTypeInfo } from '../../net/commands'
 import type { LlmProvider } from '../../net/types'
 import type { Deck } from '../decks'
-import type { CreateKind, CreateTab, DraftTiming, SeatConfig, TableCategory, TournamentCategory, WizardStep } from './constants'
+import type { CreateKind, CreateTab, DraftTiming, SeatConfig, SeatLimits, TableCategory, TournamentCategory, WizardStep } from './constants'
 import type { LlmSeatChoice } from './llmSeats'
+import type { TournamentChoice } from '../tournament/tournamentType'
 
 /** Everything the Create Table wizard tabs read and change (see `useCreateTableForm`). */
 export interface CreateTableForm {
@@ -26,6 +27,8 @@ export interface CreateTableForm {
   deckTypes: string[]
   playerTypes: string[]
   tournamentTypes: string[]
+  tournamentTypeLimits: Record<string, SeatLimits>
+  seatLimits: SeatLimits
   draftCubes: string[]
   name: string
   setName: (v: string) => void
@@ -49,6 +52,7 @@ export interface CreateTableForm {
   setDraftConstructionTime: (v: number) => void
   tournamentType: string
   setTournamentType: (v: string) => void
+  setTournamentChoice: (choice: TournamentChoice) => void
   numberRounds: number
   setNumberRounds: (v: number) => void
   draftCubeName: string

@@ -18,6 +18,7 @@
       "createOrder",
       "dealtDamageByThisTurn",
       "deathtouched",
+      "entersAttackingDefenders",
       "flipCardName",
       "goadingPlayers",
       "harnessed",
@@ -157,8 +158,8 @@
     ]
   },
   "meta": {
-    "gapHash": "f59ac7b8fbcfcc781d7d400229f2015eab6ee66dce72f6db4578f8331f4884e1",
-    "sourceCommit": "3964a06373c6c0329503e94e9d5759a1245632a1",
-    "generatedAt": "2026-11-01T20:20:36.075Z"
+    "gapHash": "e1b4e99708be53c3afcce1f547b96270ef8cf049d1716c6a336572d656619f3f",
+    "sourceCommit": "8b48ff99721baf285ac57f9fcd1935d065ad176e",
+    "generatedAt": "2026-11-03T18:21:16.407Z"
   }
 }

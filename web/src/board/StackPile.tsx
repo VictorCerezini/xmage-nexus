@@ -29,7 +29,7 @@ function spread(pile: HTMLElement): void {
     pileRect.right,
   )
   const room = Math.max(0, bandRect.right - edge - restRight)
-  const layout = spreadLayout(collapsed, SPREAD_GAP * scale, bandRect.left + edge, pileRect.right + room)
+  const layout = spreadLayout(collapsed, SPREAD_GAP * scale, pileRect.right + room)
   items.forEach((el, i) => el.style.setProperty('--spread-x', `${layout.dx[i] / scale}px`))
   pile.style.setProperty('--spread-l', `${(layout.stripLeft - pileRect.left) / scale}px`)
   pile.style.setProperty('--spread-w', `${layout.stripWidth / scale}px`)
@@ -110,25 +110,41 @@ export default function StackPile({ className, name, count, cardIds, landName, f
     onFanChangeRef.current = onFanChange
   })
 
+  const pointerWatch = useRef<((e: PointerEvent) => void) | null>(null)
+  const stopWatching = useCallback(() => {
+    if (pointerWatch.current) document.removeEventListener('pointermove', pointerWatch.current)
+    pointerWatch.current = null
+  }, [])
+
+  const close = useCallback(
+    (pile: HTMLElement) => {
+      cancelFan()
+      stopWatching()
+      if (leave(pile)) onFanChangeRef.current?.(false)
+    },
+    [cancelFan, stopWatching],
+  )
+
   const fan = useCallback(
     (pile: HTMLElement) => {
       cancelFan()
       spread(pile)
       announceSettledRelayout()
       onFanChangeRef.current?.(true)
+      stopWatching()
+      const watch = (e: PointerEvent) => {
+        if (!(e.target instanceof Node) || !pile.contains(e.target)) close(pile)
+      }
+      pointerWatch.current = watch
+      document.addEventListener('pointermove', watch)
     },
-    [cancelFan],
+    [cancelFan, close, stopWatching],
   )
 
-  const close = useCallback(
-    (pile: HTMLElement) => {
-      cancelFan()
-      if (leave(pile)) onFanChangeRef.current?.(false)
-    },
-    [cancelFan],
-  )
-
-  useEffect(() => cancelFan, [cancelFan])
+  useEffect(() => () => {
+    cancelFan()
+    stopWatching()
+  }, [cancelFan, stopWatching])
 
   const refresh = useCallback(() => {
     const pile = ref.current

@@ -99,12 +99,15 @@ deck without starting over.
 ### LBY-8 · Watching a match opens its waiting room; watching a tournament opens its bracket
 Watching a regular match enters the spectator waiting room, which becomes the game when it
 starts. Watching a tournament table opens the tournament bracket instead, where each running match
-can be watched. A watch the server refuses shows the error and does not enter the waiting room.
+can be watched. A watch the server refuses shows the error and does not enter the waiting room. A watch
+sent right after a start is re-sent every half second until the game opens: the server drops a watch that
+arrives before the table is dueling and still reports it as sent, so a single call can be lost silently.
 
-- Why: `e08e881492`. The server does not resolve table ids in `getTournament`, so the waiting
+- Why: `e08e881492`. The dev AI-vs-AI shortcut sent its watch 5 ms after the start and lost it, so the
+  player stayed in the lobby with no error (nightly `full-flow`, 2026-10-30). The server does not resolve table ids in `getTournament`, so the waiting
   room of a tournament stayed on "preparing" forever; the bracket uses the real tournament id
   that `SHOW_TOURNAMENT` carries.
-- Guard: `src/lobby/useTableActions.test.tsx`
+- Guard: `src/lobby/useTableActions.test.tsx` · `src/lobby/CreateTable/useCreateTableForm.test.ts`
 
 ### LBY-9 · The waiting room informs about readiness but never blocks the start
 Leaving the waiting room keeps the seat, and "Return to table" goes back to it. "Ready" is a mark the
@@ -145,7 +148,7 @@ that has never played.
 
 - Why: `453f4d1966`. The wizard's "seen" flag also gated the re-login, so a player who closed the
   wizard with the ✕ landed on a bare login screen after every reload (`docs/lessons.md`).
-- Guard: `src/setup/bootRestore.test.ts` · `src/App.boot.test.tsx` · `e2e/reload-restore.spec.ts`
+- Guard: `src/setup/bootRestore.test.ts` · `src/App.boot.test.tsx` · `e2e/reload-restore.spec.ts` · `e2e/reconnect-real.spec.ts`
 
 ### LBY-13 · Each format is reachable from one place: a popular chip or the "more formats" list
 A format chip (Commander, Modern, Pioneer, Standard, Pauper, Limited) owns the tables whose deck
@@ -192,12 +195,17 @@ width it moves under the card instead of beside it, centred with it. It does not
 ### LBY-17 · The account password is never saved on the device
 The login screen and the saved connection keep the server, the proxy and the username, never the
 account password. Reopening the client leaves the password field empty, and the saved connection
-record has no password field at all. Table passwords (LBY-3, LBY-10) are unaffected: they are typed
-per table and never stored.
+record has no password field at all. A reload comes back without it: the reconnect names the stream
+id the proxy gave that login, and the proxy accepts that id as proof of the login while it still holds
+the session (`ProxyClient.resumesStream`, `ProxyClientStreamTest`). Once the session has ended, the
+login asks for the password again. Table passwords (LBY-3, LBY-10) are unaffected: they are typed per
+table and never stored.
 
 - Why: the saved connection (`mage-web-connection`) was written with the password in plain text, so any
   reader of the browser's storage could take the account. The review of 2026-10-25 flagged it as a
-  security issue alongside the design findings.
+  security issue alongside the design findings. Its side effect, a reload that could not log back in
+  while the proxy still held the old session (the reconnect was refused as "wrong password"), was
+  fixed on 2026-10-30 by accepting the stream id.
 - Guard: `src/state/persistence.test.ts` · `src/lobby/LoginScreen.test.tsx`
 
 ### LBY-18 · A table card stays inside the list at phone width
@@ -279,3 +287,29 @@ when active), the active-table shortcut and the player's controls. Creating a ma
 - Why: the lobby review of 2026-10-27: "New table" and "New tournament" sat among the tabs, the active
   tab looked like another button, and on a phone the header took three rows before the first table.
 - Guard: `src/lobby/LobbyScreen.render.test.tsx`
+
+### LBY-25 · A table whose format the server does not know says "Unknown format"
+When the server cannot build a deck validator for a table (the creator sent a deck type it does
+not have), it reports the deck type as `<deck type missing>`. The table card, the active tables
+bar and the join dialog show "Unknown format" instead, the game type stays as it is, and the
+placeholder never appears as a format in the table filters. Joining such a table is unchanged.
+
+- Why: a Commander Free For All table on beta.xmage.today showed `<DECK TYPE MISSING>` as its
+  title (report of 2026-10-28); the text comes from `Table.getDeckType()` in the XMage server.
+- Guard: `src/lobby/TableCard.test.tsx` · `src/lobby/formatFamily.test.ts`
+
+### LBY-26 · What's new is a bell in the top bar with notes written for players
+The login screen and the lobby header have a bell button next to Settings. While a Nexus or XMage
+release has not been seen it carries a gold dot; opening the panel marks every listed release
+seen and clears the dot (the About dialog's News tab still does too). The panel shows the latest
+Nexus release open, with its version and date in the header, older Nexus releases folded under
+"Previous releases" with their count, and official XMage releases folded in their own section. It
+closes with Escape or a click outside. The notes are the player part of each release: for Nexus
+only the "What changed" block, without its "What's new in x.y" heading and without developer
+groups (Under the hood); never the download table, raw HTML or images. A bold line on its own is a
+group title.
+
+- Why: the only sign of a new release was a dot inside the ⋯ menu, and the News tab showed the
+  GitHub body as is, download table first, cut at 2 000 characters before the changes (report of
+  2026-10-29, inspired by EDHPlay's bell).
+- Guard: `src/system/WhatsNew.test.tsx` · `src/system/news.test.ts` · `e2e/about.spec.ts`
