@@ -50,21 +50,28 @@ export async function loadLlmSeats(tableId: string): Promise<void> {
   await loadLlmCatalog()
 }
 
+/** How long an enabled catalog is kept before the proxy is asked again (it rebuilds an old one). */
+export const LLM_CATALOG_MAX_AGE_MS = 60 * 60 * 1000
+let catalogLoadedAt = 0
+
 /**
- * Asks the proxy for its model catalog. A catalog that is enabled is kept until a
- * refresh; a disabled one is asked again, because the proxy may have been
- * restarted with `--llm` since.
+ * Asks the proxy for its model catalog. A catalog that is enabled is kept for
+ * an hour or until a refresh, since free models come and go; a disabled one is
+ * asked again, because the proxy may have been restarted with `--llm` since.
  */
 export async function loadLlmCatalog(opts: { refresh?: boolean } = {}): Promise<void> {
   const before = getState()
   if (before.llmCatalogLoading) return
-  if (!opts.refresh && before.llmCatalog?.enabled) return
+  if (!opts.refresh && before.llmCatalog?.enabled && Date.now() - catalogLoadedAt < LLM_CATALOG_MAX_AGE_MS) return
   setState({ llmCatalogLoading: true })
   try {
     const { error, ...catalog } = await cmds.getLlmProviders(!!opts.refresh)
     const previous = getState().llmCatalog
     if (error) setState({ llmCatalogError: error, llmCatalog: previous?.enabled ? previous : catalog })
-    else setState({ llmCatalogError: null, llmCatalog: catalog })
+    else {
+      catalogLoadedAt = Date.now()
+      setState({ llmCatalogError: null, llmCatalog: catalog })
+    }
   } catch {
     if (!getState().llmCatalog?.enabled) setState({ llmCatalog: { enabled: false } })
   } finally {

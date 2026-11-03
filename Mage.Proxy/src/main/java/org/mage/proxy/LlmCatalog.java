@@ -21,6 +21,8 @@ import java.util.concurrent.TimeUnit;
 final class LlmCatalog {
 
     static final long REFRESH_TIMEOUT_MS = 120_000;
+    // Free models come and go within days, so an older catalog is rebuilt the next time it is asked for.
+    static final long MAX_AGE_MS = TimeUnit.HOURS.toMillis(6);
 
     private static final List<String> PROVIDER_TEXT = Arrays.asList("id", "playerName", "playerType", "auth");
     private static final List<String> MODEL_TEXT = Arrays.asList("id", "name", "defaultEffort");
@@ -57,7 +59,8 @@ final class LlmCatalog {
         if (inFlight != null && !inFlight.isDone()) {
             return inFlight;
         }
-        if (!refresh && Files.isRegularFile(runtime.catalog())) {
+        boolean cached = Files.isRegularFile(runtime.catalog());
+        if (!refresh && cached && !stale()) {
             try {
                 return CompletableFuture.completedFuture(read());
             } catch (IOException | RuntimeException ex) {
@@ -66,8 +69,24 @@ final class LlmCatalog {
                 return failed;
             }
         }
-        inFlight = CompletableFuture.supplyAsync(this::refreshNow, refresher);
+        CompletableFuture<JsonObject> fresh = CompletableFuture.supplyAsync(this::refreshNow, refresher);
+        // A rebuild nobody asked for keeps the old catalog when it fails, so model seats stay offered.
+        inFlight = refresh || !cached ? fresh : fresh.exceptionally(error -> {
+            try {
+                return read();
+            } catch (IOException ex) {
+                throw new CompletionException(ex);
+            }
+        });
         return inFlight;
+    }
+
+    private boolean stale() {
+        try {
+            return System.currentTimeMillis() - Files.getLastModifiedTime(runtime.catalog()).toMillis() > MAX_AGE_MS;
+        } catch (IOException ex) {
+            return true;
+        }
     }
 
     JsonObject read() throws IOException {

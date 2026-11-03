@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as cmds from '../net/commands'
 import type { LlmSeatInfo } from '../net/types'
 import { attachGateway, detachGateway } from './gateway'
-import { llmSeatForSeat, llmSeatsForRecreate, loadLlmCatalog, loadLlmSeats, upsertLlmSeats } from './llmSeats'
+import { LLM_CATALOG_MAX_AGE_MS, llmSeatForSeat, llmSeatsForRecreate, loadLlmCatalog, loadLlmSeats, upsertLlmSeats } from './llmSeats'
 import { getState, setState } from './state'
 
 vi.mock('../net/commands', async (importOriginal) => {
@@ -87,6 +87,23 @@ describe('model catalog', () => {
     await loadLlmCatalog({ refresh: true })
     expect(cmds.getLlmProviders).toHaveBeenLastCalledWith(true)
     expect(getState().llmCatalogLoading).toBe(false)
+  })
+
+  it('asks the proxy again once the kept catalog is an hour old', async () => {
+    vi.mocked(cmds.getLlmProviders).mockResolvedValue(catalog)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    try {
+      await loadLlmCatalog()
+      now.mockReturnValue(1_000_000 + LLM_CATALOG_MAX_AGE_MS - 1)
+      await loadLlmCatalog()
+      expect(cmds.getLlmProviders).toHaveBeenCalledTimes(1)
+      now.mockReturnValue(1_000_000 + LLM_CATALOG_MAX_AGE_MS + 1)
+      await loadLlmCatalog()
+      expect(cmds.getLlmProviders).toHaveBeenCalledTimes(2)
+      expect(cmds.getLlmProviders).toHaveBeenLastCalledWith(false)
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('asks again while the proxy reports model seats off', async () => {

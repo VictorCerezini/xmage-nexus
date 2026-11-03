@@ -88,7 +88,9 @@ All run from the repository root with `llm/.venv/Scripts/python`.
 
 - `-m llm.catalog [out.json]`: the signed-in providers with their models and
   reasoning levels. It reads each CLI's sign-in and model list and starts no
-  model turn. Account identity and keys are never included.
+  model turn. Account identity and keys are never included. The proxy reruns
+  it when its saved catalog is more than six hours old, since free models come
+  and go, and keeps the old one if that run fails.
 - `-m llm.seat`: seats one model. The seat request JSON comes on stdin:
 
   ```json

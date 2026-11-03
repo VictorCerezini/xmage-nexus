@@ -18,6 +18,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -783,6 +784,42 @@ class LlmSeatsTest {
         JsonObject res = lastResult(ctx);
         assertFalse(res.get("ok").getAsBoolean());
         assertTrue(res.toString().contains("codex is not installed"), res.toString());
+    }
+
+    @Test
+    void aCatalogOlderThanItsMaxAgeIsRebuiltWhenAskedFor() throws Exception {
+        TableStagingCommandsTest.StubCtx ctx = new TableStagingCommandsTest.StubCtx();
+        ctx.llmSeats = seats(4);
+        LlmCommands.handle("getLlmProviders", null, "p5", new JsonObject(), ctx);
+        await("the cached answer", () -> !ctx.gateway.sent.isEmpty());
+        assertTrue(launched.isEmpty());
+        ageCatalog(LlmCatalog.MAX_AGE_MS + 60_000);
+        LlmCommands.handle("getLlmProviders", null, "p6", new JsonObject(), ctx);
+        await("the rebuild", () -> processes.size() == 1);
+        assertEquals("llm.catalog", launched.get(0).command().get(2));
+        processes.get(0).end(0);
+        await("the answer", () -> ctx.gateway.sent.size() == 2);
+        assertTrue(lastResult(ctx).get("ok").getAsBoolean());
+    }
+
+    @Test
+    void aFailedRebuildOfAnOldCatalogKeepsTheOldOne() throws Exception {
+        TableStagingCommandsTest.StubCtx ctx = new TableStagingCommandsTest.StubCtx();
+        ctx.llmSeats = seats(4);
+        ageCatalog(LlmCatalog.MAX_AGE_MS + 60_000);
+        LlmCommands.handle("getLlmProviders", null, "p7", new JsonObject(), ctx);
+        await("the rebuild", () -> processes.size() == 1);
+        processes.get(0).end(1);
+        await("the answer", () -> !ctx.gateway.sent.isEmpty());
+        JsonObject res = lastResult(ctx);
+        assertTrue(res.get("ok").getAsBoolean(), res.toString());
+        JsonArray providers = res.getAsJsonObject("data").getAsJsonArray("providers");
+        assertEquals("chatgpt_subscription", providers.get(0).getAsJsonObject().get("id").getAsString());
+    }
+
+    private void ageCatalog(long millis) throws IOException {
+        Path catalog = dir.resolve(".run").resolve("llm").resolve("catalog.json");
+        Files.setLastModifiedTime(catalog, FileTime.fromMillis(System.currentTimeMillis() - millis));
     }
 
     @Test
