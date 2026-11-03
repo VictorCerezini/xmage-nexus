@@ -962,7 +962,6 @@ public abstract class CardImpl extends MageObjectImpl implements Card {
     @Override
     public boolean addAttachment(UUID permanentId, Ability source, Game game) {
         if (permanentId == null
-                || this.attachments.contains(permanentId)
                 || permanentId.equals(this.getId())) {
             return false;
         }
@@ -972,6 +971,14 @@ public abstract class CardImpl extends MageObjectImpl implements Card {
         }
         if (attachment == null) {
             return false;
+        }
+        if (this.attachments.contains(permanentId)) {
+            if (objectId.equals(attachment.getAttachedTo())) {
+                return false;
+            }
+            // left over from an attachment that moved on without being removed here, e.g. Animate Dead
+            // after a rollback to before it returned this card: it could never attach to it again
+            this.attachments.remove(permanentId);
         }
         if (attachment.hasSubtype(SubType.EQUIPMENT, game)
                 && (attachment.isCreature(game)  // seems strange and perhaps someone knows why this is checked.
