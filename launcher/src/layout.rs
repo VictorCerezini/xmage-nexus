@@ -129,8 +129,59 @@ pub fn seed_server_data(staging_server: &Path, data_server: &Path) -> Result<(),
         let dest = data_server.join("plugins");
         let _ = std::fs::remove_dir_all(&dest);
         copy_dir(&staging_plugins, &dest)?;
+        match_plugin_jars(&data_server.join("config").join("config.xml"), &dest)?;
     }
     Ok(())
+}
+
+/// A plugin jar's name without its version: `mage-game-twoplayerduel-1.4.63.jar` gives
+/// `mage-game-twoplayerduel`.
+fn plugin_base(jar: &str) -> &str {
+    let stem = jar.strip_suffix(".jar").unwrap_or(jar);
+    stem.char_indices()
+        .find(|&(i, c)| c == '-' && stem[i + 1..].starts_with(|d: char| d.is_ascii_digit()))
+        .map_or(stem, |(i, _)| &stem[..i])
+}
+
+/// Points the config's `jar="..."` plugin names at the jars in `plugins`. The config is seeded
+/// once and keeps the user's settings, but the plugins are replaced on every start and their names
+/// carry the engine version: after an engine update the old names loaded no game type, and every
+/// new table failed with "this.match is null". A name whose jar is there, or with no jar of the
+/// same plugin, is left alone. Returns whether the file changed.
+pub fn match_plugin_jars(config_xml: &Path, plugins: &Path) -> Result<bool, LayoutError> {
+    if !config_xml.is_file() || !plugins.is_dir() {
+        return Ok(false);
+    }
+    let mut installed = std::collections::HashMap::new();
+    for entry in std::fs::read_dir(plugins)? {
+        if let Ok(name) = entry?.file_name().into_string() {
+            if name.ends_with(".jar") {
+                installed.insert(plugin_base(&name).to_string(), name);
+            }
+        }
+    }
+    let text = std::fs::read_to_string(config_xml)?;
+    let mut patched = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(start) = rest.find("jar=\"") {
+        let value = start + 5;
+        let Some(len) = rest[value..].find('"') else {
+            break;
+        };
+        let jar = &rest[value..value + len];
+        patched.push_str(&rest[..value]);
+        match installed.get(plugin_base(jar)) {
+            Some(found) if !plugins.join(jar).is_file() => patched.push_str(found),
+            _ => patched.push_str(jar),
+        }
+        rest = &rest[value + len..];
+    }
+    patched.push_str(rest);
+    if patched == text {
+        return Ok(false);
+    }
+    replace_file(config_xml, patched.as_bytes())?;
+    Ok(true)
 }
 
 /// Points the server config at `port`, the contract's. Runs on every start, so it leaves the file
@@ -444,6 +495,50 @@ mod tests {
             std::fs::read(data.join("plugins").join("p-1.jar")).unwrap(),
             b"v2"
         );
+    }
+
+    #[test]
+    fn an_engine_update_points_the_kept_config_at_the_new_plugin_jars() {
+        let dir = tempfile::tempdir().unwrap();
+        let staging = dir.path().join("staging");
+        std::fs::create_dir_all(staging.join("plugins")).unwrap();
+        for jar in [
+            "mage-game-twoplayerduel-1.4.63.jar",
+            "mage-player-ai-mad-1.4.63.jar",
+            "mage-deck-constructed-1.4.63.jar",
+        ] {
+            std::fs::write(staging.join("plugins").join(jar), "jar").unwrap();
+        }
+        let data = dir.path().join("data").join("server");
+        std::fs::create_dir_all(data.join("config")).unwrap();
+        let config = data.join("config").join("config.xml");
+        let user = "<server serverAddress=\"26.10.20.30\" maxSecondsIdle=\"7200\"/>\r\n\
+            <gameType name=\"Two Player Duel\" jar=\"mage-game-twoplayerduel-1.4.62.jar\" className=\"mage.game.TwoPlayerMatch\"/>\r\n\
+            <playerType name=\"Computer - mad\" jar=\"mage-player-ai-mad-1.4.62.jar\"/>\r\n\
+            <deckType name=\"Constructed - Standard\" jar=\"mage-deck-constructed-1.4.63.jar\"/>\r\n\
+            <deckType name=\"Gone\" jar=\"mage-deck-gone-1.4.62.jar\"/>\r\n";
+        std::fs::write(&config, user).unwrap();
+
+        seed_server_data(&staging, &data).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&config).unwrap(),
+            user.replace("twoplayerduel-1.4.62", "twoplayerduel-1.4.63")
+                .replace("mad-1.4.62", "mad-1.4.63")
+        );
+        assert!(!match_plugin_jars(&config, &data.join("plugins")).unwrap());
+    }
+
+    #[test]
+    fn a_plugin_name_without_its_version() {
+        assert_eq!(
+            plugin_base("mage-player-ai-draftbot-1.4.63.jar"),
+            "mage-player-ai-draftbot"
+        );
+        assert_eq!(
+            plugin_base("mage-game-freeforall-1.4.63-V1.jar"),
+            "mage-game-freeforall"
+        );
+        assert_eq!(plugin_base("mage-custom.jar"), "mage-custom");
     }
 
     #[test]
