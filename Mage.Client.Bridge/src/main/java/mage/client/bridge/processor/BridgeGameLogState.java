@@ -66,6 +66,11 @@ public final class BridgeGameLogState {
         unseenChat.add(message);
     }
 
+    /** Adds a line to the game log only, for news the model already gets in a tool result. */
+    public void addSystemLogEntry(String message) {
+        appendRenderedEntry(message);
+    }
+
     public void attachUnseenChat(Map<String, Object> result, boolean playerDead, boolean gameOver) {
         if (playerDead) {
             result.put("player_dead", true);

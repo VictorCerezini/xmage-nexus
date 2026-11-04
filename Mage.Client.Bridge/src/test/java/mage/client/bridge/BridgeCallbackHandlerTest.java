@@ -3060,7 +3060,9 @@ class BridgeCallbackHandlerTest {
         }));
 
         ActionResult initialChoices = handler.getActionChoices(null);
-        assertThat(initialChoices.choices).isNullOrEmpty();
+        assertThat(initialChoices.choices)
+            .singleElement()
+            .satisfies(choice -> assertThat(choice.get("cast_cancelled_this_turn")).isEqualTo(true));
 
         handler.handleCallback(new ClientCallback(
             ClientCallbackMethod.GAME_UPDATE,
@@ -3074,6 +3076,7 @@ class BridgeCallbackHandlerTest {
         assertThat(turnTwoChoices.choices)
             .extracting(choice -> choice.get("id"))
             .containsExactly("p13");
+        assertThat(turnTwoChoices.choices.get(0)).doesNotContainKey("cast_cancelled_this_turn");
     }
 
     @Test
@@ -4423,6 +4426,256 @@ class BridgeCallbackHandlerTest {
             .isEqualTo("AUTO_HANDLED");
         assertThat(sendPlayerUuidCalls.get()).isEqualTo(1);
         assertThat(getField(handler, "pendingAction")).isNull();
+    }
+
+    @Test
+    void aSpellTheServerCanPayForIsNotCancelledWhenNoSourceIsAPlainTap() throws Exception {
+        // The board of a real game: after Queen Marchesa, Qarsi Revenant ({1}{B}{B}) was castable
+        // with Desolate Mire, Orzhov Signet and two Gold tokens, and the bridge cancelled it.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID mireId = UUID.randomUUID();
+        UUID signetId = UUID.randomUUID();
+        UUID goldId = UUID.randomUUID();
+        UUID otherGoldId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+        AtomicInteger taps = new AtomicInteger();
+
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerBoolean".equals(method.getName()) && Boolean.FALSE.equals(args[1])) {
+                    cancels.incrementAndGet();
+                    return true;
+                }
+                if ("sendPlayerUUID".equals(method.getName())) {
+                    taps.incrementAndGet();
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        @SuppressWarnings("unchecked")
+        Map<UUID, Object> battlefield = (Map<UUID, Object>) getField(player, "battlefield");
+        battlefield.put(mireId, permanentView(mireId, "p14", "Desolate Mire", false));
+        battlefield.put(signetId, permanentView(signetId, "p31", "Orzhov Signet", false));
+        battlefield.put(goldId, permanentView(goldId, "p149", "Gold Token", false));
+        battlefield.put(otherGoldId, permanentView(otherGoldId, "p174", "Gold Token", false));
+
+        GameView manaView = gameView(60, List.of(player), new CardsView());
+        setField(manaView, "myPlayerId", playerId);
+        Map<UUID, PlayableObjectStats> sources = new LinkedHashMap<>();
+        sources.put(mireId, manaStats("{1}, {T}: Add {W}{B}."));
+        sources.put(signetId, manaStats("{1}, {T}: Add {W}{B}."));
+        sources.put(goldId, manaStats("Sacrifice this artifact: Add one mana of any color."));
+        sources.put(otherGoldId, manaStats("Sacrifice this artifact: Add one mana of any color."));
+        setField(manaView, "canPlayObjects", playableObjects(sources));
+
+        PendingAction action = new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_PLAY_MANA,
+            new GameClientMessage(manaView, Collections.<String, Serializable>emptyMap(), "Pay {1}{B}{B}"),
+            "Pay {1}{B}{B}",
+            60
+        );
+        setField(handler, "pendingAction", action);
+
+        invokeDecisionBoundaryStatus(handler, action, "test");
+        assertThat(cancels.get()).as("spell cancelled although it could be paid").isEqualTo(0);
+        assertThat(taps.get()).as("none of these sources is a plain tap").isEqualTo(0);
+        assertThat(getField(handler, "pendingAction")).as("the payment is left to the model").isSameAs(action);
+    }
+
+    @Test
+    void theAutoPayerTapsTheLandThatMakesTheNeededColor() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID mountainId = UUID.randomUUID();
+        UUID forestId = UUID.randomUUID();
+        List<Object> tapped = Collections.synchronizedList(new ArrayList<>());
+
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerUUID".equals(method.getName())) {
+                    tapped.add(args[1]);
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        @SuppressWarnings("unchecked")
+        Map<UUID, Object> battlefield = (Map<UUID, Object>) getField(player, "battlefield");
+        battlefield.put(mountainId, permanentView(mountainId, "p1", "Mountain", false));
+        battlefield.put(forestId, permanentView(forestId, "p2", "Forest", false));
+
+        GameView manaView = gameView(60, List.of(player), new CardsView());
+        setField(manaView, "myPlayerId", playerId);
+        Map<UUID, PlayableObjectStats> sources = new LinkedHashMap<>();
+        sources.put(mountainId, manaStats("{T}: Add {R}."));
+        sources.put(forestId, manaStats("{T}: Add {G}."));
+        setField(manaView, "canPlayObjects", playableObjects(sources));
+
+        PendingAction action = new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_PLAY_MANA,
+            new GameClientMessage(manaView, Collections.<String, Serializable>emptyMap(), "Pay {G}"),
+            "Pay {G}",
+            60
+        );
+        setField(handler, "pendingAction", action);
+
+        assertThat(invokeDecisionBoundaryStatus(handler, action, "test")).isEqualTo("AUTO_HANDLED");
+        assertThat(tapped).as("the Mountain cannot pay {G}").containsExactly(forestId);
+    }
+
+    @Test
+    void aSpellThatCannotBePaidIsReportedToTheModelAndStaysCastable() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID spellId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        CardsView hand = new CardsView();
+        hand.put(spellId, cardView(spellId, "p50", "Qarsi Revenant"));
+
+        GameView selectView = gameView(10, List.of(player), new CardsView());
+        setField(selectView, "myPlayerId", playerId);
+        setField(selectView, "myHand", hand);
+        setField(selectView, "canPlayObjects", playableObjects(Map.of(spellId, playStats("Cast Qarsi Revenant"))));
+
+        GameView manaView = gameView(11, List.of(player), new CardsView());
+        setField(manaView, "myPlayerId", playerId);
+        setField(manaView, "canPlayObjects", playableObjects(Map.of()));
+        String payPrompt = "Pay {1}{B}{B}<div><font object_id='" + spellId + "'>Qarsi Revenant</font></div>";
+        GameClientMessage manaMessage = new GameClientMessage(
+            manaView, Collections.<String, Serializable>emptyMap(), payPrompt);
+
+        GameView nextView = gameView(12, List.of(player), new CardsView());
+        setField(nextView, "myPlayerId", playerId);
+        setField(nextView, "myHand", hand);
+        setField(nextView, "canPlayObjects", playableObjects(Map.of(spellId, playStats("Cast Qarsi Revenant"))));
+        GameClientMessage nextMessage = new GameClientMessage(
+            nextView, Collections.<String, Serializable>emptyMap(), "Play spells and abilities");
+
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", selectView);
+        registerShortId(handler, spellId, "p50");
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                switch (method.getName()) {
+                    case "sendPlayerUUID" -> {
+                        assertThat(args[1]).isEqualTo(spellId);
+                        enqueueCallback(handler, ClientCallbackMethod.GAME_PLAY_MANA, gameId, manaMessage);
+                        return true;
+                    }
+                    case "sendPlayerBoolean" -> {
+                        if (Boolean.FALSE.equals(args[1])) {
+                            cancels.incrementAndGet();
+                        }
+                        enqueueCallback(handler, ClientCallbackMethod.GAME_SELECT, gameId, nextMessage);
+                        return true;
+                    }
+                    default -> {
+                        return defaultReturnValue(method.getReturnType());
+                    }
+                }
+            }
+        ));
+        setField(handler, "pendingAction", new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_SELECT,
+            new GameClientMessage(selectView, Collections.<String, Serializable>emptyMap(), "Play spells and abilities"),
+            "Play spells and abilities",
+            10
+        ));
+
+        var result = handler.chooseAction(null, "p50", null, null, null, null, null, null, null, null, null);
+
+        assertThat(cancels.get()).as("no mana source at all, so the cast is cancelled").isEqualTo(1);
+        assertThat(result.success).as("the spell was not cast").isFalse();
+        assertThat(result.error_code).isEqualTo("spell_cancelled");
+        assertThat(result.retryable).isTrue();
+        assertThat(result.error).contains("Qarsi Revenant was not cast").contains("{1}{B}{B}");
+        assertThat(result.action_type).isEqualTo("GAME_SELECT");
+        assertThat(result.choices).as("the card can be tried again").anySatisfy(choice -> {
+            assertThat(choice.get("id")).isEqualTo("p50");
+            assertThat(choice.get("cast_cancelled_this_turn")).isEqualTo(true);
+        });
+    }
+
+    @Test
+    void payingByHandDoesNotUseUpTheTurnsInteractionLimit() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID goldId = UUID.randomUUID();
+        List<Object> tapped = Collections.synchronizedList(new ArrayList<>());
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        @SuppressWarnings("unchecked")
+        Map<UUID, Object> battlefield = (Map<UUID, Object>) getField(player, "battlefield");
+        battlefield.put(goldId, permanentView(goldId, "p149", "Gold Token", false));
+
+        GameView manaView = gameView(20, List.of(player), new CardsView());
+        setField(manaView, "myPlayerId", playerId);
+        setField(manaView, "canPlayObjects", playableObjects(Map.of(
+            goldId, manaStats("Sacrifice this artifact: Add one mana of any color."))));
+        GameClientMessage nextMessage = new GameClientMessage(
+            gameView(21, List.of(player), new CardsView()), Collections.<String, Serializable>emptyMap(),
+            "Play spells and abilities");
+
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", manaView);
+        registerShortId(handler, goldId, "p149");
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerUUID".equals(method.getName())) {
+                    tapped.add(args[1]);
+                    enqueueCallback(handler, ClientCallbackMethod.GAME_SELECT, gameId, nextMessage);
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+        setField(handler, "pendingAction", new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_PLAY_MANA,
+            new GameClientMessage(manaView, Collections.<String, Serializable>emptyMap(), "Pay {B}"),
+            "Pay {B}",
+            20
+        ));
+
+        var result = handler.chooseAction(null, "p149", null, null, null, null, null, null, null, null, null);
+
+        assertThat(result.success).isTrue();
+        assertThat(tapped).containsExactly(goldId);
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        assertThat(interactions.interactionsThisTurn()).as("a mana answer is not counted toward the loop limit").isZero();
     }
 
     @Test

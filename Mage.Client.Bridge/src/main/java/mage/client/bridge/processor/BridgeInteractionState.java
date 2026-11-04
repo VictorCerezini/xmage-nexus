@@ -18,6 +18,11 @@ public final class BridgeInteractionState {
     private int lastTurnNumber = -1;
     private int interactionsThisTurn = 0;
     private int maxInteractionsPerTurn = 25;
+    private final List<String> cancelledSpells = new ArrayList<>();
+    private int manaAnswersNotCounted = 0;
+
+    /** Mana payment answers per turn that do not count toward the loop limit, so paying by hand is not cut off. */
+    static final int MANA_ANSWERS_NOT_COUNTED_PER_TURN = 30;
 
     public void setMaxInteractionsPerTurn(int maxInteractionsPerTurn) {
         this.maxInteractionsPerTurn = maxInteractionsPerTurn;
@@ -36,6 +41,35 @@ public final class BridgeInteractionState {
         return interactionsThisTurn;
     }
 
+    /**
+     * Takes back the interaction counted for a choose_action that paid mana from a source or the pool. Paying by
+     * hand needs one answer per source, which should not use up the loop limit; the allowance stays bounded so a
+     * payment that never progresses is still stopped.
+     */
+    public void uncountManaAnswer() {
+        if (interactionsThisTurn > 0 && manaAnswersNotCounted < MANA_ANSWERS_NOT_COUNTED_PER_TURN) {
+            interactionsThisTurn--;
+            manaAnswersNotCounted++;
+        }
+    }
+
+    public void recordCancelledSpell(String note) {
+        if (note != null && !note.isBlank()) {
+            cancelledSpells.add(note);
+        }
+    }
+
+    /** The notes about spells cancelled since the last call, oldest first. */
+    public List<String> drainCancelledSpells() {
+        List<String> notes = List.copyOf(cancelledSpells);
+        cancelledSpells.clear();
+        return notes;
+    }
+
+    public void clearCancelledSpells() {
+        cancelledSpells.clear();
+    }
+
     public int lastTurnNumber() {
         return lastTurnNumber;
     }
@@ -51,6 +85,7 @@ public final class BridgeInteractionState {
         lastTurnNumber = turn;
         failedManaCasts.clear();
         interactionsThisTurn = 0;
+        manaAnswersNotCounted = 0;
         resetPoolManaTracking();
         clearManaPlan();
     }
@@ -124,5 +159,7 @@ public final class BridgeInteractionState {
         clearManaPlan();
         lastTurnNumber = -1;
         interactionsThisTurn = 0;
+        manaAnswersNotCounted = 0;
+        cancelledSpells.clear();
     }
 }

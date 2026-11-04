@@ -364,9 +364,8 @@ public final class BridgePublishedQueryBuilder {
             for (Map.Entry<UUID, PlayableObjectStats> entry : sortedPlayable) {
                 UUID objectId = entry.getKey();
                 PlayableObjectStats stats = entry.getValue();
-                if (projectionInputs.failedManaCast(objectId)) {
-                    continue;
-                }
+                // a card whose payment was cancelled stays listed, so the model can try again and pay by hand
+                boolean cancelledThisTurn = projectionInputs.failedManaCast(objectId);
 
                 List<String> abilityNames = stats.getPlayableAbilityNames();
                 List<String> manaNames = stats.getAllManaAbilityNames();
@@ -409,6 +408,9 @@ public final class BridgePublishedQueryBuilder {
                     }
                 } else {
                     choiceEntry.put("name", "Unknown (" + objectId.toString().substring(0, 8) + ")");
+                }
+                if (cancelledThisTurn) {
+                    choiceEntry.put("cast_cancelled_this_turn", true);
                 }
 
                 choiceList.add(choiceEntry);

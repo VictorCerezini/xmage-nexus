@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class BridgeDecisionFlowService {
@@ -59,6 +60,7 @@ public final class BridgeDecisionFlowService {
     private static final Pattern REGEX_GREEN = Pattern.compile("\\x7b.{0,2}G.{0,2}\\x7d");
     private static final Pattern REGEX_COLORLESS = Pattern.compile("\\x7b.{0,2}C.{0,2}\\x7d");
     private static final int MAX_POOL_MANA_ATTEMPTS = 10;
+    private static final Pattern PAYING_FOR_NAME = Pattern.compile("<font[^>]*object_id='[^']*'[^>]*>([^<]+)</font>");
 
     private final String username;
     private final Logger logger;
@@ -264,6 +266,7 @@ public final class BridgeDecisionFlowService {
             BridgeChooseActionInput input,
             PendingAction action) {
         var result = new ChooseActionTool.Result();
+        processorState.interactionState().clearCancelledSpells();
         result.game_seq = action.gameSeq();
         Integer resolvedIndex = input.index();
         String[] effectiveManaPlan = input.manaPlan();
@@ -445,6 +448,7 @@ public final class BridgeDecisionFlowService {
                             Object manaChoice = choiceBackings.get(resolvedIndex);
                             if (manaChoice instanceof UUID manaUuid) {
                                 sendUuidOrDie(gameId, manaUuid, "chooseAction:GAME_PLAY_MANA");
+                                processorState.interactionState().uncountManaAnswer();
                                 result.action_taken = "tapped_mana_" + resolvedIndex;
                                 usedManaIndex = true;
                             } else if (manaChoice instanceof ManaType manaType) {
@@ -454,6 +458,7 @@ public final class BridgeDecisionFlowService {
                                         "Could not resolve player ID for mana pool selection", false, action));
                                 }
                                 sendManaTypeOrDie(gameId, manaPlayerId, manaType, "chooseAction:GAME_PLAY_MANA_pool");
+                                processorState.interactionState().uncountManaAnswer();
                                 result.action_taken = "used_pool_" + manaType;
                                 usedManaIndex = true;
                             } else {
@@ -737,6 +742,7 @@ public final class BridgeDecisionFlowService {
             PendingAction nextAction) {
         result.game_seq = nextAction.gameSeq();
         mergeActionChoices(result, null, nextAction);
+        reportCancelledSpells(result);
         String summary = "after=" + summarizePendingAction(previousAction)
             + ",woke_to=" + summarizePendingAction(nextAction)
             + ",gameOver=" + processorState.gameState().gameOverObserved();
@@ -754,7 +760,25 @@ public final class BridgeDecisionFlowService {
             + ",clientRunning=" + clientRunning();
         logger.info("[" + username + "] chooseAction wakeup: " + summary);
         eventLogger.log("CHOOSE_ACTION_WAKEUP", previousAction.gameId(), summary);
+        reportCancelledSpells(result);
         attachUnseenChat(result);
+    }
+
+    /**
+     * Tells the model that a spell it chose was cancelled while it was being paid for, and why. Without this the
+     * result said success=true and the model thought the spell was cast.
+     */
+    private void reportCancelledSpells(ChooseActionTool.Result result) {
+        List<String> notes = processorState.interactionState().drainCancelledSpells();
+        if (notes.isEmpty()) {
+            return;
+        }
+        String text = String.join(" ", notes)
+            + " If you still have the mana, you can try again and pick the mana sources yourself when asked to pay.";
+        result.success = false;
+        result.error_code = "spell_cancelled";
+        result.retryable = true;
+        result.error = result.error == null || result.error.isBlank() ? text : result.error + " " + text;
     }
 
     public void finishBatchChooseActionWithNextDecision(
@@ -1525,13 +1549,52 @@ public final class BridgeDecisionFlowService {
         }
     }
 
-    private boolean cancelSpellFromBadManaPlan(UUID gameId, UUID payingForId) {
+    private boolean cancelSpellFromBadManaPlan(UUID gameId, UUID payingForId, String messageText, GameView gameView, String reason) {
+        return cancelSpell(gameId, payingForId, messageText, gameView, reason, "cancelSpellFromBadManaPlan");
+    }
+
+    /**
+     * Cancels the spell or ability being paid for. XMage then undoes the payment. The model is told what was not
+     * cast and why: in the choose_action result, or in recent_chat when no choose_action is waiting.
+     */
+    private boolean cancelSpell(
+            UUID gameId, UUID payingForId, String messageText, GameView gameView, String reason, String context) {
         processorState.interactionState().markFailedManaCast(payingForId);
         processorState.interactionState().clearManaPlan();
-        processorState.gameLogState().addSystemMessage("[System] Spell cancelled — mana plan was incorrect or incomplete.");
-        eventLogger.log("SPELL_CANCELLED", processorState.gameState().currentGameId(), "mana plan was incorrect or incomplete");
-        sendBooleanOrDie(gameId, false, "cancelSpellFromBadManaPlan");
+        processorState.interactionState().resetPoolManaTracking();
+        boolean ability = payingForId != null
+            && processorServices.viewLocator().findPermanentViewById(payingForId, gameView) != null;
+        String note = payingForName(payingForId, messageText, gameView)
+            + (ability ? "'s ability was not activated: " : " was not cast: ") + reason + ". Nothing was paid.";
+        if (processorState.decisionState().pendingChooseActionFlow() != null) {
+            // the choose_action result reports it (reportCancelledSpells), so it is not repeated in recent_chat
+            processorState.interactionState().recordCancelledSpell(note);
+            processorState.gameLogState().addSystemLogEntry("[System] " + note);
+        } else {
+            processorState.gameLogState().addSystemMessage("[System] " + note);
+        }
+        eventLogger.log("SPELL_CANCELLED", processorState.gameState().currentGameId(), reason);
+        sendBooleanOrDie(gameId, false, context);
         return true;
+    }
+
+    private String payingForName(UUID payingForId, String messageText, GameView gameView) {
+        if (payingForId != null) {
+            CardView cardView = processorServices.viewLocator().findCardViewById(payingForId, gameView);
+            if (cardView != null) {
+                String name = processorServices.cardFormatter().safeDisplayName(cardView);
+                if (name != null && !name.isBlank()) {
+                    return name;
+                }
+            }
+        }
+        if (messageText != null) {
+            Matcher matcher = PAYING_FOR_NAME.matcher(messageText);
+            if (matcher.find() && !matcher.group(1).isBlank()) {
+                return matcher.group(1).trim();
+            }
+        }
+        return "The spell";
     }
 
     private UUID getManaPoolPlayerId(UUID gameId, GameView gameView) {
@@ -1560,12 +1623,14 @@ public final class BridgeDecisionFlowService {
                 UUID targetId = processorServices.shortIds().tryResolve(entry.value());
                 if (targetId == null) {
                     logger.warn("[" + username + "] Mana plan: unknown short ID '" + entry.value() + "', cancelling spell");
-                    return cancelSpellFromBadManaPlan(gameId, payingForId);
+                    return cancelSpellFromBadManaPlan(gameId, payingForId, messageText, gameView,
+                        "mana_plan names " + entry.value() + ", which is not a known permanent");
                 }
                 PlayableObjectsList playableForPlan = gameView != null ? gameView.getCanPlayObjects() : null;
                 if (playableForPlan != null) {
                     PlayableObjectStats stats = playableForPlan.getObjects().get(targetId);
-                    if (stats != null && !targetId.equals(payingForId) && !processorState.interactionState().failedManaCast(targetId)) {
+                    // the model named this source itself, so it is used even if paying for it failed earlier this turn
+                    if (stats != null && !targetId.equals(payingForId)) {
                         logger.info("[" + username + "] Mana plan: \"" + messageText + "\" -> tapping " + entry.value());
                         processorState.interactionState().resetPoolManaTracking();
                         sendUuidOrDie(gameId, targetId, "manaAuto:plan_tap");
@@ -1573,7 +1638,8 @@ public final class BridgeDecisionFlowService {
                     }
                 }
                 logger.warn("[" + username + "] Mana plan: tap target " + entry.value() + " not available, cancelling spell");
-                return cancelSpellFromBadManaPlan(gameId, payingForId);
+                return cancelSpellFromBadManaPlan(gameId, payingForId, messageText, gameView,
+                    "mana_plan source " + entry.value() + " cannot be used for mana right now");
             }
 
             if ("pool".equals(entry.type())) {
@@ -1585,11 +1651,13 @@ public final class BridgeDecisionFlowService {
                     return true;
                 }
                 logger.warn("[" + username + "] Mana plan: pool entry failed (no player ID), cancelling spell");
-                return cancelSpellFromBadManaPlan(gameId, payingForId);
+                return cancelSpellFromBadManaPlan(gameId, payingForId, messageText, gameView,
+                    "the mana_plan pool entry " + entry.value() + " could not be spent");
             }
 
             logger.warn("[" + username + "] Mana plan: unknown entry type '" + entry.type() + "', cancelling spell");
-            return cancelSpellFromBadManaPlan(gameId, payingForId);
+            return cancelSpellFromBadManaPlan(gameId, payingForId, messageText, gameView,
+                "a mana_plan entry was not understood");
         }
 
         if (plan != null) {
@@ -1598,11 +1666,14 @@ public final class BridgeDecisionFlowService {
                 processorState.interactionState().clearManaPlan();
             } else {
                 logger.warn("[" + username + "] Mana plan: exhausted with pips remaining, cancelling spell (auto_tap=false)");
-                return cancelSpellFromBadManaPlan(gameId, payingForId);
+                return cancelSpellFromBadManaPlan(gameId, payingForId, messageText, gameView,
+                    "the mana_plan ran out with " + unpaidCostText(messageText) + " still to pay (auto_tap=false)");
             }
         }
 
         PlayableObjectsList playable = gameView != null ? gameView.getCanPlayObjects() : null;
+        var plainSources = new ArrayList<BridgeManaSources.Source>();
+        boolean otherSources = false;
         if (playable != null && !playable.isEmpty()) {
             var battlefieldOrder = new HashMap<UUID, Integer>();
             if (gameView != null) {
@@ -1634,28 +1705,36 @@ public final class BridgeDecisionFlowService {
                 if (processorState.interactionState().failedManaCast(objectId)) {
                     continue;
                 }
-                PlayableObjectStats stats = entry.getValue();
-                boolean hasTapManaAbility = false;
-                for (String name : stats.getAllManaAbilityNames()) {
-                    if (name.contains("{T}")) {
-                        int colonPos = name.indexOf(':');
-                        if (colonPos > 0) {
-                            String costPart = name.substring(0, colonPos);
-                            if (costPart.matches(".*\\{[0-9WUBRGC]\\}.*")) {
-                                continue;
-                            }
-                        }
-                        hasTapManaAbility = true;
-                        break;
+                // only plain sources ({T} and nothing else) are tapped here; one that also costs mana, life
+                // or a sacrifice is left to the model
+                var colors = new StringBuilder();
+                int units = 0;
+                for (String name : entry.getValue().getAllManaAbilityNames()) {
+                    String plain = BridgeManaSources.plainColors(name);
+                    if (plain == null) {
+                        otherSources = true;
+                        continue;
                     }
+                    for (char letter : plain.toCharArray()) {
+                        if (colors.indexOf(String.valueOf(letter)) < 0) {
+                            colors.append(letter);
+                        }
+                    }
+                    units = Math.max(units, BridgeManaSources.plainUnits(name));
                 }
-                if (hasTapManaAbility) {
-                    logger.info("[" + username + "] Mana: \"" + messageText + "\" -> tapping " + objectId.toString().substring(0, 8));
-                    processorState.interactionState().resetPoolManaTracking();
-                    sendUuidOrDie(gameId, objectId, "manaAuto:tap");
-                    return true;
+                if (units > 0) {
+                    plainSources.add(new BridgeManaSources.Source(objectId, colors.toString(), units));
                 }
             }
+        }
+
+        BridgeManaSources.Cost cost = BridgeManaSources.parseCost(messageText);
+        UUID toTap = cost != null && !plainSources.isEmpty() ? BridgeManaSources.nextToTap(cost, plainSources) : null;
+        if (toTap != null) {
+            logger.info("[" + username + "] Mana: \"" + messageText + "\" -> tapping " + toTap.toString().substring(0, 8));
+            processorState.interactionState().resetPoolManaTracking();
+            sendUuidOrDie(gameId, toTap, "manaAuto:tap");
+            return true;
         }
 
         List<ManaType> poolChoices = getPoolManaChoices(gameView, messageText);
@@ -1667,13 +1746,8 @@ public final class BridgeDecisionFlowService {
                 if (poolManaAttempts > MAX_POOL_MANA_ATTEMPTS) {
                     logger.warn("[" + username + "] Mana: \"" + messageText + "\" -> pool payment not progressing after "
                         + poolManaAttempts + " attempts, cancelling spell");
-                    processorState.interactionState().resetPoolManaTracking();
-                    processorState.interactionState().clearManaPlan();
-                    processorState.interactionState().markFailedManaCast(payingForId);
-                    processorState.gameLogState().addSystemMessage("[System] Spell cancelled — not enough mana to complete payment.");
-                    eventLogger.log("SPELL_CANCELLED", processorState.gameState().currentGameId(), "not enough mana to complete payment");
-                    sendBooleanOrDie(gameId, false, "manaAuto:pool_loop_cancel");
-                    return true;
+                    return cancelSpell(gameId, payingForId, messageText, gameView,
+                        "the mana in your pool could not pay " + unpaidCostText(messageText), "manaAuto:pool_loop_cancel");
                 }
 
                 if (!canAutoSelectPoolType) {
@@ -1688,12 +1762,29 @@ public final class BridgeDecisionFlowService {
             logger.warn("[" + username + "] Mana: couldn't resolve player ID for mana pool payment");
         }
 
+        if (!plainSources.isEmpty() || otherSources) {
+            // the plain sources cannot pay it alone (or the cost was not understood), but there are other ways to
+            // pay, such as filter lands, Signets or Treasure: the model chooses
+            logger.info("[" + username + "] Mana: \"" + messageText + "\" -> cannot auto-pay with plain sources ("
+                + plainSources.size() + " plain, other sources=" + otherSources + "), asking the model");
+            return false;
+        }
+
         logger.info("[" + username + "] Mana: \"" + messageText + "\" -> no mana source available, cancelling spell");
-        processorState.interactionState().markFailedManaCast(payingForId);
-        processorState.interactionState().clearManaPlan();
-        processorState.gameLogState().addSystemMessage("[System] Spell cancelled — not enough mana to complete payment.");
-        eventLogger.log("SPELL_CANCELLED", processorState.gameState().currentGameId(), "not enough mana to complete payment");
-        sendBooleanOrDie(gameId, false, "manaAuto:no_source_cancel");
-        return true;
+        return cancelSpell(gameId, payingForId, messageText, gameView,
+            "no untapped mana source was left to pay " + unpaidCostText(messageText), "manaAuto:no_source_cancel");
+    }
+
+    /** The cost part of a "Pay {1}{B}<div>...</div>" prompt, such as "{1}{B}". */
+    private static String unpaidCostText(String messageText) {
+        if (messageText == null) {
+            return "the cost";
+        }
+        int html = messageText.indexOf('<');
+        String text = (html >= 0 ? messageText.substring(0, html) : messageText).trim();
+        if (text.startsWith("Pay ")) {
+            text = text.substring("Pay ".length()).trim();
+        }
+        return text.isEmpty() ? "the cost" : text;
     }
 }
