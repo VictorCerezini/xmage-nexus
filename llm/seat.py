@@ -44,7 +44,10 @@ PROMPT = (
     "the like), you get the Pay prompt: choose one mana source at a time until the cost is paid, or choice=no "
     "to cancel. Batch attackers can be 'all' or comma-separated IDs; blockers can be comma-separated "
     "blocker:attacker pairs. Read tool descriptions for full details. If a choice is stale or an action "
-    "returns an error, refresh choices and correct it. Never invent card IDs.\n\n"
+    "returns an error, refresh choices and correct it. Never invent card IDs. If the game tools keep you from "
+    "doing something legal you want (a choice you need is missing, a choice is made for you, an action is "
+    "refused or does something else), call report_problem right away with the card, what you tried and what "
+    "happened, then keep playing.\n\n"
     "Use pass_priority to wait for your next decision rather than repeatedly polling. The human may "
     "take time to think; wait patiently. Omit until so it stops at playable actions, combat or other choices. "
     "At an empty ordinary priority prompt, choice=no alone also uses that blocking pass. "
@@ -56,8 +59,9 @@ PROMPT = (
     "a few moves or concede just to finish. Avoid commentary overhead. Do not supply the human's moves "
     "or look for outside information. In multiplayer, inspect all players and legal targets rather than "
     "assuming there is only one opponent. For Commander, respond to commander selection and command-zone "
-    "choices using the legal actions provided. Once your game ends or you are eliminated, report your own "
-    "factual result briefly and stop; other multiplayer participants may still be playing."
+    "choices using the legal actions provided. Once your game ends or you are eliminated, answer the "
+    "bridge_check question with report_problem, report your own factual result briefly and stop; other "
+    "multiplayer participants may still be playing."
 )
 MATCH_PROMPT = (
     "\n\nThis game is part of a match won by the first player to win {wins_needed} games. This is game {game}. "
@@ -400,6 +404,7 @@ def run_player(request, *, start_player=None, runtime=None):
             optimize_play=server is None,
             upstream_timeout=MAX_SECONDS + 30,
             describe=mcp_engine.describe_tool if server else None,
+            report_path=run / game_file("problem-reports.jsonl", number),
         )
         gateways.append(gateway)
         prompt = (mcp_engine.PROMPT if server else PROMPT).format(
@@ -467,6 +472,11 @@ def run_player(request, *, start_player=None, runtime=None):
                 **({"turns": mcp_game.get("turn")} if server else {}),
                 "game_wall_seconds": round(time.monotonic() - game_started, 3),
                 "tool_calls": gateway.call_count,
+                **(
+                    {"problem_reports": gateway.problem_reports, "said_all_worked": gateway.said_all_worked}
+                    if gateway.reports
+                    else {}
+                ),
                 **({"player_restarts": attempt} if attempt else {}),
                 **({"model": f"{playing['provider'].id} {playing['model']}"} if "model_switch" in manifest else {}),
                 "usage": usage,
@@ -648,6 +658,9 @@ def run_player(request, *, start_player=None, runtime=None):
             gateway.close()
         if gateways:
             manifest["tool_calls"] = sum(gateway.call_count for gateway in gateways)
+            if any(gateway.reports for gateway in gateways):
+                # Counted here too: a game that failed has no entry in games, and its reports matter most.
+                manifest["problem_reports"] = sum(gateway.problem_reports for gateway in gateways)
             manifest["optimization"] = merged_stats([gateway.optimization_stats() for gateway in gateways])
         manifest["usage"] = [
             usage for path, player in event_paths for usage in player.usage(read_complete_events(path))

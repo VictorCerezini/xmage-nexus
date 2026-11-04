@@ -5,12 +5,54 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from llm.player_view import PlayerView
+from llm.player_view import PlayerView, action_payload, replace_payload
+
+# A tool the gateway answers itself: the model tells us when the game tools kept it from doing what it
+# wanted. Nothing reaches the bridge or the game; the note is saved in the seat's run folder.
+REPORT_TOOL = "report_problem"
+# The answer to the end-of-game question that says nothing went wrong.
+NO_PROBLEM = "none"
+MAX_REPORTS = 20
+RECENT_CALLS = 5
+RESPONSE_EXCERPT = 4000
+GAME_OVER_KEYS = ("game_over", "player_dead")
+END_QUESTION = (
+    "Your game is over. Before you stop, one question: did the game tools let you do everything you wanted "
+    f"this game? Call {REPORT_TOOL} once for each problem you have not reported yet, or once with "
+    f'problem="{NO_PROBLEM}" if everything worked. Then report your result briefly and stop.'
+)
+REPORT_TOOL_DEFINITION = {
+    "name": REPORT_TOOL,
+    "description": (
+        "Report a problem with the game tools, right when it happens: a legal choice you needed was missing, "
+        "a choice was made for you that you did not want, or an action was refused or did something other "
+        "than what it said. Name the card, what you tried and what happened instead, then keep playing. "
+        "It does not change the game and nobody in the game sees it; it is saved for the people who fix "
+        "these tools. Do not use it for your own mistakes, for rules questions or for commentary. "
+        f'At the end of the game, problem="{NO_PROBLEM}" says everything worked.'
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "problem": {
+                "type": "string",
+                "description": (
+                    "The card or prompt, what you wanted to do, and what the game tools did instead; "
+                    f'or "{NO_PROBLEM}" at the end of the game if everything worked.'
+                ),
+            }
+        },
+        "required": ["problem"],
+        "additionalProperties": False,
+    },
+    "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False, "idempotentHint": False},
+}
 
 
 def validate_loopback_url(url):
@@ -23,14 +65,33 @@ def rpc_error(request, code, message):
     return {"jsonrpc": "2.0", "id": request.get("id"), "error": {"code": code, "message": message}}
 
 
-def finished_response(request):
-    result = {"game_over": True, "message": "This game has ended. Report your result briefly and stop."}
+def tool_response(request, result, *, is_error=False):
     text = json.dumps(result, separators=(",", ":"))
     return {
         "jsonrpc": "2.0",
         "id": request.get("id"),
-        "result": {"content": [{"type": "text", "text": text}], "structuredContent": result, "isError": False},
+        "result": {"content": [{"type": "text", "text": text}], "structuredContent": result, "isError": is_error},
     }
+
+
+def finished_response(request, question=None):
+    result = {"game_over": True, "message": "This game has ended. Report your result briefly and stop."}
+    if question:
+        result["bridge_check"] = question
+    return tool_response(request, result)
+
+
+def response_excerpt(response):
+    """What the model was shown, cut short: the text of a tool result, or the JSON of an error."""
+    if not isinstance(response, dict):
+        return None
+    result = response.get("result")
+    if isinstance(result, dict):
+        texts = [part.get("text", "") for part in result.get("content", []) if part.get("type") == "text"]
+        text = "\n".join(texts)
+    else:
+        text = json.dumps(response, separators=(",", ":"), ensure_ascii=False)
+    return text[:RESPONSE_EXCERPT]
 
 
 class GameToolGateway:
@@ -44,8 +105,11 @@ class GameToolGateway:
         optimize_play=False,
         upstream_timeout=180,
         describe=None,
+        report_path=None,
     ):
-        """upstream is the bridge's loopback URL, or an object whose forward(payload, timeout) answers."""
+        """upstream is the bridge's loopback URL, or an object whose forward(payload, timeout) answers.
+        With report_problem among the allowed tools, the model's problem reports go to report_path
+        (problem-reports.jsonl next to the trace by default)."""
         if isinstance(upstream, str):
             validate_loopback_url(upstream)
         if upstream_timeout <= 0:
@@ -68,6 +132,14 @@ class GameToolGateway:
         self.upstream_response_bytes = 0
         self.model_response_bytes = 0
         self.game_finished = False
+        self.reports = REPORT_TOOL in self.allowed
+        self.report_path = report_path or trace_path.with_name("problem-reports.jsonl")
+        self.problem_reports = 0
+        self.said_all_worked = False
+        self.saved_reports = 0
+        self.end_question_asked = False
+        # The last game calls, saved with a report so it shows what the model was looking at.
+        self.recent_calls = deque(maxlen=RECENT_CALLS)
         gateway = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -112,8 +184,12 @@ class GameToolGateway:
                         if params.get("name") not in gateway.allowed or count > gateway.max_calls:
                             response = rpc_error(payload, -32601, "Tool not permitted or pilot call limit exceeded")
                             record["outcome"] = "rejected"
+                    if response is None and is_call and params.get("name") == REPORT_TOOL:
+                        # Answered here, also after the game ended: that is when the model is asked.
+                        response = gateway.report(payload)
+                        record["outcome"] = "reported"
                     if response is None and is_call and gateway.game_finished:
-                        response = finished_response(payload)
+                        response = finished_response(payload, gateway.ask_end_question())
                         record["outcome"] = "game_finished"
                     if response is None:
                         effective = gateway.view.prepare_request(payload) if is_call and gateway.view else payload
@@ -161,9 +237,11 @@ class GameToolGateway:
                         record["outcome"] = "upstream_error"
                     outgoing = (
                         gateway.view.model_response(params["name"], answered)
-                        if is_call and gateway.view and record["outcome"] != "game_finished"
+                        if is_call and gateway.view and record["outcome"] not in {"game_finished", "reported"}
                         else response
                     )
+                    if is_call and record["outcome"] == "ok":
+                        outgoing = gateway.with_end_question(outgoing)
                 except (TimeoutError, urllib.error.URLError, ConnectionError, OSError, ValueError) as error:
                     if gateway.view:
                         gateway.view.invalidate_action()
@@ -186,7 +264,7 @@ class GameToolGateway:
                     status = 200
                 body = json.dumps(outgoing, separators=(",", ":"), ensure_ascii=False).encode() if outgoing else b""
                 record["model_response_bytes"] = len(body)
-                if gateway.view and outgoing != record["response"]:
+                if outgoing != record["response"]:
                     record["model_response"] = outgoing
                 try:
                     self.send_response(status)
@@ -235,13 +313,95 @@ class GameToolGateway:
                 self.view.describe_tool(tool)
             if self.describe:
                 self.describe(tool)
+            properties = (tool.get("outputSchema") or {}).get("properties")
+            if self.reports and isinstance(properties, dict) and any(key in properties for key in GAME_OVER_KEYS):
+                properties["bridge_check"] = {
+                    "type": "string",
+                    "description": "Asked once when your game ends: whether the game tools let you do everything",
+                }
+        if self.reports:
+            tools.append(json.loads(json.dumps(REPORT_TOOL_DEFINITION)))
+
+    def report(self, request):
+        """Save the model's problem report with the calls that led to it, and tell the model it was saved."""
+        arguments = request.get("params", {}).get("arguments") or {}
+        problem = arguments.get("problem") if isinstance(arguments, dict) else None
+        if not isinstance(problem, str) or not problem.strip():
+            return tool_response(
+                request, {"saved": False, "message": "Describe the problem in the problem argument."}, is_error=True
+            )
+        problem = problem.strip()
+        all_worked = problem.rstrip(".!").strip().lower() == NO_PROBLEM
+        with self.lock:
+            if self.saved_reports >= MAX_REPORTS:
+                return tool_response(
+                    request, {"saved": False, "message": "This game's report limit is reached. Keep playing."}
+                )
+            entry = {
+                "ts": datetime.now(UTC).isoformat(),
+                "call": self.call_count,
+                "after_game_end": self.game_finished or self.end_question_asked,
+                "all_worked": all_worked,
+                "problem": problem[:RESPONSE_EXCERPT],
+                "recent_calls": list(self.recent_calls),
+            }
+            try:
+                with self.report_path.open("a", encoding="utf-8") as file:
+                    file.write(json.dumps(entry, separators=(",", ":"), ensure_ascii=False) + "\n")
+            except OSError:
+                # A report that cannot be saved must not stop the game.
+                return tool_response(
+                    request, {"saved": False, "message": "The report could not be saved. Keep playing."}
+                )
+            self.saved_reports += 1
+            if all_worked:
+                self.said_all_worked = True
+            else:
+                self.problem_reports += 1
+        if self.game_finished or self.end_question_asked:
+            message = "Saved, thank you. Report your result briefly and stop."
+        else:
+            message = "Saved, thank you. Keep playing."
+        return tool_response(request, {"saved": True, "message": message})
+
+    def ask_end_question(self):
+        """The end-of-game question, the first time this game's end reaches the model; otherwise None."""
+        if not self.reports:
+            return None
+        with self.lock:
+            if self.end_question_asked:
+                return None
+            self.end_question_asked = True
+        return END_QUESTION
+
+    def with_end_question(self, response):
+        """The bridge's own game over or elimination result, with the end-of-game question added once."""
+        if not self.reports or self.end_question_asked:
+            return response
+        payload = action_payload(response)
+        if payload is None or not any(payload.get(key) for key in GAME_OVER_KEYS):
+            return response
+        question = self.ask_end_question()
+        if question is None:
+            return response
+        return replace_payload(response, {**payload, "bridge_check": question})
 
     def record_call(self, record):
         with self.lock, self.trace_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(record, separators=(",", ":")) + "\n")
-            self.failed_calls += record["outcome"] != "ok"
+            self.failed_calls += record["outcome"] not in {"ok", "reported"}
             self.upstream_response_bytes += record.get("upstream_response_bytes", 0)
             self.model_response_bytes += record["model_response_bytes"]
+            if record["tool"] != REPORT_TOOL:
+                self.recent_calls.append(
+                    {
+                        "ts": record["ts"],
+                        "tool": record["tool"],
+                        "arguments": record["arguments"],
+                        "outcome": record["outcome"],
+                        "shown": response_excerpt(record.get("model_response", record.get("response"))),
+                    }
+                )
 
     def optimization_stats(self):
         return {

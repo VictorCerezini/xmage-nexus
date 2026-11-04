@@ -149,19 +149,44 @@ Each seat writes to its `run` folder:
   `bridge.log`.
 - `player-prompt.txt`, `player-tools.jsonl` and the CLI's event and stderr
   logs, with a `-game<N>` suffix from game 2 of a match.
+- `problem-reports.jsonl` (same suffix), `bridge` engine only: what the model
+  sent with `report_problem`. Each line has its text (`problem`), whether it
+  came after the game ended, `all_worked` for an end-of-game `none`, and the
+  last five game calls with what the model was shown, so a report can be
+  checked against the logs. The file only exists once a report was sent.
 - `mcp-server.log`: the `mcp/` server's stderr, for the `mcp` engine only. That
   engine has no bridge files; its results come from `mcp/`'s `GAME_OVER`.
 
 Each game in the manifest records its `winner` (the name in the server's game
 over message, or null for a draw), and for the `mcp` engine its last `turns`.
+With the `bridge` engine it also records `problem_reports` (the problems the
+model reported that game) and `said_all_worked` (it answered `none` to the
+end-of-game question). The manifest's own `problem_reports` adds up every
+game's, including a game that failed before it got an entry.
+
+## Problem reports
+
+With the `bridge` engine the model has a ninth tool, `report_problem`, that the
+gateway answers itself: nothing reaches the bridge or the game, and the report
+is only saved in the run folder. The prompt asks the model to use it as soon as
+the game tools keep it from doing something legal (a missing choice, a choice
+made for it, a refused action). When the bridge's result says the game is over
+or the player was eliminated, the gateway adds a `bridge_check` question to it,
+once: did the tools let the model do everything it wanted? The model answers
+with `report_problem`, one call per problem or `none`, in the two minutes the
+seat gives it after the game. A game cut short by a crash or a limit gets no
+end-of-game answer, but reports sent during it are kept. A game takes up to 20
+reports. Reports are leads to check in the logs: a model can blame the tools
+for its own rules mistake.
 
 The bridge's lazily loaded card database is shared by all seats in
 `.run/llm/bridge/db`.
 
 ## Boundaries
 
-- The CLI gets only the eight game tools, through a loopback gateway that
-  counts calls, auto-passes empty priority windows and drops unchanged boards
+- The CLI gets only the eight game tools and `report_problem`, through a
+  loopback gateway that counts calls, auto-passes empty priority windows and
+  drops unchanged boards
   and repeated rules text.
 - With the `mcp` engine the eight tools are `mcp/`'s play tools
   (`mage_wait_for_prompt`, `mage_game_state`, `mage_choose`, `mage_play_card`,

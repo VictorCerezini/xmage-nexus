@@ -17,6 +17,8 @@ TOOLS = [
     "get_game_log",
     "get_game_history",
     "concede",
+    # answered by the seat's gateway, not the bridge: the model's reports of problems with these tools
+    "report_problem",
 ]
 
 

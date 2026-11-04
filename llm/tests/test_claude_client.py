@@ -28,7 +28,8 @@ def test_command_disables_every_builtin_tool_and_allows_only_game_tools(fake_cla
     assert flag(command, "--setting-sources") == ""
     assert flag(command, "--permission-mode") == "dontAsk"
     assert flag(command, "--allowedTools").split(",") == claude_client.MCP_TOOLS
-    assert len(claude_client.MCP_TOOLS) == 8
+    assert len(claude_client.MCP_TOOLS) == 9
+    assert "mcp__mage__report_problem" in claude_client.MCP_TOOLS
     assert "--strict-mcp-config" in command
     assert "--no-session-persistence" in command
     assert "--disable-slash-commands" in command

@@ -101,6 +101,9 @@ def harness(tmp_path, monkeypatch):
         finish_game=lambda: None,
         new_player=lambda: None,
         optimization_stats=lambda: {"policy": "gui-efficient-v2"},
+        reports=True,
+        problem_reports=0,
+        said_all_worked=False,
     )
     monkeypatch.setattr(seat.socket, "socket", FakeSocket)
     monkeypatch.setattr(paths, "PLAYER_CWD", tmp_path / "player-sandbox")
@@ -907,16 +910,20 @@ def match(harness, monkeypatch):
         bridge_log[0].write(f"[{request['username']}] {line}\n")
         bridge_log[0].flush()
 
-    def make_gateway(_url, _tools, trace, **_kwargs):
+    def make_gateway(_url, _tools, trace, **kwargs):
         gateway = SimpleNamespace(
             url="http://127.0.0.1:12346/mcp",
             trace=trace,
+            report_path=kwargs["report_path"],
             violations=[],
             call_count=3,
             fatal_error=None,
             finished=[],
             close=lambda: None,
             optimization_stats=lambda: {"policy": "gui-efficient-v2", "auto_passes": 2},
+            reports=True,
+            problem_reports=len(gateways),
+            said_all_worked=not gateways,
         )
         gateway.finish_game = lambda: gateway.finished.append(True)
         gateways.append(gateway)
@@ -957,6 +964,13 @@ def test_best_of_three_plays_each_game_with_a_fresh_player_until_the_match_ends(
     assert "Match status" not in prompts[0]
     assert "This is game 2. Match status: You need one more win to win the match." in prompts[1]
     assert [gateway.trace.name for gateway in gateways] == ["player-tools.jsonl", "player-tools-game2.jsonl"]
+    assert [gateway.report_path.name for gateway in gateways] == [
+        "problem-reports.jsonl",
+        "problem-reports-game2.jsonl",
+    ]
+    # game 1's player said everything worked; game 2's reported one problem
+    assert [(game["problem_reports"], game["said_all_worked"]) for game in manifest["games"]] == [(0, True), (1, False)]
+    assert manifest["problem_reports"] == 1
     assert (run / "codex-events-game2.jsonl").is_file()
     assert (run / "player-prompt-game2.txt").is_file()
     assert len(stopped) == 3
@@ -1055,6 +1069,8 @@ def mcp_harness(harness, monkeypatch, tmp_path):
     )
     runtime.launch_mcp = lambda _env, _log: server
     runtime.launch_bridge = Mock(side_effect=AssertionError("The mcp engine runs no bridge"))
+    # report_problem is not among the mcp engine's tools, so its gateway takes no reports
+    gateway.reports = False
     built = {}
 
     def make_gateway(upstream, tools, _trace, **kwargs):
@@ -1158,3 +1174,30 @@ def test_bridge_seat_records_the_winner_from_its_game_over_line(harness, monkeyp
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     assert manifest["engine"] == "bridge"
     assert manifest["games"][0]["winner"] == "Mad 1"
+
+
+def test_bridge_seat_records_the_models_problem_reports(harness, monkeypatch):
+    request, runtime, _stopped, gateway = harness
+    built = {}
+    make_gateway = seat.GameToolGateway  # the harness's, which hands back its stand-in gateway
+
+    def recording_gateway(upstream, tools, trace, **kwargs):
+        built.update(kwargs, tools=tools, trace=trace)
+        return make_gateway(upstream, tools, trace, **kwargs)
+
+    monkeypatch.setattr(seat, "GameToolGateway", recording_gateway)
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+    gateway.problem_reports = 2
+    gateway.said_all_worked = False
+    agent = SimpleNamespace(poll=lambda: 0, returncode=0)
+    assert seat.run_player(request, runtime=runtime, start_player=Mock(return_value=agent)) == 0
+    run = Path(request["run"])
+    assert "report_problem" in built["tools"]
+    assert built["report_path"] == run / "problem-reports.jsonl"
+    manifest = json.loads((run / "manifest.json").read_text())
+    assert manifest["games"][0]["problem_reports"] == 2
+    assert manifest["games"][0]["said_all_worked"] is False
+    assert manifest["problem_reports"] == 2
+    prompt = (run / "player-prompt.txt").read_text()
+    assert "call report_problem right away" in prompt
+    assert "answer the bridge_check question with report_problem" in prompt
