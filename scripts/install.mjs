@@ -3,10 +3,11 @@
 // Uso: node scripts/install.mjs
 // NOTA: no arranca el stack ni empaqueta el proxy (eso lo hace dev.mjs/build.mjs).
 
-import { binName, copyPluginJars, forkDir, lastLines, log, logError, mvn, PLUGIN_MODULES, run, stampMageArtifacts } from './lib.mjs'
+import { binName, copyPluginJars, ENGINE_BUILD_TIMEOUT_MS, forkDir, lastLines, log, logError, mvn, PLUGIN_MODULES, run, stampMageArtifacts } from './lib.mjs'
 
 function fail(step, res) {
   logError(`FAILED at: ${step}`)
+  if (res.timedOut) logError(res.stderr.trim().split('\n').pop())
   if (res.stderr) logError(res.stderr.split('\n').filter((l) => /ERROR/.test(l)).slice(0, 8).join('\n'))
   const tail = lastLines(res.stdout, 60)
   if (tail.trim()) logError(`last lines of output:\n${tail}`)
@@ -31,12 +32,18 @@ async function main() {
   log(`  Java ${javaVer} — Node ${nodeVer}`)
 
   log('== paso 2/5: mvn install de módulos base ==')
-  let res = mvn(['-q', '-pl', 'Mage.Common,Mage,Mage.Sets,Mage.Server', '-am', 'install', '-DskipTests'], { cwd: forkDir() })
+  let res = mvn(['-q', '-pl', 'Mage.Common,Mage,Mage.Sets,Mage.Server', '-am', 'install', '-DskipTests'], {
+    cwd: forkDir(),
+    timeoutMs: ENGINE_BUILD_TIMEOUT_MS,
+  })
   if (res.code !== 0) fail('instalación de módulos base', res)
   log('  OK')
 
   log('== paso 3/5: mvn install de plugins ==')
-  res = mvn(['-q', '-pl', PLUGIN_MODULES.join(','), 'install', '-DskipTests'], { cwd: forkDir() })
+  res = mvn(['-q', '-pl', PLUGIN_MODULES.join(','), 'install', '-DskipTests'], {
+    cwd: forkDir(),
+    timeoutMs: ENGINE_BUILD_TIMEOUT_MS,
+  })
   if (res.code !== 0) fail('instalación de plugins', res)
   stampMageArtifacts()
   log('  OK')

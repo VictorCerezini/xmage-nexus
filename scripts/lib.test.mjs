@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   awaitChildListening,
   cmdlineMatches,
+  ENGINE_BUILD_TIMEOUT_MS,
   ensureStartable,
   isTableOwnedBy,
   lastLines,
@@ -231,6 +232,24 @@ test("run reports a missing executable as a failure", () => {
   const res = run("definitely-not-a-real-binary-xyz", [], { quiet: true });
   assert.notEqual(res.code, 0);
   assert.ok(res.stderr.length > 0);
+  assert.equal(res.timedOut, false);
+});
+
+test("run says plainly when a command is stopped by its time limit", () => {
+  const res = run("node", ["-e", "setTimeout(() => {}, 3000)"], { quiet: true, timeoutMs: 300 });
+  assert.notEqual(res.code, 0);
+  assert.equal(res.timedOut, true);
+  assert.match(res.stderr, /stopped after 0\.3 s, the time limit for this command/);
+});
+
+test("a command that ends in time is not reported as timed out", () => {
+  const res = run("node", ["-e", "process.exit(3)"], { quiet: true, timeoutMs: 30_000 });
+  assert.equal(res.code, 3);
+  assert.equal(res.timedOut, false);
+});
+
+test("engine builds get more time than the default limit", () => {
+  assert.ok(ENGINE_BUILD_TIMEOUT_MS >= 1_800_000);
 });
 
 test("isTableOwnedBy matches the owner exactly, not by name prefix", () => {

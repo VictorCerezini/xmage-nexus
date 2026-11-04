@@ -77,7 +77,7 @@ export function ensureMageArtifacts() {
     : 'org.mage artifacts missing from ~/.m2 — installing from the fork…')
   const res = mvn(['-q', '-pl', `Mage.Common,Mage,Mage.Sets,Mage.Server,${DECK_MODULE}`, '-am', 'install', '-DskipTests'], {
     cwd: forkDir(),
-    timeoutMs: 1_800_000,
+    timeoutMs: ENGINE_BUILD_TIMEOUT_MS,
     quiet: true,
   })
   if (res.code !== 0) {
@@ -507,8 +507,19 @@ export function quoteWinArg(arg) {
 }
 
 /**
- * Runs a command in the foreground and returns { code, stdout, stderr }.
+ * Time limit for a Maven build of the engine (Mage.Common, Mage, Mage.Sets, Mage.Server, plugins). It usually
+ * takes 2-7 minutes, but a slow CI runner has needed more than 10.
+ */
+export const ENGINE_BUILD_TIMEOUT_MS = 1_800_000
+
+function formatLimit(ms) {
+  return ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${ms / 1000} s`
+}
+
+/**
+ * Runs a command in the foreground and returns { code, stdout, stderr, timedOut }.
  * No shell outside Windows: arguments arrive intact (spaces, $, quotes).
+ * A command still running after timeoutMs is stopped; timedOut is then true and stderr says so.
  */
 export function run(cmd, args, { cwd = repoRoot, timeoutMs = 600_000, quiet = false, env } = {}) {
   const started = Date.now()
@@ -524,9 +535,13 @@ export function run(cmd, args, { cwd = repoRoot, timeoutMs = 600_000, quiet = fa
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const code = res.status ?? 1
-    return { code, stdout: res.stdout ?? '', stderr: res.error ? `${res.stderr ?? ''}${res.error.message}` : (res.stderr ?? '') }
+    const timedOut = res.error?.code === 'ETIMEDOUT'
+    const errorText = timedOut
+      ? `stopped after ${formatLimit(timeoutMs)}, the time limit for this command (it did not fail by itself)`
+      : res.error?.message
+    return { code, stdout: res.stdout ?? '', stderr: errorText ? `${res.stderr ?? ''}${errorText}` : (res.stderr ?? ''), timedOut }
   } catch (e) {
-    return { code: 1, stdout: '', stderr: e.message }
+    return { code: 1, stdout: '', stderr: e.message, timedOut: false }
   } finally {
     if (!quiet) log(`  ${cmd} ${args.join(' ')} — ${((Date.now() - started) / 1000).toFixed(1)}s`)
   }

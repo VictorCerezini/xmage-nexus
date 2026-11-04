@@ -6,10 +6,11 @@
 //   (arg "bridge": only packages Mage.Client.Bridge, the client behind model seats
 //    (llm/); it needs engine artifacts built from the llm-seats-engine patch)
 
-import { copyPluginJars, ensureMageArtifacts, stampMageArtifacts, forkDir, lastLines, log, logError, mvn, PLUGIN_MODULES, stopPid } from './lib.mjs'
+import { copyPluginJars, ENGINE_BUILD_TIMEOUT_MS, ensureMageArtifacts, stampMageArtifacts, forkDir, lastLines, log, logError, mvn, PLUGIN_MODULES, stopPid } from './lib.mjs'
 
 function fail(step, res) {
   logError(`FAILED at: ${step}`)
+  if (res.timedOut) logError(res.stderr.trim().split('\n').pop())
   const errors = (res.stderr ?? '').split('\n').filter((l) => /ERROR/.test(l)).slice(0, 8)
   if (errors.length) logError(errors.join('\n'))
   // mvn -q writes its errors to stdout, not stderr
@@ -34,12 +35,18 @@ async function main() {
 
   if (!onlyProxy) {
     log('== step 1/4: build base modules (Mage.Common, Mage, Mage.Sets, Mage.Server) ==')
-    let res = mvn(['-q', '-pl', 'Mage.Common,Mage,Mage.Sets,Mage.Server', '-am', 'install', '-DskipTests'], { cwd: forkDir() })
+    let res = mvn(['-q', '-pl', 'Mage.Common,Mage,Mage.Sets,Mage.Server', '-am', 'install', '-DskipTests'], {
+      cwd: forkDir(),
+      timeoutMs: ENGINE_BUILD_TIMEOUT_MS,
+    })
     if (res.code !== 0) fail('base module build', res)
     log('  OK')
 
     log('== step 2/4: build plugin modules ==')
-    res = mvn(['-q', '-pl', PLUGIN_MODULES.join(','), 'install', '-DskipTests'], { cwd: forkDir() })
+    res = mvn(['-q', '-pl', PLUGIN_MODULES.join(','), 'install', '-DskipTests'], {
+      cwd: forkDir(),
+      timeoutMs: ENGINE_BUILD_TIMEOUT_MS,
+    })
     if (res.code !== 0) fail('plugin build', res)
     // the stamp goes last: a failed plugin build must not leave a stamp that makes the next run skip the install
     stampMageArtifacts()
