@@ -119,7 +119,8 @@ public class BridgeCallbackHandler {
     private volatile boolean keepAliveAfterGameConfig = false;
     private volatile boolean continueMatchAfterGameConfig = false;
     private volatile DeckCardLists submittedDeck = null;
-    private volatile int maxInteractionsPerTurnConfig = 25;
+    private volatile int maxCallsWithoutProgressConfig =
+        mage.client.bridge.processor.BridgeInteractionState.DEFAULT_MAX_CALLS_WITHOUT_PROGRESS;
 
     private volatile BridgePublishedDecklistSnapshot publishedDecklist = BridgePublishedDecklist.emptySnapshot();
     private volatile String errorLogPath = null; // Path to write errors to (set via system property)
@@ -378,11 +379,11 @@ public class BridgeCallbackHandler {
         this.publishedDecklist = BridgePublishedDecklist.snapshot(deckList);
     }
 
-    public void setMaxInteractionsPerTurn(int max) {
-        int effectiveMax = Math.max(5, max);
-        maxInteractionsPerTurnConfig = effectiveMax;
+    public void setMaxCallsWithoutProgress(int max) {
+        int effectiveMax = Math.max(3, max);
+        maxCallsWithoutProgressConfig = effectiveMax;
         applyPersistentProcessorConfig();
-        logger.info("[" + client.getUsername() + "] maxInteractionsPerTurn set to " + effectiveMax);
+        logger.info("[" + client.getUsername() + "] maxCallsWithoutProgress set to " + effectiveMax);
     }
 
     public void setJoinHandler(JoinHandler handler) {
@@ -404,7 +405,7 @@ public class BridgeCallbackHandler {
         fresh.session = this.session;
         fresh.keepAliveAfterGameConfig = this.keepAliveAfterGameConfig;
         fresh.continueMatchAfterGameConfig = this.continueMatchAfterGameConfig;
-        fresh.maxInteractionsPerTurnConfig = this.maxInteractionsPerTurnConfig;
+        fresh.maxCallsWithoutProgressConfig = this.maxCallsWithoutProgressConfig;
         fresh.applyPersistentProcessorConfig();
         fresh.errorLogPath = this.errorLogPath;
         fresh.bridgeLogPath = this.bridgeLogPath;
@@ -473,7 +474,7 @@ public class BridgeCallbackHandler {
             public Void execute() {
                 processorState.gameState().setKeepAliveAfterGame(keepAliveAfterGameConfig);
                 processorState.gameState().setContinueMatchAfterGame(continueMatchAfterGameConfig);
-                processorState.interactionState().setMaxInteractionsPerTurn(maxInteractionsPerTurnConfig);
+                processorState.interactionState().setMaxCallsWithoutProgress(maxCallsWithoutProgressConfig);
                 return null;
             }
         });

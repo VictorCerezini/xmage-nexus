@@ -16,41 +16,53 @@ public final class BridgeInteractionState {
     private Integer manaPlanAbilityIndex = null;
     private boolean manaPlanAutoTapFallback = true;
     private int lastTurnNumber = -1;
-    private int interactionsThisTurn = 0;
-    private int maxInteractionsPerTurn = 25;
+    private int maxCallsWithoutProgress = DEFAULT_MAX_CALLS_WITHOUT_PROGRESS;
+    private int callsWithoutProgress = 0;
+    private Integer lastCallGameSeq = null;
     private final List<String> cancelledSpells = new ArrayList<>();
-    private int manaAnswersNotCounted = 0;
 
-    /** Mana payment answers per turn that do not count toward the loop limit, so paying by hand is not cut off. */
-    static final int MANA_ANSWERS_NOT_COUNTED_PER_TURN = 30;
+    /**
+     * How many choose_action / pass_priority calls in a row may leave the game where it was before the bridge
+     * answers the prompt itself. The server moves the game sequence on at every new prompt, so a call that
+     * changed nothing is one that started on the same sequence as the call before it. Real games never had more
+     * than 3 in a row; busy turns with many calls that do move the game on are never cut off.
+     */
+    public static final int DEFAULT_MAX_CALLS_WITHOUT_PROGRESS = 10;
 
-    public void setMaxInteractionsPerTurn(int maxInteractionsPerTurn) {
-        this.maxInteractionsPerTurn = maxInteractionsPerTurn;
+    public void setMaxCallsWithoutProgress(int maxCallsWithoutProgress) {
+        this.maxCallsWithoutProgress = maxCallsWithoutProgress;
     }
 
-    public int maxInteractionsPerTurn() {
-        return maxInteractionsPerTurn;
+    public int maxCallsWithoutProgress() {
+        return maxCallsWithoutProgress;
     }
 
-    public int interactionsThisTurn() {
-        return interactionsThisTurn;
-    }
-
-    public int incrementInteractionsThisTurn() {
-        interactionsThisTurn++;
-        return interactionsThisTurn;
+    public int callsWithoutProgress() {
+        return callsWithoutProgress;
     }
 
     /**
-     * Takes back the interaction counted for a choose_action that paid mana from a source or the pool. Paying by
-     * hand needs one answer per source, which should not use up the loop limit; the allowance stays bounded so a
-     * payment that never progresses is still stopped.
+     * Records the start of a choose_action or pass_priority call on the given game sequence. When the sequence
+     * is the same as at the previous call's start, the previous call did not move the game on.
      */
-    public void uncountManaAnswer() {
-        if (interactionsThisTurn > 0 && manaAnswersNotCounted < MANA_ANSWERS_NOT_COUNTED_PER_TURN) {
-            interactionsThisTurn--;
-            manaAnswersNotCounted++;
+    public int recordCall(int gameSeq) {
+        if (lastCallGameSeq != null && lastCallGameSeq == gameSeq) {
+            callsWithoutProgress++;
+        } else {
+            callsWithoutProgress = 0;
         }
+        lastCallGameSeq = gameSeq;
+        return callsWithoutProgress;
+    }
+
+    /** True once the model has made the allowed number of calls in a row that did not change the game. */
+    public boolean stuck() {
+        return callsWithoutProgress >= maxCallsWithoutProgress;
+    }
+
+    /** Called after the bridge has answered the stuck prompt itself, so the model gets the next one. */
+    public void clearStuck() {
+        callsWithoutProgress = 0;
     }
 
     public void recordCancelledSpell(String note) {
@@ -84,8 +96,6 @@ public final class BridgeInteractionState {
         }
         lastTurnNumber = turn;
         failedManaCasts.clear();
-        interactionsThisTurn = 0;
-        manaAnswersNotCounted = 0;
         resetPoolManaTracking();
         clearManaPlan();
     }
@@ -158,8 +168,8 @@ public final class BridgeInteractionState {
         resetPoolManaTracking();
         clearManaPlan();
         lastTurnNumber = -1;
-        interactionsThisTurn = 0;
-        manaAnswersNotCounted = 0;
+        callsWithoutProgress = 0;
+        lastCallGameSeq = null;
         cancelledSpells.clear();
     }
 }

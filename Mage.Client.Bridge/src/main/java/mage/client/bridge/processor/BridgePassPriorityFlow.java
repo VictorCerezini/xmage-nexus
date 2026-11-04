@@ -78,8 +78,10 @@ public final class BridgePassPriorityFlow {
                 return;
             }
 
-            if (context.interactionsThisTurn() > context.maxInteractionsPerTurn()) {
-                logLoopDetected(method);
+            if (context.stuck()) {
+                // The model asked to pass; answer the prompt it kept stopping on, then pass as usual.
+                logStuck(method);
+                context.clearStuck();
                 context.executeDefaultAction();
                 actionsPassed++;
                 continue;
@@ -363,10 +365,10 @@ public final class BridgePassPriorityFlow {
         );
     }
 
-    private void logLoopDetected(ClientCallbackMethod method) {
+    private void logStuck(ClientCallbackMethod method) {
         org.apache.log4j.Logger.getLogger(BridgePassPriorityFlow.class).warn(
-            "[" + context.username() + "] Loop detected (" + context.interactionsThisTurn()
-                + " interactions on turn " + context.lastTurnNumber() + "), auto-passing " + method.name()
+            "[" + context.username() + "] Stuck (" + context.callsWithoutProgress()
+                + " calls in a row did not change the game), answering " + method.name() + " with the default"
         );
     }
 

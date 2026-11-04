@@ -21,7 +21,7 @@ from llm.jsonl import read_complete_events
 from llm.mcp_client import rpc
 
 ENGINES = ("bridge", "mcp")
-MAX_CALLS = 2000
+MAX_CALLS = 6000
 MAX_SECONDS = 7200
 MAX_WINS = 10
 NEXT_GAME_SECONDS = 600

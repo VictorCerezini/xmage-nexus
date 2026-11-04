@@ -99,9 +99,9 @@ public class BridgeClient {
         if (bridgeLogPath != null && !bridgeLogPath.isEmpty()) {
             callbackHandler.setBridgeLogPath(bridgeLogPath);
         }
-        Integer maxInteractions = getOptionalIntProperty("xmage.bridge.maxInteractionsPerTurn");
-        if (maxInteractions != null) {
-            callbackHandler.setMaxInteractionsPerTurn(maxInteractions);
+        Integer maxCallsWithoutProgress = getOptionalIntProperty("xmage.bridge.maxCallsWithoutProgress");
+        if (maxCallsWithoutProgress != null) {
+            callbackHandler.setMaxCallsWithoutProgress(maxCallsWithoutProgress);
         }
 
         Connection connection = new Connection();

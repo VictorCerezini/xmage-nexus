@@ -278,11 +278,14 @@ public final class BridgeDecisionFlowService {
         String text = input.text();
         Boolean autoTap = input.autoTap();
 
-        if (processorState.interactionState().interactionsThisTurn() > processorState.interactionState().maxInteractionsPerTurn()) {
-            logger.warn("[" + username + "] Loop detected (" + processorState.interactionState().interactionsThisTurn()
-                + " interactions this turn), auto-handling " + action.method().name());
+        if (processorState.interactionState().stuck()) {
+            int calls = processorState.interactionState().callsWithoutProgress();
+            logger.warn("[" + username + "] Stuck (" + calls + " calls in a row did not change the game), "
+                + "answering " + action.method().name() + " with the default");
+            processorState.interactionState().clearStuck();
+            Map<String, Object> outcome;
             try {
-                executeDefaultAction();
+                outcome = executeDefaultAction();
             } catch (BridgeResponseDeliveryException e) {
                 result.success = false;
                 result.error = e.getMessage();
@@ -292,8 +295,10 @@ public final class BridgeDecisionFlowService {
                 return chooseActionDone(result);
             }
             result.success = true;
-            result.action_taken = "auto_passed_loop_detected";
-            result.warning = "Too many interactions this turn (" + processorState.interactionState().interactionsThisTurn() + "). Auto-passing until next turn.";
+            result.action_taken = "auto_answered_stuck";
+            result.warning = "Your last " + calls + " calls did not change the game, so the bridge answered this "
+                + action.method().name() + " prompt for you (" + outcome.get("action_taken") + "). "
+                + "Look at the new prompt before you choose again.";
             return chooseActionDone(result);
         }
 
@@ -448,7 +453,6 @@ public final class BridgeDecisionFlowService {
                             Object manaChoice = choiceBackings.get(resolvedIndex);
                             if (manaChoice instanceof UUID manaUuid) {
                                 sendUuidOrDie(gameId, manaUuid, "chooseAction:GAME_PLAY_MANA");
-                                processorState.interactionState().uncountManaAnswer();
                                 result.action_taken = "tapped_mana_" + resolvedIndex;
                                 usedManaIndex = true;
                             } else if (manaChoice instanceof ManaType manaType) {
@@ -458,7 +462,6 @@ public final class BridgeDecisionFlowService {
                                         "Could not resolve player ID for mana pool selection", false, action));
                                 }
                                 sendManaTypeOrDie(gameId, manaPlayerId, manaType, "chooseAction:GAME_PLAY_MANA_pool");
-                                processorState.interactionState().uncountManaAnswer();
                                 result.action_taken = "used_pool_" + manaType;
                                 usedManaIndex = true;
                             } else {
@@ -897,12 +900,16 @@ public final class BridgeDecisionFlowService {
         return username;
     }
 
-    public int interactionsThisTurn() {
-        return processorState.interactionState().interactionsThisTurn();
+    public int callsWithoutProgress() {
+        return processorState.interactionState().callsWithoutProgress();
     }
 
-    public int maxInteractionsPerTurn() {
-        return processorState.interactionState().maxInteractionsPerTurn();
+    public boolean stuck() {
+        return processorState.interactionState().stuck();
+    }
+
+    public void clearStuck() {
+        processorState.interactionState().clearStuck();
     }
 
     public int lastTurnNumber() {

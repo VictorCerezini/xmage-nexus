@@ -1,8 +1,10 @@
 package mage.client.bridge.processor;
 
+import mage.client.bridge.PendingAction;
 import mage.client.bridge.tools.ActionResult;
 import mage.client.bridge.tools.ChooseActionTool;
 import mage.remote.Session;
+import mage.view.GameView;
 import org.apache.log4j.Logger;
 
 import java.util.Map;
@@ -55,7 +57,7 @@ public final class BridgeActionCommandService {
         if (processorState.decisionState().pendingChooseActionFlow() != null) {
             return null;
         }
-        processorState.interactionState().incrementInteractionsThisTurn();
+        processorState.interactionState().recordCall(currentGameSeq());
         return chooseActionFlowManager.startPendingFlow(input);
     }
 
@@ -77,8 +79,18 @@ public final class BridgeActionCommandService {
         if (processorState.decisionState().pendingPassPriorityFlow() != null) {
             return null;
         }
-        processorState.interactionState().incrementInteractionsThisTurn();
+        processorState.interactionState().recordCall(currentGameSeq());
         return passPriorityFlowManager.startPendingFlow(until, boardCursorParam);
+    }
+
+    /** The game sequence the model is looking at: the open prompt's, else the last game view's. */
+    private int currentGameSeq() {
+        PendingAction action = processorState.decisionState().pendingAction();
+        if (action != null) {
+            return action.gameSeq();
+        }
+        GameView view = processorState.gameState().lastGameView();
+        return view != null ? view.getGameSeq() : -1;
     }
 
     public ActionResult passPriorityAlreadyPendingResult() {

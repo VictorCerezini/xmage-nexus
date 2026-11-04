@@ -44,13 +44,18 @@ public final class BridgePassPriorityFlowContextImpl implements BridgePassPriori
     }
 
     @Override
-    public int interactionsThisTurn() {
-        return decisionFlowService.interactionsThisTurn();
+    public int callsWithoutProgress() {
+        return decisionFlowService.callsWithoutProgress();
     }
 
     @Override
-    public int maxInteractionsPerTurn() {
-        return decisionFlowService.maxInteractionsPerTurn();
+    public boolean stuck() {
+        return decisionFlowService.stuck();
+    }
+
+    @Override
+    public void clearStuck() {
+        decisionFlowService.clearStuck();
     }
 
     @Override

@@ -3921,13 +3921,13 @@ class BridgeCallbackHandlerTest {
         BridgeCallbackHandler handler = client.getCallbackHandler();
         try {
             handler.setKeepAliveAfterGame(true);
-            handler.setMaxInteractionsPerTurn(7);
+            handler.setMaxCallsWithoutProgress(7);
             handler.awaitProcessorIdle();
 
             BridgeGameState oldGameState = (BridgeGameState) getProcessorStateField(handler, "gameState");
             BridgeInteractionState oldInteractionState = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
             oldGameState.setKeepAliveAfterGame(false);
-            oldInteractionState.setMaxInteractionsPerTurn(99);
+            oldInteractionState.setMaxCallsWithoutProgress(99);
 
             BridgeCallbackHandler fresh = handler.createFreshForNextGame();
             fresh.awaitProcessorIdle();
@@ -3935,7 +3935,7 @@ class BridgeCallbackHandlerTest {
             BridgeGameState freshGameState = (BridgeGameState) getProcessorStateField(fresh, "gameState");
             BridgeInteractionState freshInteractionState = (BridgeInteractionState) getProcessorStateField(fresh, "interactionState");
             assertThat(freshGameState.keepAliveAfterGame()).isTrue();
-            assertThat(freshInteractionState.maxInteractionsPerTurn()).isEqualTo(7);
+            assertThat(freshInteractionState.maxCallsWithoutProgress()).isEqualTo(7);
         } finally {
             client.stop();
         }
@@ -4066,13 +4066,18 @@ class BridgeCallbackHandlerTest {
             }
 
             @Override
-            public int interactionsThisTurn() {
+            public int callsWithoutProgress() {
                 return 0;
             }
 
             @Override
-            public int maxInteractionsPerTurn() {
-                return 10;
+            public boolean stuck() {
+                return false;
+            }
+
+            @Override
+            public void clearStuck() {
+                throw new AssertionError("clearStuck should not run");
             }
 
             @Override
@@ -4624,7 +4629,7 @@ class BridgeCallbackHandlerTest {
     }
 
     @Test
-    void payingByHandDoesNotUseUpTheTurnsInteractionLimit() throws Exception {
+    void payingByHandTapsTheSourceTheModelChose() throws Exception {
         BridgeMageClient client = new BridgeMageClient("TestPlayer");
         BridgeCallbackHandler handler = client.getCallbackHandler();
 
@@ -4674,8 +4679,187 @@ class BridgeCallbackHandlerTest {
 
         assertThat(result.success).isTrue();
         assertThat(tapped).containsExactly(goldId);
-        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
-        assertThat(interactions.interactionsThisTurn()).as("a mana answer is not counted toward the loop limit").isZero();
+    }
+
+    @Test
+    void aBusyTurnWhereEveryCallMovesTheGameOnIsNeverCutOff() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID spellId = UUID.randomUUID();
+        AtomicInteger seq = new AtomicInteger(100);
+        AtomicInteger casts = new AtomicInteger();
+        AtomicInteger passes = new AtomicInteger();
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        GameView first = castableSelectView(seq.get(), player, playerId, spellId);
+
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", first);
+        registerShortId(handler, spellId, "p50");
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                switch (method.getName()) {
+                    case "sendPlayerUUID" -> {
+                        casts.incrementAndGet();
+                        GameView next = castableSelectView(seq.incrementAndGet(), player, playerId, spellId);
+                        enqueueCallback(handler, ClientCallbackMethod.GAME_SELECT, gameId, new GameClientMessage(
+                            next, Collections.<String, Serializable>emptyMap(), "Play spells and abilities"));
+                        return true;
+                    }
+                    case "sendPlayerBoolean" -> {
+                        passes.incrementAndGet();
+                        return true;
+                    }
+                    default -> {
+                        return defaultReturnValue(method.getReturnType());
+                    }
+                }
+            }
+        ));
+        setField(handler, "pendingAction", new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_SELECT,
+            new GameClientMessage(first, Collections.<String, Serializable>emptyMap(), "Play spells and abilities"),
+            "Play spells and abilities",
+            seq.get()
+        ));
+
+        for (int call = 1; call <= 40; call++) {
+            var result = handler.chooseAction(null, "p50", null, null, null, null, null, null, null, null, null);
+            assertThat(result.action_taken).as("call " + call).isNotEqualTo("auto_answered_stuck");
+        }
+
+        assertThat(casts.get()).as("all 40 casts reached the server").isEqualTo(40);
+        assertThat(passes.get()).as("the bridge never answered for the model").isZero();
+    }
+
+    @Test
+    void tenCallsInARowThatChangeNothingGetThePromptAnsweredForTheModel() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID spellId = UUID.randomUUID();
+        AtomicInteger passes = new AtomicInteger();
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        GameView first = castableSelectView(10, player, playerId, spellId);
+        GameView next = castableSelectView(11, player, playerId, spellId);
+
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", first);
+        registerShortId(handler, spellId, "p50");
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerBoolean".equals(method.getName())) {
+                    assertThat(args[1]).isEqualTo(false);
+                    passes.incrementAndGet();
+                    enqueueCallback(handler, ClientCallbackMethod.GAME_SELECT, gameId, new GameClientMessage(
+                        next, Collections.<String, Serializable>emptyMap(), "Play spells and abilities"));
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+        setField(handler, "pendingAction", new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_SELECT,
+            new GameClientMessage(first, Collections.<String, Serializable>emptyMap(), "Play spells and abilities"),
+            "Play spells and abilities",
+            10
+        ));
+
+        for (int call = 1; call <= 10; call++) {
+            var result = handler.chooseAction(null, "p404", null, null, null, null, null, null, null, null, null);
+            assertThat(result.error_code).as("call " + call).isEqualTo("invalid_choice");
+        }
+        assertThat(passes.get()).as("ten calls that changed nothing are still the model's").isZero();
+
+        var stuck = handler.chooseAction(null, "p404", null, null, null, null, null, null, null, null, null);
+
+        assertThat(stuck.action_taken).isEqualTo("auto_answered_stuck");
+        assertThat(stuck.warning).contains("did not change the game").contains("passed_priority");
+        assertThat(passes.get()).as("the bridge passed the stuck prompt once").isEqualTo(1);
+
+        var after = handler.chooseAction(null, "p404", null, null, null, null, null, null, null, null, null);
+        assertThat(after.error_code).as("the next prompt is the model's again").isEqualTo("invalid_choice");
+        assertThat(passes.get()).isEqualTo(1);
+    }
+
+    @Test
+    void passPriorityAnswersAPromptTheModelKeptStoppingOn() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        setField(player, "manaPool", manaPoolView(1, 0, 1, 0, 0, 0));
+        GameView manaView = gameView(61, List.of(player), new CardsView());
+        setField(manaView, "myPlayerId", playerId);
+        setField(manaView, "canPlayObjects", new PlayableObjectsList());
+        GameView askView = gameView(62, List.of(player), new CardsView());
+        setField(askView, "myPlayerId", playerId);
+
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerBoolean".equals(method.getName())) {
+                    assertThat(args[1]).isEqualTo(false);
+                    cancels.incrementAndGet();
+                    enqueueCallback(handler, ClientCallbackMethod.GAME_ASK, gameId, new GameClientMessage(
+                        askView, Collections.<String, Serializable>emptyMap(), "Keep this card?"));
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", manaView);
+        setField(handler, "pendingAction", new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_PLAY_MANA,
+            new GameClientMessage(manaView, Collections.<String, Serializable>emptyMap(), "Pay 1 mana"),
+            "Pay 1 mana",
+            61
+        ));
+
+        for (int call = 1; call <= 10; call++) {
+            ActionResult result = handler.passPriority(null, null);
+            assertThat(result.stop_reason).as("call " + call).isEqualTo("non_priority_action");
+            assertThat(result.action_type).isEqualTo("GAME_PLAY_MANA");
+        }
+        assertThat(cancels.get()).isZero();
+
+        ActionResult result = handler.passPriority(null, null);
+
+        assertThat(cancels.get()).as("the bridge cancelled the payment the model kept stopping on").isEqualTo(1);
+        assertThat(result.stop_reason).isEqualTo("non_priority_action");
+        assertThat(result.action_type).as("the model gets the next prompt").isEqualTo("GAME_ASK");
+    }
+
+    private static GameView castableSelectView(int seq, PlayerView player, UUID playerId, UUID spellId) throws Exception {
+        CardsView hand = new CardsView();
+        hand.put(spellId, cardView(spellId, "p50", "Lightning Bolt"));
+        GameView view = gameView(seq, List.of(player), new CardsView());
+        setField(view, "myPlayerId", playerId);
+        setField(view, "myHand", hand);
+        setField(view, "canPlayObjects", playableObjects(Map.of(spellId, playStats("Cast Lightning Bolt"))));
+        return view;
     }
 
     @Test

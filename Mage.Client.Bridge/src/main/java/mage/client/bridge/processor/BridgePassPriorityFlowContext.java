@@ -19,9 +19,11 @@ public interface BridgePassPriorityFlowContext {
 
     GameView preparePassPriorityActionView(PendingAction action);
 
-    int interactionsThisTurn();
+    int callsWithoutProgress();
 
-    int maxInteractionsPerTurn();
+    boolean stuck();
+
+    void clearStuck();
 
     void executeDefaultAction();
 
