@@ -223,6 +223,12 @@ public final class BridgeCallbackProcessorService
 
     @Override
     public void storePendingAction(UUID gameId, ClientCallbackMethod method, Object data) {
+        if (method == ClientCallbackMethod.GAME_SELECT && processorState.interactionState().manaPlan() != null) {
+            // Back at priority: the cast the plan was for is paid or cancelled, so a leftover plan must not
+            // answer later prompts (such as a trigger's modes).
+            logger.info("[" + username + "] Mana plan cleared: back at priority");
+            processorState.interactionState().clearManaPlan();
+        }
         String message = extractMessage(data);
         int gameSeq = 0;
         GameView gameView = extractGameView(data);

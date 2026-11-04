@@ -13,6 +13,7 @@ import mage.client.bridge.processor.BridgeDecisionState;
 import mage.client.bridge.processor.BridgeGameLogState;
 import mage.client.bridge.processor.BridgeGameState;
 import mage.client.bridge.processor.BridgeInteractionState;
+import mage.client.bridge.processor.BridgeManaPlanEntry;
 import mage.client.bridge.processor.BridgePassPriorityFlow;
 import mage.client.bridge.processor.BridgePassPriorityFlowContext;
 import mage.client.bridge.processor.BridgePassPriorityFlowManager;
@@ -4850,6 +4851,111 @@ class BridgeCallbackHandlerTest {
         assertThat(cancels.get()).as("the bridge cancelled the payment the model kept stopping on").isEqualTo(1);
         assertThat(result.stop_reason).isEqualTo("non_priority_action");
         assertThat(result.action_type).as("the model gets the next prompt").isEqualTo("GAME_ASK");
+    }
+
+    @Test
+    void aSpellsModeIsTheModelsChoiceEvenWhenItWasCastWithAManaPlan() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        AtomicInteger picks = new AtomicInteger();
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerUUID".equals(method.getName())) {
+                    picks.incrementAndGet();
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p67"), new BridgeManaPlanEntry("tap", "p77")), true);
+
+        Map<UUID, String> modes = new LinkedHashMap<>();
+        modes.put(UUID.randomUUID(), "1. Boros Charm deals 4 damage to target player or planeswalker.");
+        modes.put(UUID.randomUUID(), "2. Permanents you control gain indestructible until end of turn.");
+        modes.put(UUID.randomUUID(), "3. Target creature gains double strike until end of turn.");
+        PendingAction action = new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_CHOOSE_ABILITY,
+            new AbilityPickerView(gameView(882), modes, "Choose mode (selected 0 of 1, min 1)<br>Boros Charm"),
+            "Choose mode (selected 0 of 1, min 1)<br>Boros Charm",
+            882
+        );
+        setField(handler, "pendingAction", action);
+
+        assertThat(invokeDecisionBoundaryStatus(handler, action, "test")).isEqualTo("READY");
+        assertThat(picks.get()).as("the bridge did not pick a mode").isZero();
+        assertThat(getField(handler, "pendingAction")).as("the mode prompt waits for the model").isSameAs(action);
+        assertThat(interactions.manaPlan()).as("the plan is kept for paying").hasSize(2);
+    }
+
+    @Test
+    void aManaPlanStillPicksTheManaAbilityItNamed() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID colorless = UUID.randomUUID();
+        UUID blackBlack = UUID.randomUUID();
+        List<Object> picked = Collections.synchronizedList(new ArrayList<>());
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerUUID".equals(method.getName())) {
+                    picked.add(args[1]);
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p13")), true);
+        interactions.setManaPlanAbilityIndex(1);
+
+        Map<UUID, String> abilities = new LinkedHashMap<>();
+        abilities.put(colorless, "1. {T}: Add {C}.");
+        abilities.put(blackBlack, "2. {B/R}, {T}: Add {B}{B}.");
+        PendingAction action = new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_CHOOSE_ABILITY,
+            new AbilityPickerView(gameView(887), abilities, "Choose spell or ability to play<br>Graven Cairns"),
+            "Choose spell or ability to play<br>Graven Cairns",
+            887
+        );
+        setField(handler, "pendingAction", action);
+
+        assertThat(invokeDecisionBoundaryStatus(handler, action, "test")).isEqualTo("AUTO_HANDLED");
+        assertThat(picked).containsExactly(blackBlack);
+    }
+
+    @Test
+    void aPriorityPromptClearsALeftoverManaPlan() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        try {
+            UUID gameId = UUID.randomUUID();
+            UUID playerId = UUID.randomUUID();
+            PlayerView player = playerView(playerId, "TestPlayer", "p99");
+            GameView view = gameView(891, List.of(player), new CardsView());
+            setField(view, "myPlayerId", playerId);
+            addActiveGame(handler, gameId, playerId);
+            setField(handler, "currentGameId", gameId);
+            setField(handler, "lastGameView", view);
+            BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+            interactions.advanceTurn(view); // same turn as the prompt below, so no turn change clears the plan
+            interactions.setManaPlan(List.of(), true);
+
+            enqueueCallback(handler, ClientCallbackMethod.GAME_SELECT, gameId, new GameClientMessage(
+                view, Collections.<String, Serializable>emptyMap(), "Play instants and activated abilities"));
+            handler.awaitProcessorIdle();
+
+            assertThat(interactions.manaPlan()).as("the used-up plan cannot pick a later trigger's modes").isNull();
+        } finally {
+            client.stop();
+        }
     }
 
     private static GameView castableSelectView(int seq, PlayerView player, UUID playerId, UUID spellId) throws Exception {

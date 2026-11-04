@@ -93,6 +93,24 @@ class BridgeManaSourcesTest {
             .isEqualTo(tomb.id());
     }
 
+    @Test
+    void tellsManaAbilitiesFromModes() {
+        assertThat(BridgeManaSources.onlyManaAbilities(List.of("1. {T}: Add {C}.", "2. {B/R}, {T}: Add {B}{B}.")))
+            .isTrue();
+        assertThat(BridgeManaSources.onlyManaAbilities(List.of(
+            "1. Boros Charm deals 4 damage to target player or planeswalker.",
+            "2. Permanents you control gain indestructible until end of turn.",
+            "3. Target creature gains double strike until end of turn.")))
+            .isFalse();
+        assertThat(BridgeManaSources.onlyManaAbilities(List.of(
+            "1. Target player creates a 2/1 white and black Inkling creature token with flying.",
+            "2. Target player draws a card and loses 1 life.")))
+            .isFalse();
+        assertThat(BridgeManaSources.onlyManaAbilities(List.of("1. {T}: Add {G}.", "2. Cast Adventure: Stomp")))
+            .as("a mix is not a mana choice").isFalse();
+        assertThat(BridgeManaSources.onlyManaAbilities(List.of())).isFalse();
+    }
+
     private static BridgeManaSources.Source source(String colors, int units) {
         return new BridgeManaSources.Source(UUID.randomUUID(), colors, units);
     }

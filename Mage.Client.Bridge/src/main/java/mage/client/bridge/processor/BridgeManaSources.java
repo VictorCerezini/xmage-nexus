@@ -1,6 +1,7 @@
 package mage.client.bridge.processor;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -16,6 +17,8 @@ import java.util.regex.Pattern;
  */
 final class BridgeManaSources {
     private static final Pattern SYMBOL = Pattern.compile("\\{([^}]+)}");
+    /** The effect part of a mana ability: "cost: Add ...". */
+    private static final Pattern MANA_ABILITY = Pattern.compile(":\\s*Add\\b");
     private static final String COLORS = "WUBRG";
     private static final String MANA_LETTERS = "WUBRGC";
     private static final int SEARCH_LIMIT = 20_000;
@@ -32,6 +35,22 @@ final class BridgeManaSources {
     }
 
     private BridgeManaSources() {
+    }
+
+    /**
+     * True when every choice of an ability prompt is a mana ability ("{T}: Add {C}.", "{B/R}, {T}: Add {B}{B}.").
+     * Mode choices ("Boros Charm deals 4 damage ...") and other ability choices are not.
+     */
+    static boolean onlyManaAbilities(Collection<String> choices) {
+        if (choices == null || choices.isEmpty()) {
+            return false;
+        }
+        for (String choice : choices) {
+            if (choice == null || !MANA_ABILITY.matcher(choice).find()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** The cost in a "Pay {1}{B}{B}<div>...</div>" prompt, or null when a symbol is not understood. */

@@ -1155,7 +1155,10 @@ public final class BridgeDecisionFlowService {
                 : NonDecisionActionStatus.NOT_HANDLED;
         }
 
-        if (processorState.interactionState().manaPlan() != null) {
+        // A mana plan picks among a mana source's mana abilities. The same prompt type also asks for a spell's
+        // or trigger's modes, or which way to cast a card; those are the model's choice.
+        if (processorState.interactionState().manaPlan() != null
+                && BridgeManaSources.onlyManaAbilities(choices.values())) {
             if (clearPendingActionIfCurrent(action)) {
                 Integer abilityIdx = processorState.interactionState().consumeManaPlanAbilityIndex();
                 UUID selected;
