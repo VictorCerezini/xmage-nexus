@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { castCard, primeStackEntries, stackDepartures } from './stackLinks'
+import { castCard, forgetResolved, primeStackEntries, resolvedOntoBattlefield, stackDepartures } from './stackLinks'
 import { clearCardPositionRegistry, getPreviousCardPosition, getPreviousCardZone } from './cardPositionRegistry'
+import { clearFlights, getFlightFor, startCardFlight } from './flightManager'
 import { makeCard, makeGameView, makePermanent, makePlayer } from '../__fixtures__/gameViews'
 
 // Ids from a local 1.4.62 server (record of 2026-10-20): the card keeps its id in the hand, on the
@@ -91,5 +92,36 @@ describe('primeStackEntries', () => {
     primeStackEntries(prev, next)
     expect(getPreviousCardPosition(MYSTIC_CARD)?.left).toBe(900)
     expect(getPreviousCardZone(MYSTIC_CARD)).toBe('stack-zone')
+  })
+
+  it('a spell that resolves while its cast clone is still rising hands the clone to the permanent', () => {
+    clearFlights()
+    const me = makePlayer({ playerId: ME, name: 'A', controlled: true })
+    startCardFlight(mystic(MYSTIC_SPELL), new DOMRect(600, 40, 240, 336), new DOMRect(1340, 310, 44, 62), 900,
+      `[data-card-id="${MYSTIC_SPELL}"] .stack-thumb`, { lift: true })
+    const prev = makeGameView({ players: [me], stack: { [MYSTIC_SPELL]: mystic(MYSTIC_SPELL) } })
+    const next = makeGameView({ players: [{ ...me, battlefield: { [MYSTIC_CARD]: makePermanent({ ...mystic(MYSTIC_CARD) }) } }], stack: {} })
+    primeStackEntries(prev, next)
+    expect(getFlightFor(MYSTIC_SPELL)).toBeNull()
+    expect(getFlightFor(MYSTIC_CARD)?.skippedIds).toEqual([MYSTIC_SPELL])
+    clearFlights()
+  })
+
+  it('remembers a spell resolved onto the battlefield until it is on the stack again', () => {
+    const me = makePlayer({ playerId: ME, name: 'A', controlled: true })
+    const prev = makeGameView({ players: [me], stack: { [MYSTIC_SPELL]: mystic(MYSTIC_SPELL) } })
+    const next = makeGameView({ players: [{ ...me, battlefield: { [MYSTIC_CARD]: makePermanent({ ...mystic(MYSTIC_CARD) }) } }], stack: {} })
+    primeStackEntries(prev, next)
+    expect(resolvedOntoBattlefield(MYSTIC_SPELL)).toBe(true)
+    forgetResolved(MYSTIC_SPELL)
+    expect(resolvedOntoBattlefield(MYSTIC_SPELL)).toBe(false)
+  })
+
+  it('an instant that falls into the graveyard does not count as resolved onto the battlefield', () => {
+    const me = makePlayer({ playerId: ME, name: 'A', controlled: true })
+    const prev = makeGameView({ players: [me], stack: { [BOLT_SPELL]: bolt(BOLT_SPELL) } })
+    const next = makeGameView({ players: [{ ...me, graveyard: { [BOLT_CARD]: bolt(BOLT_CARD) } }], stack: {} })
+    primeStackEntries(prev, next)
+    expect(resolvedOntoBattlefield(BOLT_SPELL)).toBe(false)
   })
 })

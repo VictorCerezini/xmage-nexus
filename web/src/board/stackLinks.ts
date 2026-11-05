@@ -1,6 +1,7 @@
 import type { CardView, GameView, PlayerView } from '../net/types'
 import { isAbilityCard } from '../cards/cardImages'
 import { recordCardPosition, type CardSourceSize } from './cardPositionRegistry'
+import { handOffFlight } from './flightManager'
 
 export type StackDestination = 'battlefield' | 'graveyard' | 'exile'
 
@@ -156,15 +157,42 @@ export function stackSpellSource(spellId: string): { rect: DOMRect; size: CardSo
   return { rect, size: { w: el.offsetWidth, h: el.offsetHeight } }
 }
 
+/** How long a spell counts as just resolved onto the battlefield (a rollback can bring its id back later). */
+const RESOLVED_MEMORY_MS = 2000
+const resolvedOnto = new Map<string, number>()
+
+/**
+ * Whether this spell resolved onto the battlefield moments ago. A cast flight that was still waiting
+ * for the layout when that happened does not start: the permanent's entry flight already shows it.
+ */
+export function resolvedOntoBattlefield(spellId: string): boolean {
+  const at = resolvedOnto.get(spellId)
+  if (at === undefined) return false
+  if (performance.now() - at <= RESOLVED_MEMORY_MS) return true
+  resolvedOnto.delete(spellId)
+  return false
+}
+
+/** A spell is on the stack again (cast anew, or brought back by a rollback): it has not resolved yet. */
+export function forgetResolved(spellId: string): void {
+  resolvedOnto.delete(spellId)
+}
+
 /**
  * Read while the update renders, before the view on screen changes: every permanent spell resolving
  * onto the battlefield is recorded where its spell is drawn on the stack, under the id the permanent
- * has, so its slot flies in from the stack and not from the hand it was cast from.
+ * has, so its slot flies in from the stack and not from the hand it was cast from. A spell whose cast
+ * clone is still rising (it resolved at once) hands that clone to the permanent instead, so one card
+ * goes from the hand to the battlefield rather than two crossing on the screen.
  */
 export function primeStackEntries(prevGame: GameView | null | undefined, nextGame: GameView | null | undefined): void {
   if (!prevGame || !nextGame || typeof document === 'undefined') return
+  const now = performance.now()
+  for (const [id, at] of resolvedOnto) if (now - at > RESOLVED_MEMORY_MS) resolvedOnto.delete(id)
   for (const [spellId, departure] of stackDepartures(prevGame, nextGame)) {
     if (departure.zone !== 'battlefield') continue
+    resolvedOnto.set(spellId, now)
+    handOffFlight(spellId, departure.cardId)
     const source = stackSpellSource(spellId)
     if (source) recordCardPosition(departure.cardId, source.rect, 'stack-zone', source.size)
   }

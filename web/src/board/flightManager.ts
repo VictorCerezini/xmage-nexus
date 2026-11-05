@@ -14,6 +14,12 @@ export interface FlightRecord {
   toSelector?: string
   startTime: number
   duration: number
+  /** The length of the clone's animation, fixed when it starts: a redirect retargets the clone
+   *  but keeps it on this timeline, so it never leaves the screen before the timeline ends. */
+  animDuration: number
+  /** Slots the clone was flying to before a redirect sent it elsewhere: they stay hidden
+   *  while it flies, since it never landed in them. */
+  skippedIds?: string[]
   /** El origen era una carta girada 90° (tapped): el clon debe partir rotado. */
   rotated90?: boolean
   /** Timers de backstop/limpieza: se reprograman al encadenar un redirect. */
@@ -38,6 +44,9 @@ export const ENTER_FLIGHT_MS = 1100
 /** Fracción de ENTER_FLIGHT_MS en la que la carta toca el suelo. */
 export const ENTER_LAND_AT = 0.8
 export const CAST_FLIGHT_MS = 900
+/** Fraction of a lifted flight (a cast, an entry) where it stops holding in the middle of the
+ *  screen and heads for its destination: up to here the destination does not show in its path. */
+export const LIFT_HOLD_END = 0.5
 /** The clone lands this long after its flight duration elapses (its settle pause). */
 const FLIGHT_LAND_LAG_MS = 120
 
@@ -175,6 +184,7 @@ export type FlightSkipReason =
   | 'no-source'
   | 'no-dest'
   | 'guard-active-flight'
+  | 'already-resolved'
 
 export interface FlightDiagEntry {
   t: number
@@ -272,6 +282,10 @@ export function startCardFlight(
         // Ráfaga: redirigir el fantasma en vuelo en vez de cancelarlo. El
         // overlay re-ancla el tramo final vía toSelector en cada frame, así
         // que la curva se dobla suavemente al nuevo destino sin parpadeo.
+        const skipped = slotIdOf(existing.toSelector)
+        if (skipped && skipped !== slotIdOf(toSelector) && !existing.skippedIds?.includes(skipped)) {
+          existing.skippedIds = [...(existing.skippedIds ?? []), skipped]
+        }
         existing.toRect = to.rect
         existing.toSelector = toSelector ?? existing.toSelector
         existing.toCompact = toCompact || undefined
@@ -279,7 +293,9 @@ export function startCardFlight(
         if (options?.variant) existing.variant = options.variant
         if (options?.trail) existing.trail = options.trail
         if (options?.tint) existing.tint = options.tint
-        existing.duration = Math.min(age + Math.round(scaledDuration * 0.8), age + 1200)
+        // The clone keeps animating on its own timeline: a redirect into a shorter flight
+        // (a cast that resolves at once) must not remove it from the screen halfway.
+        existing.duration = Math.max(existing.animDuration, Math.min(age + Math.round(scaledDuration * 0.8), age + 1200))
         existing.timers?.forEach((t) => clearTimeout(t))
         existing.timers = scheduleFlightTimers(existing)
         activeFlights = [...activeFlights]
@@ -307,6 +323,7 @@ export function startCardFlight(
     toSelector,
     startTime: performance.now(),
     duration: scaledDuration,
+    animDuration: scaledDuration,
     rotated90: from.rotated90 || undefined,
     variant: options?.variant,
     trail: options?.trail,
@@ -368,6 +385,29 @@ function scheduleFlightTimers(record: FlightRecord): Array<ReturnType<typeof set
       notify()
     }, landIn + 120),
   ]
+}
+
+/** The card id a flight selector aims at (`[data-card-id="…"]…`), if it starts with one. */
+function slotIdOf(selector: string | undefined): string | null {
+  return selector ? /^\[data-card-id="([^"]+)"\]/.exec(selector)?.[1] ?? null : null
+}
+
+/**
+ * A spell resolved onto the battlefield while its cast clone is still rising to the middle of
+ * the screen (the other players passed at once): the clone becomes the permanent's, so the flight
+ * into the permanent's slot redirects it instead of sending a second copy up from the stack.
+ * Later than that the clone is already heading for the stack and lands there as usual.
+ * Called while a view renders: it does not notify, the flight that follows does.
+ */
+export function handOffFlight(fromId: string, toId: string): boolean {
+  if (!fromId || !toId || fromId === toId) return false
+  const record = activeFlights.find((f) => f.cardId === fromId)
+  if (!record?.lift || activeFlights.some((f) => f.cardId === toId)) return false
+  if (performance.now() - record.startTime >= record.animDuration * LIFT_HOLD_END) return false
+  record.cardId = toId
+  if (!record.skippedIds?.includes(fromId)) record.skippedIds = [...(record.skippedIds ?? []), fromId]
+  noteFlightEvent({ kind: 'chain', cardId: toId, detail: `hand-off-from:${fromId}` })
+  return true
 }
 
 export function getFlightFor(cardId: string): FlightRecord | null {

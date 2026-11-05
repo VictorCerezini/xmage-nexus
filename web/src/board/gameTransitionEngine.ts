@@ -26,7 +26,7 @@ import { boardWipeDelay, clearBoardWipe, primeBoardWipe, wipeBoardRect } from '.
 import { CONTROL_FLIGHT_MS, clearControlChanges, controlChanges, controlTintOf, primeControlChanges, type ControlChange } from './controlFx'
 import { COMMAND_FLIGHT_MS, castFromCommand, clearCommandReturns, commandReturnSource, commanderReturns, primeCommandReturns, type CommandReturn } from './commandFx'
 import { commandZoneCommanders } from './commanders'
-import { castCard, departureIds, primeStackEntries, stackDepartures, stackSpellSource, type StackDeparture } from './stackLinks'
+import { castCard, departureIds, forgetResolved, primeStackEntries, resolvedOntoBattlefield, stackDepartures, stackSpellSource, type StackDeparture } from './stackLinks'
 import { ANIMATE_FLIGHT_MS, SETTLE_FLIGHT_MS, animateColor, clearCreatureShifts, creatureShifts, primeCreatureShifts, type CreatureShift } from './creatureShiftFx'
 import { commandArrivals } from './commandObjectsFx'
 import { handReveals, spawnHandReveal } from './handRevealFx'
@@ -207,13 +207,19 @@ function flyAfterLayout(
   trail?: FlightTrail,
   lift?: boolean,
   reveal?: boolean,
-  conceal?: boolean
+  conceal?: boolean,
+  /** Checked once the layout settles: true drops the flight (what it showed is already over). */
+  stale?: () => boolean
 ): void {
   if (!fromRect) {
     noteFlightEvent({ kind: 'skip', reason: 'no-source', cardId, detail: `engine:${card.name ?? ''}` })
     return
   }
   scheduleAfterLayout(() => {
+    if (stale?.()) {
+      noteFlightEvent({ kind: 'skip', reason: 'already-resolved', cardId, detail: `engine:${card.name ?? ''}` })
+      return
+    }
     const dest = getDestRect(destSelectors)
     const toRect = dest?.rect ?? fallbackRect
     if (!toRect) {
@@ -1087,11 +1093,14 @@ export function detectAndAnimateTransitions(prevGame: GameView, nextGame: GameVi
 
       if (sourceRect && stackRect) {
         const lift = !isAbilityCard(spell) && fxMotionAllowed()
+        // A spell that resolved onto the battlefield before its cast could start (the other players
+        // passed at once) is shown by its permanent's entry flight alone, not by a second copy.
+        forgetResolved(spellId)
         flyAfterLayout(spellId, spell, sourceRect, [
           `[data-card-id="${spellId}"] .stack-thumb`,
           `[data-card-id="${spellId}"] .stack-tl-card`,
           `[data-card-id="${spellId}"]`,
-        ], stackRect, lift ? CAST_FLIGHT_MS : 380, sourceSize, weight > 0 ? 'heavy' : undefined, isAbilityCard(spell) ? undefined : 'gold', lift)
+        ], stackRect, lift ? CAST_FLIGHT_MS : 380, sourceSize, weight > 0 ? 'heavy' : undefined, isAbilityCard(spell) ? undefined : 'gold', lift, undefined, undefined, () => resolvedOntoBattlefield(spellId))
       } else if (!sourceRect) {
         noteFlightEvent({ kind: 'skip', reason: 'no-source', cardId: spellId, detail: `stack-enter:${spell.name ?? ''}` })
       }

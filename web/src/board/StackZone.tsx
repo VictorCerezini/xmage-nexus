@@ -95,7 +95,9 @@ export function RecordedStackEntry({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const flights = useActiveFlights()
-  const arriving = flights.some((f) => f.cardId === id && f.toSelector?.startsWith(`[data-card-id="${id}"]`))
+  // Hidden while its clone flies in, and while a clone that was coming here went on elsewhere
+  // (the spell resolved before it landed): the stack never showed it, so it does not pop up now.
+  const arriving = flights.some((f) => (f.cardId === id && f.toSelector?.startsWith(`[data-card-id="${id}"]`)) || f.skippedIds?.includes(id))
   useLayoutEffect(() => {
     const el = ref.current
     return () => {

@@ -10,6 +10,7 @@ import {
   clearFlights,
   normalizeFlightRect,
   getFlightDiagnostics,
+  handOffFlight,
 } from './flightManager'
 import type { CardView } from '../net/types'
 
@@ -202,6 +203,72 @@ describe('flightManager', () => {
 
     markFlightLanded(firstId!)
     expect(landed).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('flightManager: a spell that resolves at once', () => {
+  const spell: CardView = { id: 'spell-1', name: 'Goldspan Dragon', manaValue: 5, expansionSetCode: 'KHM', cardNumber: '139' }
+  const permanent: CardView = { ...spell, id: 'card-1' }
+  const hand = { left: 600, top: 40, right: 840, bottom: 376, width: 240, height: 336, x: 600, y: 40, toJSON: () => {} } as DOMRect
+  const stack = { left: 1340, top: 310, right: 1384, bottom: 372, width: 44, height: 62, x: 1340, y: 310, toJSON: () => {} } as DOMRect
+  const grave = { left: 1460, top: 2, right: 1526, bottom: 94, width: 66, height: 92, x: 1460, y: 2, toJSON: () => {} } as DOMRect
+  const battlefield = { left: 700, top: 170, right: 882, bottom: 425, width: 182, height: 255, x: 700, y: 170, toJSON: () => {} } as DOMRect
+  const castToStack = () => startCardFlight(spell, hand, stack, 900, '[data-card-id="spell-1"] .stack-thumb', { lift: true, trail: 'gold' })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    clearFlights()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('a redirect into a shorter flight keeps the clone until its own animation ends', () => {
+    const flightId = castToStack()
+    vi.advanceTimersByTime(114)
+    expect(startCardFlight(spell, stack, grave, 380, '[data-card-id="grave-1"]')).toBe(flightId)
+    vi.advanceTimersByTime(900 - 114 - 1)
+    expect(hasFlightFor('spell-1')).toBe(true)
+    vi.advanceTimersByTime(300)
+    expect(hasFlightFor('spell-1')).toBe(false)
+  })
+
+  it('a redirect remembers the slot it was flying to, so that slot stays hidden', () => {
+    castToStack()
+    vi.advanceTimersByTime(114)
+    startCardFlight(spell, stack, grave, 380, '[data-card-id="grave-1"]')
+    expect(getFlightFor('spell-1')?.skippedIds).toEqual(['spell-1'])
+  })
+
+  it('a clone still rising is handed to the permanent, and its entry flight redirects it', () => {
+    const flightId = castToStack()
+    vi.advanceTimersByTime(100)
+    expect(handOffFlight('spell-1', 'card-1')).toBe(true)
+    expect(hasFlightFor('spell-1')).toBe(false)
+    expect(getFlightFor('card-1')?.skippedIds).toEqual(['spell-1'])
+    expect(startCardFlight(permanent, stack, battlefield, 1100, '[data-card-id="card-1"]', { variant: 'enter' })).toBe(flightId)
+    expect(getActiveFlights()).toHaveLength(1)
+    expect(getActiveFlights()[0].variant).toBe('enter')
+  })
+
+  it('a clone already past its hold flies on to the stack', () => {
+    castToStack()
+    vi.advanceTimersByTime(460)
+    expect(handOffFlight('spell-1', 'card-1')).toBe(false)
+    expect(hasFlightFor('spell-1')).toBe(true)
+  })
+
+  it('only a lifted cast clone is handed over', () => {
+    startCardFlight(spell, hand, stack, 380, '[data-card-id="spell-1"]')
+    expect(handOffFlight('spell-1', 'card-1')).toBe(false)
+  })
+
+  it('a permanent that already has a flight of its own keeps it', () => {
+    castToStack()
+    startCardFlight(permanent, stack, battlefield, 1100, '[data-card-id="card-1"]', { variant: 'enter' })
+    expect(handOffFlight('spell-1', 'card-1')).toBe(false)
+    expect(getActiveFlights()).toHaveLength(2)
   })
 })
 
