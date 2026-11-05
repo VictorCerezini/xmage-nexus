@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearCombatSnapshots,
   combatImpactRemaining,
+  hideForStrike,
   planBlockerStrikes,
   planDamageStrikes,
   primeCombatHolds,
   playDamageStrikes,
+  showAfterStrike,
   snapshotCombatants,
   strikeKind,
   strikeTargetElement,
@@ -317,5 +319,33 @@ describe('strike sequence', () => {
     vi.advanceTimersByTime(0)
     expect(hits()).toBe(1)
     expect(document.querySelector('[data-player-anchor]')?.classList.contains('took-damage')).toBe(true)
+  })
+})
+
+describe('hideForStrike / showAfterStrike', () => {
+  it('shows a double striker again only when its last strike ends', () => {
+    // Queen Marchesa, v0.7.10: her two hits ran 240 ms apart and each lasts 560 ms, so the
+    // second strike started while the first had her hidden, and its end left her hidden.
+    const card = document.createElement('div')
+    document.body.appendChild(card)
+    hideForStrike(card)
+    hideForStrike(card)
+    expect(card.style.visibility).toBe('hidden')
+    showAfterStrike(card)
+    expect(card.style.visibility, 'the second strike is still running').toBe('hidden')
+    showAfterStrike(card)
+    expect(card.style.visibility).toBe('')
+    card.remove()
+  })
+
+  it('puts back the visibility the card had before its first strike', () => {
+    const card = document.createElement('div')
+    card.style.visibility = 'collapse'
+    document.body.appendChild(card)
+    hideForStrike(card)
+    showAfterStrike(card)
+    showAfterStrike(card)
+    expect(card.style.visibility).toBe('collapse')
+    card.remove()
   })
 })

@@ -349,6 +349,29 @@ function impactFeedback(el: Element): void {
   shake(card)
 }
 
+/** Strikes running on each live card. A double striker's two hits overlap (the gap between
+ *  strikes is shorter than a strike), so the card is shown again only when its last strike
+ *  ends, with the visibility it had before the first: restoring what each strike saw left it
+ *  hidden for good, since the second strike starts while the first has it hidden. */
+const strikesOn = new WeakMap<HTMLElement, { count: number; visibility: string }>()
+
+export function hideForStrike(el: HTMLElement): void {
+  const running = strikesOn.get(el)
+  if (running) {
+    running.count++
+    return
+  }
+  strikesOn.set(el, { count: 1, visibility: el.style.visibility })
+  el.style.visibility = 'hidden'
+}
+
+export function showAfterStrike(el: HTMLElement): void {
+  const running = strikesOn.get(el)
+  if (!running || --running.count > 0) return
+  strikesOn.delete(el)
+  if (el.isConnected) el.style.visibility = running.visibility
+}
+
 function runStrike(
   plan: StrikePlan,
   duration: number,
@@ -364,8 +387,7 @@ function runStrike(
   if (typeof ghost.animate !== 'function') return false
   const from = ghost.isConnected ? ghost.getBoundingClientRect() : live!.getBoundingClientRect()
   if (!ghost.isConnected) strikeLayer().appendChild(ghost)
-  const prevVisibility = live?.style.visibility ?? ''
-  if (live) live.style.visibility = 'hidden'
+  if (live) hideForStrike(live)
 
   const { dx, dy } = strikeVector(from, to)
   const back = 0.08
@@ -396,7 +418,7 @@ function runStrike(
     done = true
     if (live) {
       ghost.remove()
-      if (live.isConnected) live.style.visibility = prevVisibility
+      showAfterStrike(live)
     }
     land()
   }

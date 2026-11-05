@@ -16,6 +16,7 @@ export const TABLE = {
   combatMultiBlock: 'combat-multi-block',
   combatHumanAttack: 'combat-human-attack',
   combatHumanBlock: 'combat-human-block',
+  blockFlyer: 'block-flyer-test',
   targeting: 'targeting-test',
   spellsBlaze: 'blaze-test',
   spellsArc: 'arc-test',
