@@ -39,7 +39,7 @@ public class GetGameStateTool {
         @ResultField(description = "Who has priority")
         public String priority_player;
 
-        @ResultField(description = "Player objects with life, hand, battlefield, graveyard, exile, mana_pool")
+        @ResultField(description = "Player objects with life, hand, battlefield, graveyard, exile, library_top (a revealed top card), mana_pool")
         public List<Map<String, Object>> players;
 
         @ResultField(description = "Stack: name, rules, targets")

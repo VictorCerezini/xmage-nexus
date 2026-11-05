@@ -49,9 +49,13 @@ import mage.view.CardView;
 import mage.view.CardsView;
 import mage.view.GameClientMessage;
 import mage.view.GameView;
+import mage.view.LookedAtView;
 import mage.view.ManaPoolView;
 import mage.view.PermanentView;
 import mage.view.PlayerView;
+import mage.view.RevealedView;
+import mage.view.SimpleCardView;
+import mage.view.SimpleCardsView;
 import mage.view.StackAbilityView;
 import mage.view.TableClientMessage;
 import mage.view.UserRequestMessage;
@@ -2793,6 +2797,139 @@ class BridgeCallbackHandlerTest {
     }
 
     @Test
+    void aRevealedTopCardIsOnTheBoardNamedAmongThePlayableCardsAndLookedUpById() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID topCardId = UUID.randomUUID();
+
+        // Future Sight: the top card of the library is revealed, and it can be cast from there
+        CardView elves = cardView(topCardId, "p4", "Llanowar Elves");
+        setField(elves, "rules", List.of("{T}: Add {G}."));
+        setField(elves, "cardTypes", List.of(CardType.CREATURE));
+        PlayerView player = playerView(playerId, "TestPlayer", "p2");
+        setField(player, "topCard", elves);
+        GameView view = gameView(12, List.of(player), new CardsView());
+        setField(view, "myPlayerId", playerId);
+        setField(view, "canPlayObjects", playableObjects(Map.of(topCardId, playStats("Cast Llanowar Elves"))));
+
+        projectDecision(handler, gameId, playerId, view, new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_SELECT,
+            new GameClientMessage((GameView) null, Collections.<String, Serializable>emptyMap(), "Play spells and abilities"),
+            "Play spells and abilities",
+            12
+        ));
+
+        ActionResult choices = handler.getActionChoices(null);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> choice = (Map<String, Object>) choices.choices.get(0);
+        assertThat(choice).containsEntry("id", "p4").containsEntry("name", "Llanowar Elves");
+
+        GetOracleTextTool.Result oracle = handler.getOracleText(null, "p4", null, null);
+        assertThat(oracle.success).isTrue();
+        assertThat(oracle.name).isEqualTo("Llanowar Elves");
+        assertThat(oracle.rules).containsExactly("{T}: Add {G}.");
+
+        Map<String, Object> me = handler.getGameState(null).players.get(0);
+        assertThat(me.get("library_top")).isEqualTo(List.of(Map.of(
+            "id", "p4",
+            "name", "Llanowar Elves",
+            "rules", List.of("{T}: Add {G}.")
+        )));
+    }
+
+    @Test
+    void aCardOfferedOnlyByThePendingChoiceIsLookedUpById() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID forestId = UUID.randomUUID();
+
+        // a library search: the card is in no zone the board shows, and the server gave it no short id
+        CardView forest = cardView(forestId, null, "Forest");
+        setField(forest, "rules", List.of("({T}: Add {G}.)"));
+        setField(forest, "cardTypes", List.of(CardType.LAND));
+        CardsView offered = new CardsView();
+        offered.put(forestId, forest);
+        PlayerView player = playerView(playerId, "TestPlayer", "p2");
+        GameView view = gameView(12, List.of(player), new CardsView());
+        setField(view, "myPlayerId", playerId);
+
+        projectDecision(handler, gameId, playerId, view, new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_TARGET,
+            new GameClientMessage(
+                (GameView) null,
+                Collections.<String, Serializable>emptyMap(),
+                "Search your library for a basic land card",
+                offered,
+                Set.of(forestId),
+                false
+            ),
+            "Search your library for a basic land card",
+            12
+        ));
+
+        ActionResult choices = handler.getActionChoices(null);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> choice = (Map<String, Object>) choices.choices.get(0);
+        assertThat(choice).containsEntry("name", "Forest");
+
+        GetOracleTextTool.Result oracle = handler.getOracleText(null, (String) choice.get("id"), null, null);
+        assertThat(oracle.success).as(String.valueOf(oracle.error)).isTrue();
+        assertThat(oracle.name).isEqualTo("Forest");
+        assertThat(oracle.rules).containsExactly("({T}: Add {G}.)");
+    }
+
+    @Test
+    void revealedCardsAreFoundById() throws Exception {
+        BridgeViewLocator locator = new BridgeViewLocator(new ShortIdRegistry(), message -> { });
+        UUID revealedId = UUID.randomUUID();
+        UUID companionId = UUID.randomUUID();
+        CardView revealedCard = cardView(revealedId, "p7", "Dark Ritual");
+        CardView companionCard = cardView(companionId, "p8", "Lurrus of the Dream-Den");
+
+        GameView view = gameView(12, List.of(playerView(UUID.randomUUID(), "TestPlayer", "p2")), new CardsView());
+        setField(view, "revealed", List.of(revealedView("Dark Confidant", revealedCard)));
+        setField(view, "companion", List.of(revealedView("Companion", companionCard)));
+
+        assertThat(locator.findCardViewById(revealedId, view)).isSameAs(revealedCard);
+        assertThat(locator.findCardViewById(companionId, view)).isSameAs(companionCard);
+        assertThat(locator.revealedCards(view)).containsExactly(revealedCard, companionCard);
+        assertThat(locator.findCardViewById(UUID.randomUUID(), view)).isNull();
+    }
+
+    @Test
+    void aLookedAtCardIsReadFromTheCardDatabase() throws Exception {
+        BridgeViewLocator locator = new BridgeViewLocator(new ShortIdRegistry(), message -> { });
+        UUID boltId = UUID.randomUUID();
+        // Bolas's Citadel: the seat may look at its top card, which comes as a printing only
+        SimpleCardView bolt = new SimpleCardView(boltId, "LEA", "161", false);
+        bolt.setShortId("p9");
+        SimpleCardsView cards = new SimpleCardsView();
+        cards.put(boltId, bolt);
+        LookedAtView lookedAt = (LookedAtView) UNSAFE.allocateInstance(LookedAtView.class);
+        setField(lookedAt, "name", "Top card of your library");
+        setField(lookedAt, "cards", cards);
+
+        GameView view = gameView(12, List.of(playerView(UUID.randomUUID(), "TestPlayer", "p2")), new CardsView());
+        setField(view, "lookedAt", List.of(lookedAt));
+
+        CardView found = locator.findCardViewById(boltId, view);
+        assertThat(found).isNotNull();
+        assertThat(found.getId()).isEqualTo(boltId);
+        assertThat(found.getShortId()).isEqualTo("p9");
+        assertThat(found.getDisplayName()).isEqualTo("Lightning Bolt");
+        @SuppressWarnings("unchecked")
+        List<String> rules = (List<String>) BridgeOracleTextService.buildCardFieldsMap(found).get("rules");
+        assertThat(rules).anySatisfy(line -> assertThat(line).contains("3 damage"));
+        assertThat(locator.findCardViewById(boltId, view)).as("read once, then kept").isSameAs(found);
+    }
+
+    @Test
     void getMyDecklistReadsPublishedSnapshotInsteadOfLiveDeckObject() {
         BridgeMageClient client = new BridgeMageClient("TestPlayer");
         BridgeCallbackHandler handler = client.getCallbackHandler();
@@ -5489,6 +5626,37 @@ class BridgeCallbackHandlerTest {
     private static void addActiveGame(BridgeCallbackHandler handler, UUID gameId, UUID playerId) throws Exception {
         BridgeGameState gameState = (BridgeGameState) getProcessorStateField(handler, "gameState");
         gameState.activateGame(gameId, playerId);
+    }
+
+    /** Publishes this view and decision, as a server update followed by a prompt would. */
+    private static void projectDecision(
+            BridgeCallbackHandler handler,
+            UUID gameId,
+            UUID playerId,
+            GameView view,
+            PendingAction pendingAction) throws Exception {
+        BridgeProcessor processor = (BridgeProcessor) getDirectField(handler, "processor");
+        BridgeDecisionState decisionState = (BridgeDecisionState) getProcessorStateField(handler, "decisionState");
+        BridgeGameState gameState = (BridgeGameState) getProcessorStateField(handler, "gameState");
+        BridgePublishedQueryState publishedQueryState =
+            (BridgePublishedQueryState) getDirectField(handler, "publishedQueryState");
+        processor.submit(BridgeCommand.of(() -> {
+            gameState.activateGame(gameId, playerId);
+            publishedQueryState.projectGameState(view, 1, "test_init");
+            decisionState.replacePendingAction(pendingAction);
+            return null;
+        }));
+    }
+
+    private static RevealedView revealedView(String name, CardView... cards) throws Exception {
+        RevealedView view = (RevealedView) UNSAFE.allocateInstance(RevealedView.class);
+        CardsView cardsView = new CardsView();
+        for (CardView card : cards) {
+            cardsView.put(card.getId(), card);
+        }
+        setField(view, "name", name);
+        setField(view, "cards", cardsView);
+        return view;
     }
 
     private static void setCurrentChatId(BridgeCallbackHandler handler, UUID gameId, UUID chatId) throws Exception {

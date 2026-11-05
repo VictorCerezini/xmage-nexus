@@ -25,6 +25,7 @@ import mage.view.PlayerView;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -178,6 +179,11 @@ public final class BridgePublishedQueryBuilder {
     }
 
     public BridgePublishedOracleIndex buildPublishedOracleIndex(GameView gameView) {
+        return buildPublishedOracleIndex(gameView, null);
+    }
+
+    /** Every card the model can be shown, the pending choice's cards among them, so get_oracle_text finds each by its id. */
+    public BridgePublishedOracleIndex buildPublishedOracleIndex(GameView gameView, PendingAction action) {
         if (gameView == null) {
             return BridgePublishedOracleIndex.empty();
         }
@@ -211,6 +217,19 @@ public final class BridgePublishedQueryBuilder {
         for (var exileZone : gameView.getExile()) {
             for (CardView card : exileZone.values()) {
                 addOracleCard(cardsByObjectId, cardsByName, cardsByUuid, card, gameView);
+            }
+        }
+        for (CardView card : processorServices.viewLocator().revealedCards(gameView)) {
+            addOracleCard(cardsByObjectId, cardsByName, cardsByUuid, card, gameView);
+        }
+        if (action != null && action.data() instanceof GameClientMessage message) {
+            for (CardsView choiceCards : Arrays.asList(message.getCardsView1(), message.getCardsView2())) {
+                if (choiceCards == null) {
+                    continue;
+                }
+                for (CardView card : choiceCards.values()) {
+                    addOracleCard(cardsByObjectId, cardsByName, cardsByUuid, card, gameView);
+                }
             }
         }
 

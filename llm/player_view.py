@@ -212,7 +212,8 @@ class PlayerView:
                 "previous full board. All other fields are current. If that board is no longer in your context, "
                 "call get_action_choices for a full board. Native board_cursor is ignored by this GUI adapter. "
                 "A card's rules text already shown earlier in the same turn is left out (rules_omitted=true); "
-                "each new turn shows it all again, and get_oracle_text looks up any card."
+                "each new turn shows it all again, and get_oracle_text looks up any card. Ability text ending in "
+                "\"...\" is cut short; get_oracle_text with the card's id gives its full text."
             )
         )
         if "outputSchema" in tool:

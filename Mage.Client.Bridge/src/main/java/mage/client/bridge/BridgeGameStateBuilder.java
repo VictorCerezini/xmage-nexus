@@ -172,6 +172,19 @@ public final class BridgeGameStateBuilder {
                 playerInfo.put("exile", exileCards);
             }
 
+            // the top card of a library, while an effect keeps it revealed (Future Sight, Courser of Kruphix)
+            CardView topCard = player.getTopCard();
+            if (topCard != null && topCard.getId() != null) {
+                var cardInfo = new HashMap<String, Object>();
+                cardInfo.put("id", viewLocator.getStableShortId(topCard.getId(), topCard, gameView));
+                cardInfo.put("name", cardFormatter.safeDisplayName(topCard));
+                List<String> topRules = BridgePromptFormatting.stripHtmlList(topCard.getRules());
+                if (topRules != null && !topRules.isEmpty()) {
+                    cardInfo.put("rules", topRules);
+                }
+                playerInfo.put("library_top", List.of(cardInfo));
+            }
+
             ManaPoolView pool = player.getManaPool();
             if (pool != null) {
                 int total = pool.getRed() + pool.getGreen() + pool.getBlue()

@@ -1,5 +1,8 @@
 package mage.client.bridge;
 
+import mage.cards.Card;
+import mage.cards.repository.CardInfo;
+import mage.cards.repository.CardRepository;
 import mage.util.ShortIdRegistry;
 import mage.view.CardView;
 import mage.view.CommandObjectView;
@@ -9,16 +12,30 @@ import mage.view.GameView;
 import mage.view.LookedAtView;
 import mage.view.PermanentView;
 import mage.view.PlayerView;
+import mage.view.RevealedView;
 import mage.view.SimpleCardView;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
 
 public final class BridgeViewLocator {
 
+    private static final int LOOKED_AT_CARDS_KEPT = 64;
+
     private final ShortIdRegistry shortIds;
     private final Consumer<String> errorLogger;
+    private final Map<UUID, CardView> lookedAtCards = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<UUID, CardView> eldest) {
+            return size() > LOOKED_AT_CARDS_KEPT;
+        }
+    };
 
     public BridgeViewLocator(
             ShortIdRegistry shortIds,
@@ -107,7 +124,113 @@ public final class BridgeViewLocator {
             }
         }
 
+        // a library's top card, while it is revealed (Future Sight, Courser of Kruphix)
+        for (PlayerView player : gameView.getPlayers()) {
+            CardView topCard = player.getTopCard();
+            if (topCard != null && objectId.equals(topCard.getId())) {
+                return topCard;
+            }
+        }
+
+        found = findRevealedCard(gameView.getRevealed(), objectId);
+        if (found != null) {
+            return found;
+        }
+        found = findRevealedCard(gameView.getCompanion(), objectId);
+        if (found != null) {
+            return found;
+        }
+
+        return findLookedAtCard(objectId, gameView);
+    }
+
+    private static CardView findRevealedCard(List<RevealedView> revealedViews, UUID objectId) {
+        if (revealedViews == null) {
+            return null;
+        }
+        for (RevealedView revealed : revealedViews) {
+            CardView card = revealed.getCards().get(objectId);
+            if (card != null) {
+                return card;
+            }
+        }
         return null;
+    }
+
+    /**
+     * A card this seat looked at (the top of its library with Bolas's Citadel, say) comes as its printing only,
+     * so it is read from the card database, as the desktop client does.
+     */
+    private CardView findLookedAtCard(UUID objectId, GameView gameView) {
+        if (gameView.getLookedAt() == null) {
+            return null;
+        }
+        for (LookedAtView lookedAt : gameView.getLookedAt()) {
+            SimpleCardView simple = lookedAt.getCards().get(objectId);
+            if (simple != null) {
+                return lookedAtCardView(simple);
+            }
+        }
+        return null;
+    }
+
+    private CardView lookedAtCardView(SimpleCardView simple) {
+        synchronized (lookedAtCards) {
+            CardView known = lookedAtCards.get(simple.getId());
+            if (known != null) {
+                return known;
+            }
+        }
+        CardView view = null;
+        try {
+            CardInfo info = CardRepository.instance.findCard(simple.getExpansionSetCode(), simple.getCardNumber());
+            Card card = info != null ? info.createMockCard() : null;
+            view = card != null ? new CardView(card, simple) : null;
+        } catch (RuntimeException e) {
+            errorLogger.accept("Could not read looked-at card " + simple.getExpansionSetCode() + "/"
+                + simple.getCardNumber() + ": " + e.getMessage());
+        }
+        if (view != null) {
+            synchronized (lookedAtCards) {
+                lookedAtCards.put(simple.getId(), view);
+            }
+        }
+        return view;
+    }
+
+    /**
+     * The cards a player can see outside the usual zones: revealed library tops, revealed and companion cards,
+     * and cards this seat looked at.
+     */
+    public List<CardView> revealedCards(GameView gameView) {
+        var cards = new ArrayList<CardView>();
+        if (gameView == null) {
+            return cards;
+        }
+        for (PlayerView player : gameView.getPlayers()) {
+            if (player.getTopCard() != null) {
+                cards.add(player.getTopCard());
+            }
+        }
+        for (List<RevealedView> revealedViews : Arrays.asList(gameView.getRevealed(), gameView.getCompanion())) {
+            if (revealedViews == null) {
+                continue;
+            }
+            for (RevealedView revealed : revealedViews) {
+                cards.addAll(revealed.getCards().values());
+            }
+        }
+        if (gameView.getLookedAt() != null) {
+            for (LookedAtView lookedAt : gameView.getLookedAt()) {
+                for (SimpleCardView simple : lookedAt.getCards().values()) {
+                    CardView card = lookedAtCardView(simple);
+                    if (card != null) {
+                        cards.add(card);
+                    }
+                }
+            }
+        }
+        return cards;
     }
 
     public PermanentView findPermanentViewById(UUID objectId, GameView gameView) {
