@@ -4932,6 +4932,280 @@ class BridgeCallbackHandlerTest {
     }
 
     @Test
+    void aTwoFacedLandTheServerListsTwiceIsCountedOnce() throws Exception {
+        // Codex game, v0.7.9: Queen Marchesa ({1}{R}{W}{B}) with Mountain, Plains, Blightstep Pathway and Boros
+        // Signet. The server lists the Pathway under its own id and under its main card's, so the bridge counted
+        // four plain sources, tapped the three lands and left the Signet's {1} unpayable.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID queenId = UUID.randomUUID();
+        UUID mountainId = UUID.randomUUID();
+        UUID plainsId = UUID.randomUUID();
+        UUID pathwayId = UUID.randomUUID();
+        UUID pathwayMainCardId = UUID.randomUUID();
+        UUID signetId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+        List<Object> tapped = Collections.synchronizedList(new ArrayList<>());
+        client.setSession(recordingSession(tapped, cancels));
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putPermanents(player, mountainId, "p77", "Mountain", plainsId, "p22", "Plains",
+            pathwayId, "p211", "Blightstep Pathway", signetId, "p43", "Boros Signet");
+        Map<UUID, PlayableObjectStats> sources = new LinkedHashMap<>();
+        sources.put(mountainId, manaStats("{T}: Add {R}."));
+        sources.put(plainsId, manaStats("{T}: Add {W}."));
+        sources.put(pathwayId, manaStats("{T}: Add {B}."));
+        sources.put(pathwayMainCardId, manaStats("{T}: Add {B}."));
+        sources.put(signetId, manaStats("{1}, {T}: Add {R}{W}."));
+
+        PendingAction action = manaPrompt(gameId, player, playerId, 60, "Pay {1}{R}{W}{B}" + paidFor(queenId, "Queen Marchesa"), sources);
+        setField(handler, "pendingAction", action);
+        invokeDecisionBoundaryStatus(handler, action, "test");
+
+        assertThat(tapped).as("three lands cannot pay four mana, so the payment is the model's").isEmpty();
+        assertThat(cancels.get()).isZero();
+        assertThat(getField(handler, "pendingAction")).isSameAs(action);
+    }
+
+    @Test
+    void aManaPlanPaysASignetsOwnCostWithALandTheSpellNoLongerNeeds() throws Exception {
+        // Codex game, v0.7.9: mana_plan "p77,p43,p211,p22" for Queen Marchesa. The Signet's {1} took the next
+        // entry, the Pathway (the only black source), and {B} was left unpaid. The Plains pays it instead.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID queenId = UUID.randomUUID();
+        UUID mountainId = UUID.randomUUID();
+        UUID signetId = UUID.randomUUID();
+        UUID pathwayId = UUID.randomUUID();
+        UUID plainsId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+        List<Object> tapped = Collections.synchronizedList(new ArrayList<>());
+        client.setSession(recordingSession(tapped, cancels));
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putPermanents(player, mountainId, "p77", "Mountain", signetId, "p43", "Boros Signet",
+            pathwayId, "p211", "Blightstep Pathway", plainsId, "p22", "Plains");
+        for (Object[] shortId : new Object[][]{{mountainId, "p77"}, {signetId, "p43"}, {pathwayId, "p211"}, {plainsId, "p22"}}) {
+            registerShortId(handler, (UUID) shortId[0], (String) shortId[1]);
+        }
+        Map<UUID, PlayableObjectStats> untapped = new LinkedHashMap<>();
+        untapped.put(mountainId, manaStats("{T}: Add {R}."));
+        untapped.put(signetId, manaStats("{1}, {T}: Add {R}{W}."));
+        untapped.put(pathwayId, manaStats("{T}: Add {B}."));
+        untapped.put(plainsId, manaStats("{T}: Add {W}."));
+        String queen = paidFor(queenId, "Queen Marchesa");
+
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(70, List.of(player), new CardsView()));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p77"), new BridgeManaPlanEntry("tap", "p43"),
+            new BridgeManaPlanEntry("tap", "p211"), new BridgeManaPlanEntry("tap", "p22")), true);
+
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 70, "Pay {1}{R}{W}{B}" + queen, untapped));
+        untapped.remove(mountainId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 71, "Pay {1}{W}{B}" + queen, untapped));
+        untapped.remove(signetId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 72, "Pay {1}" + paidFor(signetId, "Boros Signet"), untapped));
+        untapped.remove(plainsId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 73, "Pay {B}" + queen, untapped));
+
+        assertThat(tapped).containsExactly(mountainId, signetId, plainsId, pathwayId);
+        assertThat(cancels.get()).isZero();
+    }
+
+    @Test
+    void aSignetTheModelTapsIsPaidWithALandTheSpellNoLongerNeeds() throws Exception {
+        // The same board paid by hand: the Mountain already paid {R} and the model taps the Signet. Auto-tap pays
+        // the Signet's {1} with the Plains, not the Pathway it would have taken first, and then {B} with the Pathway.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID queenId = UUID.randomUUID();
+        UUID mountainId = UUID.randomUUID();
+        UUID signetId = UUID.randomUUID();
+        UUID pathwayId = UUID.randomUUID();
+        UUID plainsId = UUID.randomUUID();
+        List<Object> tapped = Collections.synchronizedList(new ArrayList<>());
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putPermanents(player, mountainId, "p77", "Mountain", signetId, "p43", "Boros Signet",
+            pathwayId, "p211", "Blightstep Pathway", plainsId, "p22", "Plains");
+        Map<UUID, PlayableObjectStats> untapped = new LinkedHashMap<>();
+        untapped.put(signetId, manaStats("{1}, {T}: Add {R}{W}."));
+        untapped.put(pathwayId, manaStats("{T}: Add {B}."));
+        untapped.put(plainsId, manaStats("{T}: Add {W}."));
+        String queen = paidFor(queenId, "Queen Marchesa");
+        PendingAction first = manaPrompt(gameId, player, playerId, 80, "Pay {1}{W}{B}" + queen, untapped);
+        Map<UUID, PlayableObjectStats> landsLeft = new LinkedHashMap<>(untapped);
+        landsLeft.remove(signetId);
+        GameClientMessage signetCost = (GameClientMessage) manaPrompt(
+            gameId, player, playerId, 81, "Pay {1}" + paidFor(signetId, "Boros Signet"), landsLeft).data();
+        GameClientMessage black = (GameClientMessage) manaPrompt(
+            gameId, player, playerId, 82, "Pay {B}" + queen, Map.of(pathwayId, manaStats("{T}: Add {B}."))).data();
+        GameClientMessage priority = new GameClientMessage(gameView(83, List.of(player), new CardsView()),
+            Collections.<String, Serializable>emptyMap(), "Play spells and abilities");
+
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", ((GameClientMessage) first.data()).getGameView());
+        registerShortId(handler, signetId, "p43");
+        registerShortId(handler, pathwayId, "p211");
+        registerShortId(handler, plainsId, "p22");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(((GameClientMessage) first.data()).getGameView());
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerUUID".equals(method.getName())) {
+                    tapped.add(args[1]);
+                    GameClientMessage next = switch (tapped.size()) {
+                        case 1 -> signetCost;
+                        case 2 -> black;
+                        default -> priority;
+                    };
+                    enqueueCallback(handler, next == priority ? ClientCallbackMethod.GAME_SELECT
+                        : ClientCallbackMethod.GAME_PLAY_MANA, gameId, next);
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+        setField(handler, "pendingAction", first);
+
+        var result = handler.chooseAction(null, "p43", null, null, null, null, null, null, null, null, null);
+
+        assertThat(result.success).isTrue();
+        assertThat(tapped).containsExactly(signetId, plainsId, pathwayId);
+    }
+
+    @Test
+    void aManaPlanWithoutAbilityNumbersPicksThePainlandColorsTheSpellNeeds() throws Exception {
+        // Claude game, v0.7.9: mana_plan "p24,p19,p39,p23" (Sulfurous Springs, Caves of Koilos, Plains, Pillarverge
+        // Pathway) for Queen Marchesa {1}{R}{W}{B}, auto_tap=false. Both painlands made {C} and {R}{B} was left.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID queenId = UUID.randomUUID();
+        UUID springsId = UUID.randomUUID();
+        UUID cavesId = UUID.randomUUID();
+        UUID plainsId = UUID.randomUUID();
+        UUID pathwayId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        client.setSession(recordingSession(sent, cancels));
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putPermanents(player, springsId, "p24", "Sulfurous Springs", cavesId, "p19", "Caves of Koilos",
+            plainsId, "p39", "Plains", pathwayId, "p23", "Pillarverge Pathway");
+        for (Object[] shortId : new Object[][]{{springsId, "p24"}, {cavesId, "p19"}, {plainsId, "p39"}, {pathwayId, "p23"}}) {
+            registerShortId(handler, (UUID) shortId[0], (String) shortId[1]);
+        }
+        String[] springs = {"{T}: Add {C}.", "{T}: Add {B}. Sulfurous Springs deals 1 damage to you.",
+            "{T}: Add {R}. Sulfurous Springs deals 1 damage to you."};
+        String[] caves = {"{T}: Add {C}.", "{T}: Add {W}. Caves of Koilos deals 1 damage to you.",
+            "{T}: Add {B}. Caves of Koilos deals 1 damage to you."};
+        Map<UUID, PlayableObjectStats> untapped = new LinkedHashMap<>();
+        untapped.put(springsId, manaStats(springs));
+        untapped.put(cavesId, manaStats(caves));
+        untapped.put(plainsId, manaStats("{T}: Add {W}."));
+        untapped.put(pathwayId, manaStats("{T}: Add {W}."));
+        String queen = paidFor(queenId, "Queen Marchesa");
+
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(90, List.of(player), new CardsView()));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p24"), new BridgeManaPlanEntry("tap", "p19"),
+            new BridgeManaPlanEntry("tap", "p39"), new BridgeManaPlanEntry("tap", "p23")), false);
+
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 90, "Pay {1}{R}{W}{B}" + queen, untapped));
+        untapped.remove(springsId);
+        Map<UUID, String> springsChoices = numberedChoices(springs);
+        payAutomatically(handler, abilityPrompt(gameId, 91, springsId, "Sulfurous Springs", springsChoices));
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 92, "Pay {1}{W}{B}" + queen, untapped));
+        untapped.remove(cavesId);
+        Map<UUID, String> cavesChoices = numberedChoices(caves);
+        payAutomatically(handler, abilityPrompt(gameId, 93, cavesId, "Caves of Koilos", cavesChoices));
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 94, "Pay {1}{W}" + queen, untapped));
+        untapped.remove(plainsId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 95, "Pay {1}" + queen, untapped));
+
+        List<UUID> springsIds = new ArrayList<>(springsChoices.keySet());
+        List<UUID> cavesIds = new ArrayList<>(cavesChoices.keySet());
+        assertThat(sent).containsExactly(springsId, springsIds.get(2), cavesId, cavesIds.get(2), plainsId, pathwayId);
+        assertThat(cancels.get()).isZero();
+    }
+
+    private static Session recordingSession(List<Object> sent, AtomicInteger cancels) {
+        return (Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerUUID".equals(method.getName())) {
+                    sent.add(args[1]);
+                    return true;
+                }
+                if ("sendPlayerBoolean".equals(method.getName()) && Boolean.FALSE.equals(args[1])) {
+                    cancels.incrementAndGet();
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        );
+    }
+
+    /** Puts permanents on the player's battlefield, in order: id, short id and name for each. */
+    private static void putPermanents(PlayerView player, Object... idShortIdName) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<UUID, Object> battlefield = (Map<UUID, Object>) getField(player, "battlefield");
+        for (int i = 0; i < idShortIdName.length; i += 3) {
+            UUID id = (UUID) idShortIdName[i];
+            battlefield.put(id, permanentView(id, (String) idShortIdName[i + 1], (String) idShortIdName[i + 2], false));
+        }
+    }
+
+    /** The part of a server prompt that names what it is for, as in "Pay {1}<div>...Boros Signet...</div>". */
+    private static String paidFor(UUID objectId, String name) {
+        return "<div style='font-size:11pt'><font color='#B0C4DE' object_id='" + objectId + "'>" + name
+            + "</font> [" + objectId.toString().substring(0, 3) + "]</div>";
+    }
+
+    private static PendingAction manaPrompt(UUID gameId, PlayerView player, UUID playerId, int seq, String prompt,
+            Map<UUID, PlayableObjectStats> untapped) throws Exception {
+        GameView view = gameView(seq, List.of(player), new CardsView());
+        setField(view, "myPlayerId", playerId);
+        setField(view, "canPlayObjects", playableObjects(untapped));
+        return new PendingAction(gameId, ClientCallbackMethod.GAME_PLAY_MANA,
+            new GameClientMessage(view, Collections.<String, Serializable>emptyMap(), prompt), prompt, seq);
+    }
+
+    private static PendingAction abilityPrompt(UUID gameId, int seq, UUID sourceId, String name,
+            Map<UUID, String> choices) throws Exception {
+        String message = "Choose spell or ability to play<br><font color='#B0C4DE' object_id='" + sourceId + "'>"
+            + name + "</font> [" + sourceId.toString().substring(0, 3) + "]";
+        return new PendingAction(gameId, ClientCallbackMethod.GAME_CHOOSE_ABILITY,
+            new AbilityPickerView(gameView(seq), choices, message), message, seq);
+    }
+
+    private static Map<UUID, String> numberedChoices(String... abilities) {
+        Map<UUID, String> choices = new LinkedHashMap<>();
+        for (int i = 0; i < abilities.length; i++) {
+            choices.put(UUID.randomUUID(), (i + 1) + ". " + abilities[i]);
+        }
+        return choices;
+    }
+
+    private static void payAutomatically(BridgeCallbackHandler handler, PendingAction action) throws Exception {
+        setField(handler, "pendingAction", action);
+        assertThat(invokeDecisionBoundaryStatus(handler, action, "test"))
+            .as("the bridge answers \"" + action.message() + "\" itself").isEqualTo("AUTO_HANDLED");
+    }
+
+    @Test
     void aPriorityPromptClearsALeftoverManaPlan() throws Exception {
         BridgeMageClient client = new BridgeMageClient("TestPlayer");
         BridgeCallbackHandler handler = client.getCallbackHandler();

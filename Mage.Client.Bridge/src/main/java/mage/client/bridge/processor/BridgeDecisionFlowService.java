@@ -452,6 +452,7 @@ public final class BridgeDecisionFlowService {
                         } else {
                             Object manaChoice = choiceBackings.get(resolvedIndex);
                             if (manaChoice instanceof UUID manaUuid) {
+                                rememberModelManaTap(action, manaUuid);
                                 sendUuidOrDie(gameId, manaUuid, "chooseAction:GAME_PLAY_MANA");
                                 result.action_taken = "tapped_mana_" + resolvedIndex;
                                 usedManaIndex = true;
@@ -1181,11 +1182,18 @@ public final class BridgeDecisionFlowService {
                         return NonDecisionActionStatus.AUTO_HANDLED;
                     }
                 } else {
-                    selected = choices.keySet().iterator().next();
+                    List<UUID> abilityIds = new ArrayList<>(choices.keySet());
+                    int needed = choices.size() > 1 ? abilityThePaymentNeeds(picker, choices) : -1;
+                    selected = abilityIds.get(Math.max(needed, 0));
                     if (choices.size() == 1) {
                         logger.info("[" + username + "] " + source
                             + ": mana plan auto-selecting sole ability: \""
                             + picker.getMessage() + "\" -> " + choices.get(selected));
+                    } else if (needed >= 0) {
+                        logger.info("[" + username + "] " + source
+                            + ": mana plan no ability index, picking the mana the payment needs, " + (needed + 1)
+                            + " of " + choices.size() + ": \"" + picker.getMessage()
+                            + "\" -> " + choices.get(selected));
                     } else {
                         logger.info("[" + username + "] " + source
                             + ": mana plan no ability index, picking first of "
@@ -1202,6 +1210,20 @@ public final class BridgeDecisionFlowService {
         }
 
         return NonDecisionActionStatus.NOT_HANDLED;
+    }
+
+    /**
+     * For a source a mana plan named without an ability number (a painland): the index of the mana ability whose
+     * mana the payment needs, given the sources the plan taps after it, or -1 to take the first.
+     */
+    private int abilityThePaymentNeeds(AbilityPickerView picker, Map<UUID, String> choices) {
+        BridgeManaTap tap = processorState.interactionState().lastManaTap();
+        UUID sourceId = extractPayingForId(picker.getMessage());
+        if (tap == null || tap.paying() == null || sourceId == null || !sourceId.equals(tap.sourceId())) {
+            return -1;
+        }
+        return BridgeManaSources.abilityKeepingRestPayable(
+            tap.paying(), tap.stillOwed(), new ArrayList<>(choices.values()), tap.after());
     }
 
     private void logChoiceOutOfRangeDiagnostic(
@@ -1571,6 +1593,7 @@ public final class BridgeDecisionFlowService {
             UUID gameId, UUID payingForId, String messageText, GameView gameView, String reason, String context) {
         processorState.interactionState().markFailedManaCast(payingForId);
         processorState.interactionState().clearManaPlan();
+        processorState.interactionState().clearLastManaTap();
         processorState.interactionState().resetPoolManaTracking();
         boolean ability = payingForId != null
             && processorServices.viewLocator().findPermanentViewById(payingForId, gameView) != null;
@@ -1623,9 +1646,17 @@ public final class BridgeDecisionFlowService {
 
         String messageText = message.getMessage();
         UUID payingForId = extractPayingForId(messageText);
+        BridgeManaSources.Cost cost = BridgeManaSources.parseCost(messageText);
+        // a prompt for the own cost of the source tapped last (a Signet's {1}): what the payment that source was
+        // tapped for still needs once its mana is in, so this cost is not paid with a land that payment needs
+        BridgeManaSources.Cost stillOwed = cost != null ? stillOwedAfterSource(payingForId) : null;
+        ManaSources sources = manaSources(gameView, payingForId);
 
         List<BridgeManaPlanEntry> plan = processorState.interactionState().manaPlan();
         if (plan != null && !plan.isEmpty()) {
+            if (stillOwed != null) {
+                payOwnCostWithAPlanSourceNotNeeded(plan, cost, stillOwed, sources, messageText);
+            }
             BridgeManaPlanEntry entry = plan.remove(0);
 
             if ("tap".equals(entry.type())) {
@@ -1643,6 +1674,10 @@ public final class BridgeDecisionFlowService {
                     if (stats != null && !targetId.equals(payingForId)) {
                         logger.info("[" + username + "] Mana plan: \"" + messageText + "\" -> tapping " + entry.value());
                         processorState.interactionState().resetPoolManaTracking();
+                        List<BridgeManaSources.Source> planned = planSources(plan, sources, null);
+                        var after = new ArrayList<>(planned);
+                        after.addAll(autoTapSourcesAfterPlan(planned, targetId, sources));
+                        rememberManaTap(targetId, cost, stillOwed, stats.getAllManaAbilityNames(), after);
                         sendUuidOrDie(gameId, targetId, "manaAuto:plan_tap");
                         return true;
                     }
@@ -1681,68 +1716,26 @@ public final class BridgeDecisionFlowService {
             }
         }
 
-        PlayableObjectsList playable = gameView != null ? gameView.getCanPlayObjects() : null;
-        var plainSources = new ArrayList<BridgeManaSources.Source>();
-        boolean otherSources = false;
-        if (playable != null && !playable.isEmpty()) {
-            var battlefieldOrder = new HashMap<UUID, Integer>();
-            if (gameView != null) {
-                int order = 0;
-                for (PlayerView player : gameView.getPlayers()) {
-                    for (UUID permanentId : player.getBattlefield().keySet()) {
-                        battlefieldOrder.put(permanentId, order++);
-                    }
-                }
+        List<BridgeManaSources.Source> plainSources = sources.plain();
+        boolean otherSources = sources.other();
+        UUID toTap = null;
+        boolean keepsRestPayable = false;
+        if (cost != null && !plainSources.isEmpty()) {
+            if (stillOwed != null) {
+                var plainestFirst = new ArrayList<>(plainSources);
+                plainestFirst.sort(Comparator.comparingInt(source -> source.colors().length()));
+                toTap = BridgeManaSources.payerKeepingRestPayable(cost, stillOwed, plainestFirst, List.of());
+                keepsRestPayable = toTap != null;
             }
-            var sortedPlayable = new ArrayList<>(playable.getObjects().entrySet());
-            sortedPlayable.sort(Comparator.<Map.Entry<UUID, PlayableObjectStats>>comparingInt(entry -> {
-                Integer idx = battlefieldOrder.get(entry.getKey());
-                return idx != null ? idx : Integer.MAX_VALUE;
-            }).thenComparing(entry -> {
-                CardView cardView = processorServices.viewLocator().findCardViewById(entry.getKey(), gameView);
-                return cardView != null ? processorServices.cardFormatter().safeDisplayName(cardView) : "";
-            }).thenComparingInt(entry -> processorServices.viewLocator().getStableShortIdSequence(
-                entry.getKey(),
-                processorServices.viewLocator().findCardViewById(entry.getKey(), gameView),
-                gameView
-            )));
-
-            for (Map.Entry<UUID, PlayableObjectStats> entry : sortedPlayable) {
-                UUID objectId = entry.getKey();
-                if (objectId.equals(payingForId)) {
-                    continue;
-                }
-                if (processorState.interactionState().failedManaCast(objectId)) {
-                    continue;
-                }
-                // only plain sources ({T} and nothing else) are tapped here; one that also costs mana, life
-                // or a sacrifice is left to the model
-                var colors = new StringBuilder();
-                int units = 0;
-                for (String name : entry.getValue().getAllManaAbilityNames()) {
-                    String plain = BridgeManaSources.plainColors(name);
-                    if (plain == null) {
-                        otherSources = true;
-                        continue;
-                    }
-                    for (char letter : plain.toCharArray()) {
-                        if (colors.indexOf(String.valueOf(letter)) < 0) {
-                            colors.append(letter);
-                        }
-                    }
-                    units = Math.max(units, BridgeManaSources.plainUnits(name));
-                }
-                if (units > 0) {
-                    plainSources.add(new BridgeManaSources.Source(objectId, colors.toString(), units));
-                }
+            if (toTap == null) {
+                toTap = BridgeManaSources.nextToTap(cost, plainSources);
             }
         }
-
-        BridgeManaSources.Cost cost = BridgeManaSources.parseCost(messageText);
-        UUID toTap = cost != null && !plainSources.isEmpty() ? BridgeManaSources.nextToTap(cost, plainSources) : null;
         if (toTap != null) {
-            logger.info("[" + username + "] Mana: \"" + messageText + "\" -> tapping " + toTap.toString().substring(0, 8));
+            logger.info("[" + username + "] Mana: \"" + messageText + "\" -> tapping " + toTap.toString().substring(0, 8)
+                + (keepsRestPayable ? ", leaving what the payment still needs" : ""));
             processorState.interactionState().resetPoolManaTracking();
+            rememberManaTap(toTap, cost, stillOwed, manaAbilityNames(gameView, toTap), List.of());
             sendUuidOrDie(gameId, toTap, "manaAuto:tap");
             return true;
         }
@@ -1783,6 +1776,192 @@ public final class BridgeDecisionFlowService {
         logger.info("[" + username + "] Mana: \"" + messageText + "\" -> no mana source available, cancelling spell");
         return cancelSpell(gameId, payingForId, messageText, gameView,
             "no untapped mana source was left to pay " + unpaidCostText(messageText), "manaAuto:no_source_cancel");
+    }
+
+    /** The plain mana sources ({T} and nothing else), in board order, and whether there are other ways to pay. */
+    private record ManaSources(List<BridgeManaSources.Source> plain, boolean other) {
+        BridgeManaSources.Source find(UUID id) {
+            for (BridgeManaSources.Source source : plain) {
+                if (source.id().equals(id)) {
+                    return source;
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
+     * The sources the bridge may tap for a payment: only plain ones ({T} and nothing else) on the battlefield. One
+     * that also costs mana, life or a sacrifice (filter lands, Signets, Treasure) is left to the model.
+     */
+    private ManaSources manaSources(GameView gameView, UUID payingForId) {
+        PlayableObjectsList playable = gameView != null ? gameView.getCanPlayObjects() : null;
+        var plainSources = new ArrayList<BridgeManaSources.Source>();
+        boolean otherSources = false;
+        if (playable == null || playable.isEmpty()) {
+            return new ManaSources(plainSources, false);
+        }
+        var battlefieldOrder = new HashMap<UUID, Integer>();
+        int order = 0;
+        for (PlayerView player : gameView.getPlayers()) {
+            for (UUID permanentId : player.getBattlefield().keySet()) {
+                battlefieldOrder.put(permanentId, order++);
+            }
+        }
+        var sortedPlayable = new ArrayList<>(playable.getObjects().entrySet());
+        sortedPlayable.sort(Comparator.<Map.Entry<UUID, PlayableObjectStats>>comparingInt(entry -> {
+            Integer idx = battlefieldOrder.get(entry.getKey());
+            return idx != null ? idx : Integer.MAX_VALUE;
+        }).thenComparing(entry -> {
+            CardView cardView = processorServices.viewLocator().findCardViewById(entry.getKey(), gameView);
+            return cardView != null ? processorServices.cardFormatter().safeDisplayName(cardView) : "";
+        }).thenComparingInt(entry -> processorServices.viewLocator().getStableShortIdSequence(
+            entry.getKey(),
+            processorServices.viewLocator().findCardViewById(entry.getKey(), gameView),
+            gameView
+        )));
+
+        for (Map.Entry<UUID, PlayableObjectStats> entry : sortedPlayable) {
+            UUID objectId = entry.getKey();
+            if (objectId.equals(payingForId)) {
+                continue;
+            }
+            if (processorState.interactionState().failedManaCast(objectId)) {
+                continue;
+            }
+            // only a permanent uses a {T} ability; the server also lists the main card of a land played from a
+            // two-faced card (a Pathway) next to the land itself, which would count that land twice
+            boolean onBattlefield = battlefieldOrder.containsKey(objectId);
+            var colors = new StringBuilder();
+            int units = 0;
+            for (String name : entry.getValue().getAllManaAbilityNames()) {
+                String plain = BridgeManaSources.plainColors(name);
+                if (plain == null) {
+                    otherSources = true;
+                    continue;
+                }
+                if (!onBattlefield) {
+                    continue;
+                }
+                for (char letter : plain.toCharArray()) {
+                    if (colors.indexOf(String.valueOf(letter)) < 0) {
+                        colors.append(letter);
+                    }
+                }
+                units = Math.max(units, BridgeManaSources.plainUnits(name));
+            }
+            if (units > 0) {
+                plainSources.add(new BridgeManaSources.Source(objectId, colors.toString(), units));
+            }
+        }
+        return new ManaSources(plainSources, otherSources);
+    }
+
+    /** The plain sources a mana plan names, in its order, with each one's place in the plan when asked for. */
+    private List<BridgeManaSources.Source> planSources(
+            List<BridgeManaPlanEntry> entries, ManaSources sources, Map<UUID, Integer> entryIndex) {
+        var planned = new ArrayList<BridgeManaSources.Source>();
+        for (int i = 0; i < entries.size(); i++) {
+            BridgeManaPlanEntry entry = entries.get(i);
+            UUID id = "tap".equals(entry.type()) ? processorServices.shortIds().tryResolve(entry.value()) : null;
+            BridgeManaSources.Source source = id != null ? sources.find(id) : null;
+            if (source != null && !planned.contains(source)) {
+                planned.add(source);
+                if (entryIndex != null) {
+                    entryIndex.put(id, i);
+                }
+            }
+        }
+        return planned;
+    }
+
+    /** The plain sources auto-tap may still use once the plan is spent: the ones it does not name, but {@code tapped}. */
+    private List<BridgeManaSources.Source> autoTapSourcesAfterPlan(
+            List<BridgeManaSources.Source> planned, UUID tapped, ManaSources sources) {
+        if (!processorState.interactionState().manaPlanAutoTapFallback()) {
+            return List.of();
+        }
+        var others = new ArrayList<BridgeManaSources.Source>();
+        for (BridgeManaSources.Source source : sources.plain()) {
+            if (!source.id().equals(tapped) && !planned.contains(source)) {
+                others.add(source);
+            }
+        }
+        return others;
+    }
+
+    /**
+     * A mana plan pays a source's own cost (a Signet's {1}) with its next entry. When that entry is a plain source
+     * the rest of the payment needs (its only black land, say) and a later entry leaves the payment payable, that
+     * later entry goes first.
+     */
+    private void payOwnCostWithAPlanSourceNotNeeded(
+            List<BridgeManaPlanEntry> plan,
+            BridgeManaSources.Cost own,
+            BridgeManaSources.Cost stillOwed,
+            ManaSources sources,
+            String messageText) {
+        BridgeManaPlanEntry first = plan.get(0);
+        UUID firstId = "tap".equals(first.type()) ? processorServices.shortIds().tryResolve(first.value()) : null;
+        if (firstId == null || sources.find(firstId) == null) {
+            // a pool entry, or a source the bridge cannot judge (another Signet, a Treasure): the plan stays as written
+            return;
+        }
+        var entryIndex = new HashMap<UUID, Integer>();
+        List<BridgeManaSources.Source> planned = planSources(plan, sources, entryIndex);
+        UUID payer = BridgeManaSources.payerKeepingRestPayable(
+            own, stillOwed, planned, autoTapSourcesAfterPlan(planned, null, sources));
+        Integer index = payer != null ? entryIndex.get(payer) : null;
+        if (index != null && index > 0) {
+            BridgeManaPlanEntry moved = plan.remove((int) index);
+            plan.add(0, moved);
+            logger.info("[" + username + "] Mana plan: \"" + messageText + "\" -> paying it with " + moved.value()
+                + " before " + first.value() + ", which the rest of the payment needs");
+        }
+    }
+
+    /**
+     * When this prompt pays the own cost of the source tapped last (a Signet's {1}): what the payment that source
+     * was tapped for still needs once the source's mana is in. Null for other prompts, or when that mana is unclear.
+     */
+    private BridgeManaSources.Cost stillOwedAfterSource(UUID payingForId) {
+        BridgeManaTap tap = processorState.interactionState().lastManaTap();
+        if (tap == null || tap.paying() == null || payingForId == null || !payingForId.equals(tap.sourceId())) {
+            return null;
+        }
+        List<String> mana = BridgeManaSources.manaOfSourceWithCost(tap.abilities());
+        return mana != null ? BridgeManaSources.after(BridgeManaSources.plus(tap.paying(), tap.stillOwed()), mana) : null;
+    }
+
+    private void rememberManaTap(
+            UUID sourceId,
+            BridgeManaSources.Cost paying,
+            BridgeManaSources.Cost stillOwed,
+            List<String> abilities,
+            List<BridgeManaSources.Source> after) {
+        processorState.interactionState().setLastManaTap(new BridgeManaTap(
+            sourceId,
+            paying,
+            stillOwed != null ? stillOwed : BridgeManaSources.NOTHING,
+            abilities != null ? new ArrayList<>(abilities) : List.of(),
+            new ArrayList<>(after)));
+    }
+
+    /** The model tapped a source itself: kept, so a prompt for that source's own cost knows the payment. */
+    private void rememberModelManaTap(PendingAction action, UUID sourceId) {
+        GameView view = action.data() instanceof GameClientMessage message ? message.getGameView() : null;
+        if (view == null) {
+            view = processorState.gameState().lastGameView();
+        }
+        BridgeManaSources.Cost cost = BridgeManaSources.parseCost(action.message());
+        BridgeManaSources.Cost stillOwed = cost != null ? stillOwedAfterSource(extractPayingForId(action.message())) : null;
+        rememberManaTap(sourceId, cost, stillOwed, manaAbilityNames(view, sourceId), List.of());
+    }
+
+    private static List<String> manaAbilityNames(GameView view, UUID objectId) {
+        PlayableObjectsList playable = view != null ? view.getCanPlayObjects() : null;
+        PlayableObjectStats stats = playable != null ? playable.getObjects().get(objectId) : null;
+        return stats != null ? stats.getAllManaAbilityNames() : List.of();
     }
 
     /** The cost part of a "Pay {1}{B}<div>...</div>" prompt, such as "{1}{B}". */

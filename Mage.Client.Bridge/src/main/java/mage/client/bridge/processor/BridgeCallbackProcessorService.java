@@ -229,6 +229,9 @@ public final class BridgeCallbackProcessorService
             logger.info("[" + username + "] Mana plan cleared: back at priority");
             processorState.interactionState().clearManaPlan();
         }
+        if (method == ClientCallbackMethod.GAME_SELECT) {
+            processorState.interactionState().clearLastManaTap();
+        }
         String message = extractMessage(data);
         int gameSeq = 0;
         GameView gameView = extractGameView(data);

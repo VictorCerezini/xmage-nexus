@@ -94,6 +94,90 @@ class BridgeManaSourcesTest {
     }
 
     @Test
+    void readsTheManaOfASourceWithItsOwnCost() {
+        assertThat(BridgeManaSources.manaOfSourceWithCost(List.of("{1}, {T}: Add {R}{W}."))).containsExactly("R", "W");
+        assertThat(BridgeManaSources.manaOfSourceWithCost(List.of("{T}: Add {C}.", "{B/R}, {T}: Add {B}{B}, {B}{R}, or {R}{R}.")))
+            .as("filter land: the mana is a choice").isNull();
+        assertThat(BridgeManaSources.manaOfSourceWithCost(List.of("Sacrifice this artifact: Add one mana of any color.")))
+            .isNull();
+        assertThat(BridgeManaSources.manaOfSourceWithCost(List.of("{T}: Add {B}."))).as("a plain land").isNull();
+        assertThat(BridgeManaSources.manaOfSourceWithCost(List.of("{1}, {T}: Add {R}{W}.", "{2}, {T}: Add {C}{C}{C}.")))
+            .as("which one was used is not known").isNull();
+    }
+
+    @Test
+    void spendsManaOnAMatchingColorBeforeGeneric() {
+        var left = BridgeManaSources.after(BridgeManaSources.parseCost("Pay {1}{W}{B}"), List.of("R", "W"));
+        assertThat(left.colored()).containsExactly("B");
+        assertThat(left.generic()).isZero();
+
+        var lost = BridgeManaSources.after(BridgeManaSources.parseCost("Pay {B}"), List.of("C"));
+        assertThat(lost.colored()).as("{C} cannot pay {B}").containsExactly("B");
+    }
+
+    @Test
+    void paysASignetsOwnCostWithALandTheSpellNoLongerNeeds() {
+        // Codex game, v0.7.9: Queen Marchesa {1}{R}{W}{B}; the Mountain paid {R}, then Boros Signet was tapped.
+        // Its {R}{W} pays {1}{W}, so the spell still needs {B}, which only the Pathway makes.
+        var pathway = source("B", 1);
+        var plains = source("W", 1);
+        var signetMana = BridgeManaSources.manaOfSourceWithCost(List.of("{1}, {T}: Add {R}{W}."));
+        var stillOwed = BridgeManaSources.after(BridgeManaSources.parseCost("Pay {1}{W}{B}"), signetMana);
+
+        assertThat(BridgeManaSources.payerKeepingRestPayable(
+            BridgeManaSources.parseCost("Pay {1}"), stillOwed, List.of(pathway, plains), List.of()))
+            .isEqualTo(plains.id());
+        assertThat(BridgeManaSources.payerKeepingRestPayable(
+            BridgeManaSources.parseCost("Pay {1}"), stillOwed, List.of(pathway), List.of()))
+            .as("with only the Pathway left nothing keeps the spell payable").isNull();
+        assertThat(BridgeManaSources.payerKeepingRestPayable(
+            BridgeManaSources.parseCost("Pay {1}"), stillOwed, List.of(plains), List.of(pathway)))
+            .as("auto-tap after the plan can still pay {B}").isEqualTo(plains.id());
+    }
+
+    @Test
+    void picksThePainlandColorTheRestOfThePlanCannotMake() {
+        // Claude game, v0.7.9: Queen Marchesa {1}{R}{W}{B} with mana_plan Sulfurous Springs, Caves of Koilos,
+        // Plains, Pillarverge Pathway and no ability numbers: {C} was taken twice and {R}{B} was left unpaid.
+        var springs = List.of(
+            "1. {T}: Add {C}.",
+            "2. {T}: Add {B}. Sulfurous Springs deals 1 damage to you.",
+            "3. {T}: Add {R}. Sulfurous Springs deals 1 damage to you.");
+        var caves = List.of(
+            "1. {T}: Add {C}.",
+            "2. {T}: Add {W}. Caves of Koilos deals 1 damage to you.",
+            "3. {T}: Add {B}. Caves of Koilos deals 1 damage to you.");
+        var cavesSource = source("CWB", 1);
+        var plains = source("W", 1);
+        var pillarverge = source("W", 1);
+
+        assertThat(BridgeManaSources.abilityKeepingRestPayable(BridgeManaSources.parseCost("Pay {1}{R}{W}{B}"),
+            BridgeManaSources.NOTHING, springs, List.of(cavesSource, plains, pillarverge)))
+            .as("only Sulfurous Springs makes {R}").isEqualTo(2);
+        assertThat(BridgeManaSources.abilityKeepingRestPayable(BridgeManaSources.parseCost("Pay {1}{W}{B}"),
+            BridgeManaSources.NOTHING, caves, List.of(plains, pillarverge)))
+            .as("the Plains and the Pathway make no {B}").isEqualTo(2);
+    }
+
+    @Test
+    void keepsColorlessWhenTheRestOfThePlanPaysTheColors() {
+        var springs = List.of(
+            "1. {T}: Add {C}.",
+            "2. {T}: Add {B}. Sulfurous Springs deals 1 damage to you.",
+            "3. {T}: Add {R}. Sulfurous Springs deals 1 damage to you.");
+
+        assertThat(BridgeManaSources.abilityKeepingRestPayable(BridgeManaSources.parseCost("Pay {1}{B}"),
+            BridgeManaSources.NOTHING, springs, List.of(source("B", 1))))
+            .as("no damage when {C} will do").isZero();
+        assertThat(BridgeManaSources.abilityKeepingRestPayable(BridgeManaSources.parseCost("Pay {R}{B}"),
+            BridgeManaSources.NOTHING, springs, List.of()))
+            .as("{C} cannot pay {R}{B}; nothing after it, so a needed color").isEqualTo(1);
+        assertThat(BridgeManaSources.abilityKeepingRestPayable(BridgeManaSources.parseCost("Pay {G}"),
+            BridgeManaSources.NOTHING, springs, List.of()))
+            .as("nothing helps: the caller takes the first").isEqualTo(-1);
+    }
+
+    @Test
     void tellsManaAbilitiesFromModes() {
         assertThat(BridgeManaSources.onlyManaAbilities(List.of("1. {T}: Add {C}.", "2. {B/R}, {T}: Add {B}{B}.")))
             .isTrue();

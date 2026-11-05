@@ -15,6 +15,7 @@ public final class BridgeInteractionState {
     private List<BridgeManaPlanEntry> manaPlan = null;
     private Integer manaPlanAbilityIndex = null;
     private boolean manaPlanAutoTapFallback = true;
+    private BridgeManaTap lastManaTap = null;
     private int lastTurnNumber = -1;
     private int maxCallsWithoutProgress = DEFAULT_MAX_CALLS_WITHOUT_PROGRESS;
     private int callsWithoutProgress = 0;
@@ -98,6 +99,7 @@ public final class BridgeInteractionState {
         failedManaCasts.clear();
         resetPoolManaTracking();
         clearManaPlan();
+        lastManaTap = null;
     }
 
     public boolean failedManaCast(UUID objectId) {
@@ -148,6 +150,19 @@ public final class BridgeInteractionState {
         return manaPlanAutoTapFallback;
     }
 
+    BridgeManaTap lastManaTap() {
+        return lastManaTap;
+    }
+
+    void setLastManaTap(BridgeManaTap lastManaTap) {
+        this.lastManaTap = lastManaTap;
+    }
+
+    /** The payment is over (paid or cancelled), so its last tap must not shape a later one. */
+    public void clearLastManaTap() {
+        lastManaTap = null;
+    }
+
     public void resetPoolManaTracking() {
         poolManaPayingForId = null;
         poolManaAttempts = 0;
@@ -167,6 +182,7 @@ public final class BridgeInteractionState {
         failedManaCasts.clear();
         resetPoolManaTracking();
         clearManaPlan();
+        lastManaTap = null;
         lastTurnNumber = -1;
         callsWithoutProgress = 0;
         lastCallGameSeq = null;

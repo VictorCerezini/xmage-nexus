@@ -21,7 +21,12 @@ final class BridgeManaSources {
     private static final Pattern MANA_ABILITY = Pattern.compile(":\\s*Add\\b");
     private static final String COLORS = "WUBRG";
     private static final String MANA_LETTERS = "WUBRGC";
+    /** The number an ability prompt puts before each choice: "2. {T}: Add {B}." */
+    private static final Pattern NUMBERED = Pattern.compile("^\\s*\\d+\\.\\s*");
     private static final int SEARCH_LIMIT = 20_000;
+
+    /** No mana. */
+    static final Cost NOTHING = new Cost(List.of(), 0);
 
     /** A plain source: the mana letters it can make and how much mana one tap gives. */
     record Source(UUID id, String colors, int units) {
@@ -181,6 +186,161 @@ final class BridgeManaSources {
         }
         Unit plainest = fewestColors(units, null, used);
         return plainest == null ? null : sources.get(plainest.source()).id();
+    }
+
+    /** True when the sources can pay the whole cost. */
+    static boolean canPay(Cost cost, List<Source> sources) {
+        List<Unit> units = units(sources);
+        List<String> needs = sortedNeeds(cost, units);
+        return assign(needs, 0, units, new boolean[units.size()], new int[needs.size()], cost.generic(), new int[]{0});
+    }
+
+    /** Both costs together. */
+    static Cost plus(Cost first, Cost second) {
+        var colored = new ArrayList<>(first.colored());
+        colored.addAll(second.colored());
+        return new Cost(colored, first.generic() + second.generic());
+    }
+
+    /**
+     * What a cost still needs once the given mana is spent on it. Like the server, each mana pays a colored symbol
+     * it matches before generic; mana that pays neither is lost.
+     */
+    static Cost after(Cost cost, List<String> mana) {
+        var colored = new ArrayList<>(cost.colored());
+        int generic = cost.generic();
+        for (String letter : mana) {
+            int best = -1;
+            for (int i = 0; i < colored.size(); i++) {
+                String need = colored.get(i);
+                if (need.contains(letter) && (best < 0 || need.length() < colored.get(best).length())) {
+                    best = i;
+                }
+            }
+            if (best >= 0) {
+                colored.remove(best);
+            } else if (generic > 0) {
+                generic--;
+            }
+        }
+        return new Cost(colored, generic);
+    }
+
+    /**
+     * The mana a source with its own cost makes ("{1}, {T}: Add {R}{W}." makes R and W), or null when that is not
+     * clear: the source has no such ability or more than one, or its mana is a choice.
+     */
+    static List<String> manaOfSourceWithCost(List<String> abilities) {
+        if (abilities == null) {
+            return null;
+        }
+        String effect = null;
+        for (String ability : abilities) {
+            int colon = ability == null ? -1 : ability.indexOf(':');
+            if (colon < 0 || !MANA_ABILITY.matcher(ability).find()
+                    || ability.substring(0, colon).trim().equals("{T}")) {
+                continue;
+            }
+            if (effect != null) {
+                return null;
+            }
+            effect = ability.substring(colon + 1);
+        }
+        if (effect == null) {
+            return null;
+        }
+        String sentence = firstSentence(effect);
+        String lower = sentence.toLowerCase(Locale.ROOT);
+        if (lower.contains(" or ") || lower.contains("any ") || lower.contains("combination")
+                || lower.contains("for each")) {
+            return null;
+        }
+        var mana = new ArrayList<String>();
+        Matcher matcher = SYMBOL.matcher(sentence);
+        while (matcher.find()) {
+            String symbol = matcher.group(1).trim();
+            if (symbol.length() != 1 || MANA_LETTERS.indexOf(symbol.charAt(0)) < 0) {
+                return null;
+            }
+            mana.add(symbol);
+        }
+        return mana.isEmpty() ? null : mana;
+    }
+
+    /**
+     * The source to pay a mana source's own cost with (a Signet's {1}) so that the payment it is part of can still
+     * be finished: {@code stillOwed} is what that payment needs once the Signet's mana is in, and the other
+     * candidates and {@code extra} must still pay it. Candidates are tried in order; null when none works.
+     */
+    static UUID payerKeepingRestPayable(Cost own, Cost stillOwed, List<Source> candidates, List<Source> extra) {
+        for (Source candidate : candidates) {
+            var others = new ArrayList<>(extra);
+            for (Source source : candidates) {
+                if (source != candidate) {
+                    others.add(source);
+                }
+            }
+            if (tapLeavesPayable(candidate, own, stillOwed, others)) {
+                return candidate.id();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Which of a tapped source's mana abilities to use ("1. {T}: Add {C}.", "2. {T}: Add {B}. ... deals 1 damage
+     * to you.") when a mana plan named none: the first whose mana pays part of {@code cost} and still lets the
+     * sources tapped {@code after} it pay the rest and {@code stillOwed}; else the first that pays a colored symbol
+     * of {@code cost}; else -1.
+     */
+    static int abilityKeepingRestPayable(Cost cost, Cost stillOwed, List<String> abilities, List<Source> after) {
+        var sources = new ArrayList<Source>();
+        for (String ability : abilities) {
+            String text = ability == null ? null : NUMBERED.matcher(ability).replaceFirst("");
+            String colors = plainColors(text);
+            sources.add(colors == null ? null : new Source(null, colors, plainUnits(text)));
+        }
+        for (int i = 0; i < sources.size(); i++) {
+            if (sources.get(i) != null && tapLeavesPayable(sources.get(i), cost, stillOwed, after)) {
+                return i;
+            }
+        }
+        for (int i = 0; i < sources.size(); i++) {
+            Source source = sources.get(i);
+            if (source != null && cost.colored().stream().anyMatch(need -> pays(new Unit(-1, source.colors()), need))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** True when {@code source}, tapped for a symbol of {@code cost}, lets {@code others} pay the rest and stillOwed. */
+    private static boolean tapLeavesPayable(Source source, Cost cost, Cost stillOwed, List<Source> others) {
+        var rest = new ArrayList<>(others);
+        if (source.units() > 1) {
+            rest.add(new Source(source.id(), source.colors(), source.units() - 1));
+        }
+        Unit unit = new Unit(-1, source.colors());
+        var options = new ArrayList<Cost>();
+        boolean paysColored = false;
+        for (int i = 0; i < cost.colored().size(); i++) {
+            if (pays(unit, cost.colored().get(i))) {
+                paysColored = true;
+                var colored = new ArrayList<>(cost.colored());
+                colored.remove(i);
+                options.add(new Cost(colored, cost.generic()));
+            }
+        }
+        // the server spends mana of one color on a colored symbol it matches before generic
+        if (cost.generic() > 0 && !(paysColored && source.colors().length() == 1)) {
+            options.add(new Cost(cost.colored(), cost.generic() - 1));
+        }
+        for (Cost left : options) {
+            if (canPay(plus(left, stillOwed), rest)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** When the plain sources cannot pay it all: a source that pays one symbol, or generic mana, if any. */

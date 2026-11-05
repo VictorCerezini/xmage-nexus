@@ -55,8 +55,11 @@ public class ChooseActionTool {
             @Param(description = "Multiple amount values (for multi_amount)") int[] amounts,
             @Param(description = "Pile number: 1 or 2") Integer pile,
             @Param(description = "Text value for GAME_CHOOSE_CHOICE (pick option by name)") String text,
-            @Param(description = "Comma-separated permanent IDs to tap for mana (e.g. \"p1,p5:1\"). "
-                + ":N selects ability on multi-ability lands. "
+            @Param(description = "Comma-separated permanent IDs to tap for mana, in order (e.g. \"p1,p5:1\"). "
+                + ":N selects ability on multi-ability lands (0 = first); "
+                + "without it the mana still needed is picked. "
+                + "A source with its own cost (a Signet's {1}) is paid by the next entry, "
+                + "or a later one if the next one's mana is still needed. "
                 + "Pool colors (RED, BLUE, etc.) only SPEND existing pool mana, not produce. "
                 + "Auto-tap fills remaining pips.") String mana_plan,
             @Param(description = "Auto-tap mana (default true). "
