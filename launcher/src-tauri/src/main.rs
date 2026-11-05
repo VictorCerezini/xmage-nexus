@@ -187,8 +187,24 @@ fn installed_release(paths: &layout::Paths) -> Option<String> {
         .filter(|e| e.path().join(layout::INSTALLED_MARKER).is_file())
         .filter_map(|e| e.file_name().into_string().ok())
         .collect();
-    releases.sort();
+    newest_release(releases)
+}
+
+/// Release folders are versions: compare their numbers, since as text
+/// "0.7.9" sorts after "0.7.10".
+fn newest_release(mut releases: Vec<String>) -> Option<String> {
+    releases.sort_by(|a, b| release_key(a).cmp(&release_key(b)).then_with(|| a.cmp(b)));
     releases.pop()
+}
+
+fn release_key(release: &str) -> Vec<(u64, String)> {
+    release
+        .split(['.', '-'])
+        .map(|part| {
+            let digits = part.chars().take_while(|c| c.is_ascii_digit()).count();
+            (part[..digits].parse().unwrap_or(0), part[digits..].to_string())
+        })
+        .collect()
 }
 
 fn wait_log(path: &Path, marker: &str, secs: u64) -> bool {
@@ -955,7 +971,17 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{error_code, rotate_log, wait_log, Contract};
+    use super::{error_code, newest_release, rotate_log, wait_log, Contract};
+
+    #[test]
+    fn newest_release_compares_version_numbers_not_text() {
+        let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(newest_release(names(&["0.7.9", "0.7.10", "0.5.3"])).as_deref(), Some("0.7.10"));
+        assert_eq!(newest_release(names(&["0.10.0", "0.9.12"])).as_deref(), Some("0.10.0"));
+        assert_eq!(newest_release(names(&["0.7.9"])).as_deref(), Some("0.7.9"));
+        assert_eq!(newest_release(names(&["r1", "r2"])).as_deref(), Some("r2"));
+        assert_eq!(newest_release(Vec::new()), None);
+    }
 
     const CONTRACT_BASE: &str = r#"{
         "server": {"mainClass": "mage.server.Main", "classpath": ["lib/*"], "port": 17171},
