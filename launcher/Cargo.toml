@@ -3,7 +3,7 @@ members = [".", "src-tauri"]
 
 [package]
 name = "nexus-launcher"
-version = "0.7.10"
+version = "0.7.11"
 edition = "2021"
 
 [[bin]]
