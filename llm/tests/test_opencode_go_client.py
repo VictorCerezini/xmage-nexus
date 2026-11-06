@@ -180,6 +180,26 @@ def test_failure_reason_points_at_the_allowance_and_the_sign_in():
     assert opencode_go_client.failure_reason([]) is None
 
 
+# What Go answered on 2026-11-06 to a workspace that had not allowed Global regions (workspace id left out).
+REGION = (
+    "Upstream request failed: This Go model is hosted outside Europe and the United States. "
+    "Select Global at https://opencode.ai/console/wrk_TEST/settings/privacy#regions to use it."
+)
+
+
+def test_a_region_refusal_stops_the_seat_and_says_where_to_allow_it():
+    events = error(REGION, 400)
+    # Asking again gets the same answer, so the seat stops (or hands over to its backup) instead of retrying.
+    assert opencode_go_client.lasting_failure(events)
+    assert providers.get("opencode_go").lasting_failure(events)
+    assert not opencode_client.lasting_error(events)
+    reason = opencode_go_client.failure_reason(events)
+    assert reason.startswith("Upstream request failed: This Go model is hosted outside Europe")
+    assert "Settings, Privacy, Regions" in reason
+    # A busy model is still retried.
+    assert not opencode_go_client.lasting_failure(error("Bad gateway", 502))
+
+
 def test_go_is_a_provider_with_its_own_trace_files_and_sign_in():
     provider = providers.get("opencode_go")
     assert provider.discover is opencode_go_client.discover

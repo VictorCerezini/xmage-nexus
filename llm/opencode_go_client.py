@@ -2,26 +2,39 @@
 
 OpenCode Go is OpenCode's own subscription, and OpenCode's built-in opencode-go provider sends the requests
 with the Go key to opencode.ai. Go's model list is public, so this module only checks that a key is stored
-and never sends it anywhere itself.
+and never sends it anywhere itself. Console credits without a Go plan pay for OpenCode Zen instead
+(opencode_zen_client).
 """
 
 from llm import opencode_client, paths
 
 PROVIDER = "opencode_go"
 OPENCODE_PROVIDER = "opencode-go"
+NAME = "OpenCode Go"
+AUTH = "your OpenCode Go subscription key, saved only for this app's model seats"
 MODELS_URL = "https://opencode.ai/inference/go/v1/models"
-# Go refuses Python's default user agent and asks every client to name itself.
-USER_AGENT = "xmage-nexus-model-seats/1.0"
 DEFAULT_EFFORT = opencode_client.DEFAULT_EFFORT
 # Preselected when Go offers it: the GLM model this app's games have been played with most.
 MODEL = "glm-5.3"
 ALLOWANCE_WORDS = ("limit", "quota", "allowance", "insufficient")
+# Go serves some models (DeepSeek's) from outside Europe and the United States, and only to a workspace whose
+# owner allowed Global regions. Asking again does not change that, so the seat stops instead of retrying.
+REGION_WORDS = ("hosted outside", "select global")
 
 
 def start(prompt, stdout, stderr, mcp_url=None, *, model=MODEL, reasoning=DEFAULT_EFFORT, tool_timeout_seconds=180):
     game_config = opencode_client.config(mcp_url, OPENCODE_PROVIDER, tool_timeout_seconds=tool_timeout_seconds)
     cmd = opencode_client.command(OPENCODE_PROVIDER, model, reasoning)
     return opencode_client.launch(prompt, stdout, stderr, game_config, cmd)
+
+
+def region_refused(events):
+    message = opencode_client.error_message(events)
+    return message is not None and any(word in message.lower() for word in REGION_WORDS)
+
+
+def lasting_failure(events):
+    return opencode_client.lasting_error(events) or region_refused(events)
 
 
 def failure_reason(events):
@@ -32,6 +45,12 @@ def failure_reason(events):
         return opencode_client.with_hint(
             message, "OpenCode Go refused the stored key; sign in again: " + paths.sign_in_command("opencode-go")
         )
+    if region_refused(events):
+        return opencode_client.with_hint(
+            message,
+            "OpenCode Go serves this model only after a workspace owner allows Global regions "
+            "(OpenCode console: Settings, Privacy, Regions); or choose another model.",
+        )
     if any(word in message.lower() for word in ALLOWANCE_WORDS):
         return opencode_client.with_hint(
             message,
@@ -41,49 +60,19 @@ def failure_reason(events):
     return message
 
 
-def playable(item, known_efforts):
-    capabilities = item.get("capabilities") or {}
-    return (
-        item.get("id") in known_efforts
-        and item.get("type", "chat") == "chat"
-        and (capabilities.get("tools") or {}).get("supported", True) is not False
-    )
-
-
 def read_catalog(listing, known_efforts):
     """Go's current models that this OpenCode knows how to call, with the effort levels OpenCode has for them."""
-    offered = sorted(
-        (item for item in listing.get("data", []) if playable(item, known_efforts)),
-        key=lambda item: (item.get("name") or item["id"]).lower(),
+    return opencode_client.listed_catalog(
+        listing, known_efforts, provider=PROVIDER, name=NAME, auth=AUTH, preferred=MODEL
     )
-    if not offered:
-        raise RuntimeError("OpenCode Go lists no model this OpenCode version can play; update OpenCode")
-    default = MODEL if any(item["id"] == MODEL for item in offered) else offered[0]["id"]
-    models = [
-        {
-            "id": item["id"],
-            "name": item.get("name") or item["id"],
-            "efforts": [DEFAULT_EFFORT, *known_efforts[item["id"]]],
-            "defaultEffort": DEFAULT_EFFORT,
-            "isDefault": item["id"] == default,
-        }
-        for item in offered
-    ]
-    return {
-        "id": PROVIDER,
-        "playerType": "OpenCode Go",
-        "playerName": "OpenCode Go",
-        "auth": "your OpenCode Go key, saved only for this app's model seats",
-        "models": models,
-    }
 
 
 def discover():
     # The key is only checked for here; OpenCode sends it when a game is played.
-    opencode_client.read_key(OPENCODE_PROVIDER, "OpenCode Go", "opencode-go")
-    listing = opencode_client.get_json(MODELS_URL, user_agent=USER_AGENT)
+    opencode_client.read_key(OPENCODE_PROVIDER, NAME, "opencode-go")
+    listing = opencode_client.get_json(MODELS_URL, user_agent=opencode_client.USER_AGENT)
     return read_catalog(listing, opencode_client.read_efforts(OPENCODE_PROVIDER))
 
 
 def validate_selection(catalog, model, reasoning):
-    opencode_client.validate_selection(catalog, model, reasoning, "OpenCode Go")
+    opencode_client.validate_selection(catalog, model, reasoning, NAME)

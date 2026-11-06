@@ -49,6 +49,7 @@ def harness(tmp_path, monkeypatch):
                     {"id": "claude_subscription", "models": [{"id": "claude-opus-5-5", "efforts": ["medium", "max"]}]},
                     {"id": "openrouter_free", "models": [{"id": "a/alpha:free", "efforts": ["default", "low"]}]},
                     {"id": "zai_coding_plan", "models": [{"id": "glm-5.3", "efforts": ["default", "max"]}]},
+                    {"id": "opencode_go", "models": [{"id": "deepseek-v4.1-flash", "efforts": ["default", "low"]}]},
                 ],
                 "unavailable": [],
             }
@@ -483,6 +484,31 @@ def test_a_model_openrouter_no_longer_serves_hands_the_game_to_the_backup_at_onc
     assert manifest["status"] == "completed"
     assert manifest["model_switch"]["to"] == "zai_coding_plan glm-5.3"
     assert len(manifest["recoveries"]) == 1
+
+
+# What OpenCode Go answered on 2026-11-06 to a workspace without Global regions (workspace id left out).
+REGION = (
+    "Upstream request failed: This Go model is hosted outside Europe and the United States. "
+    "Select Global at https://opencode.ai/console/wrk_TEST/settings/privacy#regions to use it."
+)
+
+
+def test_a_go_model_refused_for_its_region_stops_the_seat_without_retries(undecided):
+    request, runtime, _stopped, _gateway, _game_over = undecided
+    request.update(provider="opencode_go", model="deepseek-v4.1-flash", reasoning="default", username="OpenCode Go 2")
+    starts = []
+
+    def start(_prompt, out, *_args, **_kwargs):
+        starts.append(True)
+        return opencode_failure(out, REGION, 400, retryable=False)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    # Before, the same refusal was asked for again five times over about six minutes while the game waited.
+    assert manifest["status"] == "failed"
+    assert "Settings, Privacy, Regions" in manifest["error"]
+    assert "recoveries" not in manifest
+    assert len(starts) == 1
 
 
 def test_a_rate_limited_free_model_still_gets_every_retry(undecided):

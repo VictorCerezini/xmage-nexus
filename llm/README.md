@@ -10,7 +10,8 @@ the game as MCP tools on loopback) and starts one CLI player per game:
 | Claude (`claude_subscription`) | Claude Code | your Claude subscription login (`claude auth login --claudeai`) |
 | OpenRouter free models (`openrouter_free`) | OpenCode | key in the isolated OpenCode home (`python -m llm.sign_in openrouter`) |
 | Z.ai GLM Coding Plan (`zai_coding_plan`) | OpenCode | key in the isolated OpenCode home (`python -m llm.sign_in zai`) |
-| OpenCode Go (`opencode_go`) | OpenCode | key in the isolated OpenCode home (`python -m llm.sign_in opencode-go`) |
+| OpenCode Go (`opencode_go`) | OpenCode | Go subscription key in the isolated OpenCode home (`python -m llm.sign_in opencode-go`) |
+| OpenCode Zen (`opencode_zen`) | OpenCode | pay-as-you-go key in the isolated OpenCode home (`python -m llm.sign_in opencode-zen`); requests spend console credits |
 
 No API key is read from or written to the repository. The supervisor came from
 `VictorCerezini/mage-bench-windows` (`windows/`); the design and status are in
@@ -75,7 +76,7 @@ folder to every supervisor process as `NEXUS_LLM_HOME`, and then:
   is enough. A `settings.local.json` in that folder overrides a path the lookup
   found, and `desktop.json` always wins for Java and the server;
 - a missing CLI is reported as "install it, sign in with ..., then refresh the
-  model list", and a missing OpenRouter, Z.ai or OpenCode Go key with the PowerShell line
+  model list", and a missing OpenRouter, Z.ai, OpenCode Go or OpenCode Zen key with the PowerShell line
   that runs `llm.sign_in` with the bundled Python and that folder.
 
 The CLIs are not bundled: Codex, Claude Code and OpenCode come from the
@@ -133,7 +134,7 @@ All run from the repository root with `llm/.venv/Scripts/python`.
   `mcp/` over its stdin. When the seat ends, the supervisor calls
   `mage_disconnect`, which ends the seat's proxy session and frees its XMage
   login at once instead of after the proxy's grace period.
-- `-m llm.sign_in openrouter|zai|opencode-go`: runs OpenCode's own key prompt with its home
+- `-m llm.sign_in openrouter|zai|opencode-go|opencode-zen`: runs OpenCode's own key prompt with its home
   redirected to the isolated OpenCode home.
 - `-m llm.subscription_client`, `-m llm.claude_client`: one-shot connection
   checks that ask the model for a fixed reply without game tools.

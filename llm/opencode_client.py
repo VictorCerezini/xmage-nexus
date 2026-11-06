@@ -21,6 +21,8 @@ GAME_TOOL_PREFIX = "mage_"
 HARMLESS_TOOLS = {"invalid"}
 OPENCODE_HOME = paths.OPENCODE_HOME
 AUTH_PATH = OPENCODE_HOME / "data/opencode/auth.json"
+# OpenCode's own services (Go, Zen) refuse Python's default user agent and ask every client to name itself.
+USER_AGENT = "xmage-nexus-model-seats/1.0"
 SYSTEM_PROMPT = (
     "You are a Magic: The Gathering player in a live XMage game. Your only tools are the mage MCP game tools. "
     "This is a game, not a coding task."
@@ -245,6 +247,38 @@ def parse_models(text):
         if isinstance(item, dict) and "id" in item:
             efforts[item["id"]] = list(item.get("variants") or {})
     return efforts
+
+
+def listed_playable(item, known_efforts):
+    """A chat model with tools from an OpenCode service's list, that this OpenCode knows how to call."""
+    capabilities = item.get("capabilities") or {}
+    return (
+        item.get("id") in known_efforts
+        and item.get("type", "chat") == "chat"
+        and (capabilities.get("tools") or {}).get("supported", True) is not False
+    )
+
+
+def listed_catalog(listing, known_efforts, *, provider, name, auth, preferred):
+    """The current models of OpenCode's own services (Go, Zen) this OpenCode can play, with its effort levels."""
+    offered = sorted(
+        (item for item in listing.get("data", []) if listed_playable(item, known_efforts)),
+        key=lambda item: (item.get("name") or item["id"]).lower(),
+    )
+    if not offered:
+        raise RuntimeError(f"{name} lists no model this OpenCode version can play; update OpenCode")
+    default = preferred if any(item["id"] == preferred for item in offered) else offered[0]["id"]
+    models = [
+        {
+            "id": item["id"],
+            "name": item.get("name") or item["id"],
+            "efforts": [DEFAULT_EFFORT, *known_efforts[item["id"]]],
+            "defaultEffort": DEFAULT_EFFORT,
+            "isDefault": item["id"] == default,
+        }
+        for item in offered
+    ]
+    return {"id": provider, "playerType": name, "playerName": name, "auth": auth, "models": models}
 
 
 def validate_selection(catalog, model, reasoning, label):
