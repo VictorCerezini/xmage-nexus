@@ -650,7 +650,7 @@ def test_claude_seat_uses_its_own_cli_trace_and_usage(harness, monkeypatch):
     manifest = json.loads((run / "manifest.json").read_text())
     assert manifest["status"] == "completed"
     assert manifest["provider"] == "claude_subscription"
-    assert manifest["auth"] == "existing Claude Code subscription login"
+    assert manifest["auth"] == "your Claude login in Claude Code"
     assert manifest["usage"][0]["input_tokens"] == 7
     assert (run / "claude-events.jsonl").is_file()
     assert not (run / "codex-events.jsonl").exists()

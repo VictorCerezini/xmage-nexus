@@ -1,6 +1,8 @@
 """OpenCode Go discovery and play setup with fake settings and no model invocation."""
 
+import dataclasses
 import json
+from pathlib import Path
 
 import pytest
 
@@ -195,3 +197,45 @@ def test_inherited_opencode_settings_and_keys_are_not_passed_to_the_player(fake_
     assert "OPENCODE_API_KEY" not in env
     assert "OPENCODE_CONFIG" not in env
     assert FAKE_KEY not in json.dumps(env)
+
+
+def test_without_a_key_the_list_names_go_and_the_command_to_copy(fake_local, monkeypatch):
+    data_home = Path("D:/nexus-data/llm")
+    monkeypatch.setattr(paths, "DATA_HOME", data_home)
+    claude = providers.get("claude_subscription")
+    working = dataclasses.replace(claude, discover=lambda: {"id": claude.id, "models": []})
+    catalog = providers.discover_all({claude.id: working, "opencode_go": providers.get("opencode_go")})
+    (entry,) = catalog["unavailable"]
+    # The app shows the name on a greyed-out button, and the command on its own line, to copy into PowerShell.
+    assert entry == {
+        "id": "opencode_go",
+        "playerName": "OpenCode Go",
+        "reason": "No OpenCode Go key is saved for this app yet.",
+        "signIn": entry["signIn"],
+        "signInShell": "PowerShell",
+    }
+    assert entry["signIn"].endswith("-m llm.sign_in opencode-go")
+    assert f"$env:NEXUS_LLM_HOME = '{data_home}'" in entry["signIn"]
+    assert "(in PowerShell)" not in entry["signIn"]
+
+
+def test_other_reasons_keep_their_words_and_a_name(fake_local):
+    def missing():
+        raise RuntimeError("Claude Code is not installed: install it, then refresh the model list")
+
+    claude = providers.get("claude_subscription")
+    go = providers.get("opencode_go")
+    working = dataclasses.replace(go, discover=lambda: {"id": go.id, "models": []})
+    catalog = providers.discover_all({claude.id: dataclasses.replace(claude, discover=missing), go.id: working})
+    assert catalog["unavailable"] == [
+        {
+            "id": "claude_subscription",
+            "playerName": "Claude",
+            "reason": "Claude Code is not installed: install it, then refresh the model list",
+        }
+    ]
+    # With nothing playable, the one message still says how to sign in.
+    with pytest.raises(
+        RuntimeError, match=r"No OpenCode Go key is saved for this app yet\. Sign in with: .*opencode-go"
+    ):
+        providers.discover_all({go.id: go})

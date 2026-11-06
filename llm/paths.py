@@ -56,14 +56,20 @@ def missing_cli(cli, flag, sign_in=None):
     return f"Run python -m llm.configure with {cli} installed (or {flag}) before seating it"
 
 
+def sign_in_parts(provider):
+    """The command that stores an OpenCode provider's key, and the shell it needs (None: any shell)."""
+    if not desktop():
+        return f"python -m llm.sign_in {provider}", None
+    return (
+        f"cd '{REPO}'; $env:NEXUS_LLM_HOME = '{DATA_HOME}'; & '{sys.executable}' -m llm.sign_in {provider}",
+        "PowerShell",
+    )
+
+
 def sign_in_command(provider):
     """How to store an OpenCode provider's key: the checkout's command, or a PowerShell line for the desktop app."""
-    if not desktop():
-        return f"python -m llm.sign_in {provider}"
-    return (
-        f"cd '{REPO}'; $env:NEXUS_LLM_HOME = '{DATA_HOME}'; & '{sys.executable}' -m llm.sign_in {provider} "
-        "(in PowerShell)"
-    )
+    command, shell = sign_in_parts(provider)
+    return f"{command} (in {shell})" if shell else command
 
 
 def _configured_folder(key, default):

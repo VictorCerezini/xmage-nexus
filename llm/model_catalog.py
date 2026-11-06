@@ -120,7 +120,7 @@ def read_catalog(call):
         "id": "chatgpt_subscription",
         "playerType": "ChatGPT subscription",
         "playerName": "ChatGPT",
-        "auth": "existing Codex ChatGPT login",
+        "auth": "your ChatGPT login in Codex",
         "models": models,
     }
 

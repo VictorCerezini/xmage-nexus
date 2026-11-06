@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { GameTypeInfo } from '../../net/commands'
-import type { LlmProvider } from '../../net/types'
+import type { LlmProvider, LlmUnavailable } from '../../net/types'
 import type { Deck } from '../decks'
 import type { CreateKind, CreateTab, DraftTiming, SeatConfig, SeatLimits, TableCategory, TournamentCategory, WizardStep } from './constants'
 import type { LlmSeatChoice } from './llmSeats'
@@ -145,7 +145,7 @@ export interface CreateTableForm {
   llmSeatsAllowed: boolean
   /** providers the proxy can seat; empty without `--llm` */
   llmProviders: LlmProvider[]
-  llmUnavailable: { id: string; reason?: string }[]
+  llmUnavailable: LlmUnavailable[]
   llmCatalogLoading: boolean
   llmCatalogError: string | null
   /** model seat per `seatConfigs` index; such a seat is HUMAN on the server */

@@ -26,6 +26,8 @@ final class LlmCatalog {
 
     private static final List<String> PROVIDER_TEXT = Arrays.asList("id", "playerName", "playerType", "auth");
     private static final List<String> MODEL_TEXT = Arrays.asList("id", "name", "defaultEffort");
+    // A provider that is not ready: its name, why, and for a missing key the sign-in command to copy.
+    private static final List<String> UNAVAILABLE_TEXT = Arrays.asList("id", "playerName", "reason", "signIn", "signInShell");
     private static final List<String> MODEL_NUMBERS = Arrays.asList("contextLength", "maxOutput");
     private static final List<String> QUOTA_NUMBERS = Arrays.asList("used", "limit", "remaining");
 
@@ -168,7 +170,7 @@ final class LlmCatalog {
         }
         JsonArray unavailable = new JsonArray();
         for (JsonObject entry : objects(raw.get("unavailable"))) {
-            JsonObject clean = copyText(entry, Arrays.asList("id", "reason"));
+            JsonObject clean = copyText(entry, UNAVAILABLE_TEXT);
             if (clean.has("id")) {
                 unavailable.add(clean);
             }

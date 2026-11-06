@@ -198,7 +198,9 @@ class LlmSeatsTest {
                 + "{\"id\":\"gpt-6-astra\",\"name\":\"GPT-6-Astra\",\"efforts\":[\"low\",\"high\"],\"defaultEffort\":\"high\",\"isDefault\":false}]},"
                 + "{\"id\":\"openrouter_free\",\"playerName\":\"OpenRouter\",\"playerType\":\"OpenRouter free\",\"auth\":\"key\","
                 + "\"models\":[{\"id\":\"a/alpha:free\",\"name\":\"Alpha\",\"efforts\":[\"default\"],\"defaultEffort\":\"default\",\"isDefault\":true}]}],"
-                + "\"unavailable\":[{\"id\":\"claude_subscription\",\"reason\":\"Claude Code is not signed in\"}]}")
+                + "\"unavailable\":[{\"id\":\"claude_subscription\",\"reason\":\"Claude Code is not signed in\"},"
+                + "{\"id\":\"opencode_go\",\"playerName\":\"OpenCode Go\",\"reason\":\"No OpenCode Go key is saved for this app yet.\","
+                + "\"signIn\":\"python -m llm.sign_in opencode-go\",\"signInShell\":\"PowerShell\",\"key\":\"not-a-secret\"}]}")
                 .getBytes(StandardCharsets.UTF_8));
         return new LlmRuntime(dir, dir.resolve("python.exe"), catalog, maxSeats, builder -> {
             if (launchFailure != null) {
@@ -325,6 +327,17 @@ class LlmSeatsTest {
         assertEquals(2, provider.getAsJsonArray("models").size());
         assertEquals("claude_subscription", catalog.getAsJsonArray("unavailable").get(0).getAsJsonObject().get("id").getAsString());
         assertFalse(catalog.toString().contains("someone@example.com"));
+    }
+
+    @Test
+    void aProviderThatIsNotReadyKeepsItsNameAndSignInCommand() throws IOException {
+        JsonObject catalog = new LlmCatalog(runtime(4)).read();
+        JsonObject go = catalog.getAsJsonArray("unavailable").get(1).getAsJsonObject();
+        assertEquals("OpenCode Go", go.get("playerName").getAsString());
+        assertEquals("No OpenCode Go key is saved for this app yet.", go.get("reason").getAsString());
+        assertEquals("python -m llm.sign_in opencode-go", go.get("signIn").getAsString());
+        assertEquals("PowerShell", go.get("signInShell").getAsString());
+        assertFalse(go.has("key"));
     }
 
     @Test

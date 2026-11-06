@@ -184,7 +184,7 @@ def read_catalog(status):
         "id": PROVIDER,
         "playerType": "Claude subscription",
         "playerName": "Claude",
-        "auth": "existing Claude Code subscription login",
+        "auth": "your Claude login in Claude Code",
         "models": [
             {
                 "id": item["id"],

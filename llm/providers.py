@@ -72,7 +72,7 @@ PROVIDERS = {
         Provider(
             id="chatgpt_subscription",
             label="ChatGPT",
-            auth="existing Codex ChatGPT login",
+            auth="your ChatGPT login in Codex",
             events_file="codex-events.jsonl",
             stderr_file="codex-stderr.log",
             discover=model_catalog.discover,
@@ -85,7 +85,7 @@ PROVIDERS = {
         Provider(
             id=claude_client.PROVIDER,
             label="Claude",
-            auth="existing Claude Code subscription login",
+            auth="your Claude login in Claude Code",
             events_file="claude-events.jsonl",
             stderr_file="claude-stderr.log",
             discover=claude_client.discover,
@@ -98,7 +98,7 @@ PROVIDERS = {
         Provider(
             id=openrouter_client.PROVIDER,
             label="OpenRouter",
-            auth="OpenRouter key in the isolated OpenCode sign-in",
+            auth="your OpenRouter key, saved only for this app's model seats",
             events_file="opencode-events.jsonl",
             stderr_file="opencode-stderr.log",
             discover=openrouter_client.discover,
@@ -112,7 +112,7 @@ PROVIDERS = {
         Provider(
             id=zai_client.PROVIDER,
             label="GLM",
-            auth="Z.ai GLM Coding Plan key in the isolated OpenCode sign-in",
+            auth="your Z.ai GLM Coding Plan key, saved only for this app's model seats",
             events_file="opencode-zai-events.jsonl",
             stderr_file="opencode-zai-stderr.log",
             discover=zai_client.discover,
@@ -126,7 +126,7 @@ PROVIDERS = {
         Provider(
             id=opencode_go_client.PROVIDER,
             label="OpenCode Go",
-            auth="OpenCode Go key in the isolated OpenCode sign-in",
+            auth="your OpenCode Go key, saved only for this app's model seats",
             events_file="opencode-go-events.jsonl",
             stderr_file="opencode-go-stderr.log",
             discover=opencode_go_client.discover,
@@ -149,14 +149,21 @@ def get(provider_id):
 
 def discover_all(providers=None):
     """Return every signed-in provider's catalog; one missing sign-in does not block the others."""
-    available, unavailable = [], []
+    available, unavailable, reasons = [], [], []
     for provider in (providers or PROVIDERS).values():
         try:
             available.append(provider.discover())
         except Exception as error:  # noqa: BLE001 - reported with the catalog, never fatal per provider
-            unavailable.append({"id": provider.id, "reason": str(error)})
+            entry = {"id": provider.id, "playerName": provider.label, "reason": str(error)}
+            if isinstance(error, opencode_client.MissingKeyError):
+                # The app shows the sign-in command on its own line, to copy.
+                entry.update(reason=error.message, signIn=error.command)
+                if error.shell:
+                    entry["signInShell"] = error.shell
+            unavailable.append(entry)
+            reasons.append(str(error))
     if not available:
-        raise RuntimeError("No subscription player is available: " + "; ".join(item["reason"] for item in unavailable))
+        raise RuntimeError("No subscription player is available: " + "; ".join(reasons))
     return {"providers": available, "unavailable": unavailable}
 
 

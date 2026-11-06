@@ -6,6 +6,7 @@ import * as cmds from '../../net/commands'
 import type { LlmCatalog } from '../../net/types'
 import { setState } from '../../state/state'
 import { llmSeatRequestsFor } from '../../state/llmSeats'
+import { copyText } from '../../utils/clipboard'
 
 vi.mock('../../net/commands', () => ({
   getGameTypes: vi.fn().mockResolvedValue([{ name: 'Two Player Duel', minPlayers: 2, maxPlayers: 2 }]),
@@ -22,6 +23,11 @@ vi.mock('../../net/commands', () => ({
   createTournamentTable: vi.fn().mockResolvedValue({ ok: true, data: { tableId: 'table-t1' } }),
   joinTournamentTable: vi.fn().mockResolvedValue({ ok: true }),
   validateDeck: vi.fn().mockResolvedValue({ ok: true }),
+}))
+
+vi.mock('../../utils/clipboard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../utils/clipboard')>()),
+  copyText: vi.fn().mockResolvedValue(true),
 }))
 
 const catalog: LlmCatalog = {
@@ -82,11 +88,55 @@ describe('model seats in the create table dialog', () => {
     expect(screen.queryByTestId('create-llm-refresh')).toBeNull()
   })
 
+  it('shows a provider that is not ready as a greyed-out button that says how to sign in', async () => {
+    const command = "& 'python.exe' -m llm.sign_in opencode-go"
+    vi.mocked(cmds.getLlmProviders).mockResolvedValue({
+      ...catalog,
+      unavailable: [
+        { id: 'claude_subscription', playerName: 'Claude', reason: 'Claude Code is not installed' },
+        { id: 'opencode_go', playerName: 'OpenCode Go', reason: 'No OpenCode Go key is saved for this app yet.', signIn: command, signInShell: 'PowerShell' },
+      ],
+    })
+    const seatType = await openSeats()
+    await waitFor(() => expect(seatTypes(seatType)).toContain('ChatGPT'))
+    // Not a seat type to pick: the radios stay the ready providers.
+    expect(seatTypes(seatType)).not.toContain('OpenCode Go')
+    const go = screen.getByTestId('seat-llm-unready-0-opencode_go')
+    expect(go.textContent).toBe('OpenCode Go')
+    expect(go.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByTestId('seat-llm-unready-note-0')).toBeNull()
+
+    fireEvent.click(go)
+    expect(go.getAttribute('aria-expanded')).toBe('true')
+    const note = screen.getByTestId('seat-llm-unready-note-0')
+    expect(note.textContent).toContain('OpenCode Go')
+    expect(note.textContent).toContain('No OpenCode Go key is saved for this app yet.')
+    expect(note.textContent).toContain('PowerShell')
+    expect(screen.getByTestId('seat-llm-unready-note-0-command').textContent).toBe(command)
+    fireEvent.click(screen.getByTestId('seat-llm-unready-note-0-copy'))
+    expect(copyText).toHaveBeenCalledWith(command)
+
+    // Another reason has no command to copy, and looking at it does not change the seat.
+    fireEvent.click(screen.getByTestId('seat-llm-unready-0-claude_subscription'))
+    expect(screen.getByTestId('seat-llm-unready-note-0').textContent).toContain('Claude Code is not installed')
+    expect(screen.queryByTestId('seat-llm-unready-note-0-copy')).toBeNull()
+    expect(screen.getByTestId('seat-node-1').textContent).not.toContain('Claude')
+    const calls = vi.mocked(cmds.getLlmProviders).mock.calls.length
+    fireEvent.click(screen.getByTestId('seat-llm-unready-note-0-refresh'))
+    await waitFor(() => expect(vi.mocked(cmds.getLlmProviders).mock.calls.length).toBeGreaterThan(calls))
+    expect(vi.mocked(cmds.getLlmProviders).mock.calls.at(-1)).toEqual([true])
+
+    // A second click on the open one closes the note.
+    fireEvent.click(screen.getByTestId('seat-llm-unready-0-claude_subscription'))
+    expect(screen.queryByTestId('seat-llm-unready-note-0')).toBeNull()
+  })
+
   it('creates the table with the chosen model, reasoning and deck', async () => {
     vi.mocked(cmds.getLlmProviders).mockResolvedValue(catalog)
     const seatType = await openSeats()
     await waitFor(() => expect(seatTypes(seatType)).toContain('ChatGPT'))
-    expect(screen.getByTestId('create-llm-unavailable').textContent).toContain('claude_subscription (not signed in)')
+    // An older proxy sends no name: the button falls back to the provider id.
+    expect(screen.getByTestId('seat-llm-unready-0-claude_subscription').textContent).toBe('claude_subscription')
 
     pickSeatType(seatType, /^ChatGPT$/)
     expect(within(seatType).getByRole('radio', { name: /^ChatGPT$/ }).getAttribute('aria-checked')).toBe('true')

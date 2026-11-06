@@ -4,7 +4,7 @@ The plan may only be used within officially supported tools; OpenCode is one, an
 zai-coding-plan provider sends requests to the plan's own endpoint. The key is only sent to api.z.ai.
 """
 
-from llm import opencode_client, paths
+from llm import opencode_client
 
 PROVIDER = "zai_coding_plan"
 OPENCODE_PROVIDER = "zai-coding-plan"
@@ -57,14 +57,14 @@ def read_catalog(listing, known_efforts):
         "id": PROVIDER,
         "playerType": "Z.ai GLM Coding Plan",
         "playerName": "GLM",
-        "auth": "Z.ai GLM Coding Plan key in the isolated OpenCode sign-in",
+        "auth": "your Z.ai GLM Coding Plan key, saved only for this app's model seats",
         "models": models,
     }
 
 
 def discover():
     # Listing models is not inference and uses no plan allowance; it confirms the key works.
-    key = opencode_client.read_key(OPENCODE_PROVIDER, paths.sign_in_command("zai"))
+    key = opencode_client.read_key(OPENCODE_PROVIDER, "Z.ai GLM Coding Plan", "zai")
     return read_catalog(opencode_client.get_json(MODELS_URL, key), opencode_client.read_efforts(OPENCODE_PROVIDER))
 
 

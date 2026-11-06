@@ -190,6 +190,40 @@
   color: var(--veil-7);
 }
 
+/* A provider that cannot play here yet: greyed out, opens the note that says why. */
+.seat-type-unready {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.seat-type-unready[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.seat-llm-unready {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1h);
+}
+
+.seat-llm-sign-in {
+  display: block;
+  padding: var(--sp-1h) var(--sp-2);
+  background: var(--veil-2);
+  border-radius: var(--r-base);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-2xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.seat-llm-unready-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1h);
+}
+
 .seats-llm-notices {
   display: flex;
   flex-wrap: wrap;

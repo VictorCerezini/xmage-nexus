@@ -73,14 +73,14 @@ def read_catalog(listing, known_efforts):
         "id": PROVIDER,
         "playerType": "OpenCode Go",
         "playerName": "OpenCode Go",
-        "auth": "OpenCode Go key in the isolated OpenCode sign-in",
+        "auth": "your OpenCode Go key, saved only for this app's model seats",
         "models": models,
     }
 
 
 def discover():
     # The key is only checked for here; OpenCode sends it when a game is played.
-    opencode_client.read_key(OPENCODE_PROVIDER, paths.sign_in_command("opencode-go"))
+    opencode_client.read_key(OPENCODE_PROVIDER, "OpenCode Go", "opencode-go")
     listing = opencode_client.get_json(MODELS_URL, user_agent=USER_AGENT)
     return read_catalog(listing, opencode_client.read_efforts(OPENCODE_PROVIDER))
 

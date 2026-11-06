@@ -133,11 +133,23 @@ export interface LlmProvider {
   models: LlmModel[]
 }
 
+/** A provider that cannot play on this computer yet: why, and for a missing key the command that saves one. */
+export interface LlmUnavailable {
+  id: string
+  /** Its button name, as for a ready provider (`OpenCode Go`). */
+  playerName?: string
+  reason?: string
+  /** Command that asks for the key and saves it for model seats; shown on its own line to copy. */
+  signIn?: string
+  /** Where to run `signIn` (`PowerShell`); absent when any shell works. */
+  signInShell?: string
+}
+
 /** `getLlmProviders`: `enabled` is false when the proxy runs without `--llm`. */
 export interface LlmCatalog {
   enabled: boolean
   providers?: LlmProvider[]
-  unavailable?: { id: string; reason?: string }[]
+  unavailable?: LlmUnavailable[]
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────

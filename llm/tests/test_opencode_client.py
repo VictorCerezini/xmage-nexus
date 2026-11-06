@@ -168,12 +168,12 @@ def test_missing_provider_sign_in_is_reported(fake_local, auth):
         opencode_client.AUTH_PATH.parent.mkdir(parents=True)
         opencode_client.AUTH_PATH.write_text(json.dumps(auth))
     with pytest.raises(RuntimeError, match=r"llm\.sign_in openrouter"):
-        opencode_client.read_key("openrouter", "python -m llm.sign_in openrouter")
+        opencode_client.read_key("openrouter", "OpenRouter", "openrouter")
 
 
 def test_stored_key_is_read_only_for_its_provider(fake_local):
     opencode_client.AUTH_PATH.parent.mkdir(parents=True)
     opencode_client.AUTH_PATH.write_text(json.dumps({"zai-coding-plan": {"type": "api", "key": FAKE_KEY}}))
-    assert opencode_client.read_key("zai-coding-plan", "python -m llm.sign_in zai") == FAKE_KEY
+    assert opencode_client.read_key("zai-coding-plan", "Z.ai GLM Coding Plan", "zai") == FAKE_KEY
     with pytest.raises(RuntimeError, match=r"llm\.sign_in openrouter"):
-        opencode_client.read_key("openrouter", "python -m llm.sign_in openrouter")
+        opencode_client.read_key("openrouter", "OpenRouter", "openrouter")

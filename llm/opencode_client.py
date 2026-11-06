@@ -190,11 +190,20 @@ def with_hint(message, hint):
     return message.rstrip(". ") + ". " + hint
 
 
-def read_key(provider, sign_in):
+class MissingKeyError(RuntimeError):
+    """No key is stored for a provider. The sign-in command is kept apart, so the app can offer it to copy."""
+
+    def __init__(self, label, sign_in):
+        self.message = f"No {label} key is saved for this app yet."
+        self.command, self.shell = paths.sign_in_parts(sign_in)
+        super().__init__(f"{self.message} Sign in with: {paths.sign_in_command(sign_in)}")
+
+
+def read_key(provider, label, sign_in):
     """The stored key, used only for that provider's own requests; never returned to catalogs or logs."""
     entry = json.loads(AUTH_PATH.read_text(encoding="utf-8")).get(provider) if AUTH_PATH.is_file() else None
     if not entry or entry.get("type") != "api" or not entry.get("key"):
-        raise RuntimeError(f"Sign in before opening these matches: {sign_in}")
+        raise MissingKeyError(label, sign_in)
     return entry["key"]
 
 

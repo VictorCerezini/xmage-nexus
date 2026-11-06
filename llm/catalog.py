@@ -20,7 +20,8 @@ def main(argv):
         print(error, file=sys.stderr)
         return 1
     for entry in catalog["unavailable"]:
-        print(f"{entry['id']} unavailable: {entry['reason']}", file=sys.stderr)
+        sign_in = f" Sign in with: {entry['signIn']}" if entry.get("signIn") else ""
+        print(f"{entry['id']} unavailable: {entry['reason']}{sign_in}", file=sys.stderr)
     text = json.dumps(catalog, indent=2) + "\n"
     if argv:
         Path(argv[0]).write_text(text, encoding="utf-8")

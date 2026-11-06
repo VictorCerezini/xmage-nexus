@@ -11,6 +11,7 @@ import Button from '../../ui/Button'
 import StarterDecksOffer from '../../decks/StarterDecksOffer'
 import DeckCarousel from './DeckCarousel'
 import LlmSeatFields from './LlmSeatFields'
+import LlmUnreadyNote from './LlmUnreadyNote'
 import { llmProviderOf, llmSeatValue } from './llmSeats'
 import { seatNodePosition } from './seatLayout'
 import { radioNavIndex } from './radioNav'
@@ -134,11 +135,6 @@ export default function SeatsTab({ form, onEditDeck }: { form: CreateTableForm; 
             {form.llmCatalogError && (
               <Chip tone="warn" size="xs" pill icon="alert" data-testid="create-llm-error">{t('lobby', 'create_llm_catalog_failed', { error: form.llmCatalogError })}</Chip>
             )}
-            {form.llmUnavailable.length > 0 && (
-              <span className="wizard-hint-box" data-testid="create-llm-unavailable">
-                {t('lobby', 'create_llm_unavailable', { list: form.llmUnavailable.map((u) => (u.reason ? `${u.id} (${u.reason})` : u.id)).join(', ') })}
-              </span>
-            )}
             {(form.llmProviders.length > 0 || form.llmCatalogError) && (
               <Button
                 variant="ghost"
@@ -233,6 +229,7 @@ function YouEditor({ form, onEditDeck }: { form: CreateTableForm; onEditDeck?: (
 
 function SeatEditor({ form, idx, seatNumber, findSeatDeck }: { form: CreateTableForm; idx: number; seatNumber: number; findSeatDeck: (ref: string) => Deck | undefined }) {
   const { t } = useTranslation()
+  const [unreadyId, setUnreadyId] = useState<string | null>(null)
   const cfg = form.seatConfigs[idx]
   if (!cfg) return null
   const llm = form.llmChoices[idx]
@@ -242,6 +239,8 @@ function SeatEditor({ form, idx, seatNumber, findSeatDeck }: { form: CreateTable
   const total = deck ? deck.cards.reduce((sum, c) => sum + c.amount, 0) : 0
   const deckEmpty = !deck || total === 0
   const offerLlm = form.llmSeatsAllowed && (form.llmProviders.length > 0 || form.llmCatalogLoading)
+  const unready = offerLlm ? form.llmUnavailable.find((u) => u.id === unreadyId) : undefined
+  const unreadyNoteId = `seat-llm-unready-note-${idx}`
   const baseOptions = [HUMAN_SEAT, ...form.playerTypes]
   const typeOptions = [...baseOptions, ...(offerLlm ? form.llmProviders.map((p) => llmSeatValue(p.id)) : [])]
   const typeLabel = (pt: string) => (isHumanSeatType(pt) ? t('lobby', 'create_seat_human_short') : seatTypeLabel(pt, t))
@@ -293,6 +292,21 @@ function SeatEditor({ form, idx, seatNumber, findSeatDeck }: { form: CreateTable
             <>
               <span className="seat-type-group" aria-hidden="true">{t('lobby', 'create_seat_llm_group')}</span>
               {form.llmProviders.map((p) => typeChip(llmSeatValue(p.id), p.playerName))}
+              {form.llmUnavailable.map((u) => (
+                <ChipButton
+                  key={`unready-${u.id}`}
+                  pill
+                  icon="lock"
+                  className="seat-type-unready"
+                  data-testid={`seat-llm-unready-${idx}-${u.id}`}
+                  aria-expanded={unreadyId === u.id}
+                  aria-controls={unreadyNoteId}
+                  title={t('lobby', 'create_llm_unready_tip')}
+                  onClick={() => setUnreadyId(unreadyId === u.id ? null : u.id)}
+                >
+                  {u.playerName ?? u.id}
+                </ChipButton>
+              ))}
               {form.llmProviders.length === 0 && (
                 <Chip size="xs" pill>{t('lobby', 'create_seat_llm_loading')}</Chip>
               )}
@@ -300,6 +314,15 @@ function SeatEditor({ form, idx, seatNumber, findSeatDeck }: { form: CreateTable
           )}
         </div>
       </Field>
+      {unready && (
+        <LlmUnreadyNote
+          key={unready.id}
+          id={unreadyNoteId}
+          entry={unready}
+          refreshing={form.llmCatalogLoading}
+          onRefresh={() => { void form.refreshLlmCatalog() }}
+        />
+      )}
       {llm ? (
         <>
           {llmProvider && (
