@@ -44,7 +44,7 @@ are looked up on `PATH`, and Claude Code also in the Claude desktop app.
 
 `--from-mage-bench <checkout>` reuses a mage-bench-windows setup: its
 executables and its isolated OpenCode home, so OpenRouter and Z.ai need no new
-sign-in and no key is copied.
+sign-in with OpenCode 1 and no key is copied.
 
 Then `node scripts/play-vs-llm.mjs` starts the dev stack with model seats on
 and opens the web client, where Create Table offers them (the root README's
@@ -80,7 +80,10 @@ folder to every supervisor process as `NEXUS_LLM_HOME`, and then:
   that runs `llm.sign_in` with the bundled Python and that folder.
 
 The CLIs are not bundled: Codex, Claude Code and OpenCode come from the
-machine. An older Codex lists fewer ChatGPT models (0.153 offers only
+machine. OpenCode 1 (npm `opencode-ai`) and OpenCode 2 (npm `@opencode/cli`) both
+work. OpenCode 2 plays through a private, password-protected server for each
+seat, never its background service. It keeps keys in its own store, and imports
+the keys OpenCode 1 saved when it first opens the isolated OpenCode home. An older Codex lists fewer ChatGPT models (0.153 offers only
 `gpt-6-astra`; 0.163 also offers `gpt-6-luna` and `gpt-6.1-sol`; 0.164 adds
 `gpt-6.1-terra`).
 
@@ -135,7 +138,7 @@ All run from the repository root with `llm/.venv/Scripts/python`.
   `mage_disconnect`, which ends the seat's proxy session and frees its XMage
   login at once instead of after the proxy's grace period.
 - `-m llm.sign_in openrouter|zai|opencode-go|opencode-zen`: runs OpenCode's own key prompt with its home
-  redirected to the isolated OpenCode home.
+  redirected to the isolated OpenCode home (OpenCode 2: with a private server of its own, `--standalone`).
 - `-m llm.subscription_client`, `-m llm.claude_client`: one-shot connection
   checks that ask the model for a fixed reply without game tools.
 

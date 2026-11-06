@@ -2,8 +2,10 @@
 
 python -m llm.sign_in openrouter|zai|opencode-go|opencode-zen runs OpenCode's own key prompt with its home redirected to
 paths.OPENCODE_HOME, so your normal OpenCode setup and the Claude and ChatGPT sign-ins are never read or
-changed, and the key never passes through this program. ChatGPT and Claude seats use the CLIs' own
-sign-ins: codex login, and claude auth login --claudeai.
+changed, and the key never passes through this program. OpenCode 2 is asked for the key with a private server
+of its own (--standalone), not the background service that keeps your normal sign-ins. OpenCode 2 imports
+the keys OpenCode 1 saved when it first opens the home. ChatGPT and Claude seats use the CLIs' own sign-ins:
+codex login, and claude auth login --claudeai.
 """
 
 import json
@@ -25,6 +27,8 @@ PROVIDERS = {
 
 def signed_in(provider):
     # Only provider names are read; the stored key is never printed.
+    if opencode_client.served():
+        return opencode_client.has_credential(provider)
     if not opencode_client.AUTH_PATH.is_file():
         return False
     return provider in json.loads(opencode_client.AUTH_PATH.read_text(encoding="utf-8"))
@@ -41,8 +45,13 @@ def main(argv):
     print(f"Create an API key at {key_page}, then paste it when OpenCode asks.")
     print(f"The key is stored only in {opencode_client.OPENCODE_HOME}.")
     paths.PLAYER_CWD.mkdir(parents=True, exist_ok=True)
+    exe = opencode_client.executable()
+    if opencode_client.served(exe):
+        login = [exe, "auth", "login", provider, "--standalone", "--method", "key"]
+    else:
+        login = [exe, "auth", "login", "--provider", provider]
     subprocess.run(
-        [opencode_client.executable(), "auth", "login", "--provider", provider],
+        login,
         cwd=paths.PLAYER_CWD,
         env=opencode_client.clean_env(),
         check=False,

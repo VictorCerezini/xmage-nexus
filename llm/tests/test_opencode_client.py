@@ -48,7 +48,15 @@ def test_config_can_register_models_missing_from_the_catalog():
     assert "mcp" not in config
 
 
+@pytest.fixture
+def opencode2(fake_local, monkeypatch):
+    monkeypatch.setattr(opencode_client, "major_version", lambda _exe: 2)
+    return fake_local
+
+
 def test_command_selects_the_game_agent_and_effort(fake_local):
+    # The fake executable cannot report a version, so it is taken for OpenCode 1.
+    assert opencode_client.major_version(str(fake_local)) == 1
     command = opencode_client.command("zai-coding-plan", "glm-5.3", "high")
     assert command[:2] == [str(fake_local), "run"]
     assert command[command.index("--agent") + 1] == "mage"
@@ -177,3 +185,289 @@ def test_stored_key_is_read_only_for_its_provider(fake_local):
     assert opencode_client.read_key("zai-coding-plan", "Z.ai GLM Coding Plan", "zai") == FAKE_KEY
     with pytest.raises(RuntimeError, match=r"llm\.sign_in openrouter"):
         opencode_client.read_key("openrouter", "OpenRouter", "openrouter")
+
+
+def test_opencode2_names_the_variant_after_the_model_without_pure(opencode2):
+    command = opencode_client.command("opencode", "deepseek-v4.1-flash", "low")
+    assert command == [
+        str(opencode2),
+        "run",
+        "--format",
+        "json",
+        "--agent",
+        "mage",
+        "--model",
+        "opencode/deepseek-v4.1-flash#low",
+    ]
+    default = opencode_client.command("opencode", "deepseek-v4.1-flash", "default")
+    assert default[default.index("--model") + 1] == "opencode/deepseek-v4.1-flash"
+    assert "--auto" not in default
+
+
+@pytest.mark.parametrize(("printed", "major"), [("opencode v2.2.5\n", 2), ("1.19.3\n", 1), ("", 1)])
+def test_major_version_is_read_once_per_executable(fake_local, monkeypatch, printed, major):
+    calls = []
+    monkeypatch.setattr(opencode_client, "_MAJOR_VERSIONS", {})
+    monkeypatch.setattr(
+        opencode_client, "run_cli", lambda args, **_kwargs: calls.append(args) or SimpleNamespace(stdout=printed)
+    )
+    assert opencode_client.major_version(str(fake_local)) == major
+    assert opencode_client.major_version(str(fake_local)) == major
+    assert calls == [["--version"]]
+    assert opencode_client.major_version(str(fake_local.parent / "missing.exe")) == 1
+
+
+def test_a_shell_folder_is_not_passed_to_opencode(fake_local, monkeypatch):
+    monkeypatch.setenv("PWD", "C:/Users/someone")
+    assert "PWD" not in opencode_client.clean_env()
+
+
+class FakeServer:
+    def __init__(self, exit_code=None):
+        self.exit_code = exit_code
+        self.returncode = exit_code
+
+    def poll(self):
+        return self.exit_code
+
+
+@pytest.fixture
+def fake_api(opencode2, monkeypatch):
+    """OpenCode 2's server, started with subprocess.Popen and asked with api(); nothing runs."""
+    state = {
+        "mcp": [None, {"data": []}, {"data": [{"name": "mage", "status": {"status": "connected"}}]}],
+        "session": {"data": {"id": "ses_test"}},
+        "server": FakeServer(),
+        "requests": [],
+        "stopped": [],
+    }
+
+    def popen(cmd, **kwargs):
+        state.update(serve=cmd, serve_env=dict(kwargs["env"]))
+        return state["server"]
+
+    def api(exe, url, env, method, path, body=None):
+        state["requests"].append((method, path, body, env.get("OPENCODE_PASSWORD")))
+        if path == "/api/mcp":
+            return state["mcp"].pop(0) if len(state["mcp"]) > 1 else state["mcp"][0]
+        return state["session"]
+
+    monkeypatch.setattr(opencode_client.subprocess, "Popen", popen)
+    monkeypatch.setattr(opencode_client, "api", api)
+    monkeypatch.setattr(opencode_client, "stop_process", state["stopped"].append)
+    monkeypatch.setattr(opencode_client.time, "sleep", lambda _seconds: None)
+    return state
+
+
+def test_opencode2_server_is_private_and_the_session_repeats_the_game_rules(fake_api):
+    env = {}
+    server, url, session = opencode_client.start_server("opencode.exe", env, None)
+    serve = fake_api["serve"]
+    assert serve[:2] == ["opencode.exe", "serve"]
+    assert serve[serve.index("--hostname") + 1] == "127.0.0.1"
+    assert url == "http://127.0.0.1:" + serve[serve.index("--port") + 1]
+    # A random password, which run and api get through the same environment.
+    password = env["OPENCODE_PASSWORD"]
+    assert len(password) >= 24
+    assert fake_api["serve_env"]["OPENCODE_PASSWORD"] == password
+    # The player starts only once the game tools are connected, and its session denies everything else.
+    assert [request[1] for request in fake_api["requests"]] == ["/api/mcp"] * 3 + ["/api/session"]
+    assert {request[3] for request in fake_api["requests"]} == {password}
+    method, _, body, _ = fake_api["requests"][-1]
+    assert method == "POST"
+    assert body == {"title": "XMage game", "permissions": opencode_client.SESSION_PERMISSIONS}
+    assert opencode_client.SESSION_PERMISSIONS == [
+        {"action": "*", "resource": "*", "effect": "deny"},
+        {"action": "mage_*", "resource": "*", "effect": "allow"},
+        {"action": "doom_loop", "resource": "*", "effect": "allow"},
+    ]
+    assert (server, session, fake_api["stopped"]) == (fake_api["server"], "ses_test", [])
+
+
+def test_opencode2_server_that_stops_or_never_connects_the_tools_is_stopped(fake_api, monkeypatch):
+    fake_api["server"] = FakeServer(exit_code=3)
+    with pytest.raises(RuntimeError, match="stopped while starting"):
+        opencode_client.start_server("opencode.exe", {}, None)
+    assert fake_api["stopped"] == [fake_api["server"]]
+    fake_api["server"] = FakeServer()
+    fake_api["mcp"] = [{"data": [{"name": "mage", "status": {"status": "failed"}}]}]
+    monkeypatch.setattr(opencode_client, "SERVER_START_SECONDS", 0)
+    with pytest.raises(RuntimeError, match="did not connect to the game tools"):
+        opencode_client.start_server("opencode.exe", {}, None)
+    assert fake_api["stopped"][-1] is fake_api["server"]
+
+
+def test_opencode2_server_without_a_session_is_stopped(fake_api):
+    fake_api["session"] = None
+    with pytest.raises(RuntimeError, match="did not open a game session"):
+        opencode_client.start_server("opencode.exe", {}, None)
+    assert fake_api["stopped"] == [fake_api["server"]]
+
+
+def test_opencode2_launch_attaches_the_run_to_its_server(opencode2, monkeypatch):
+    server = FakeServer()
+    started = {}
+    monkeypatch.setattr(
+        opencode_client,
+        "start_server",
+        lambda _exe, env, _stderr, wait_for_tools: (
+            started.update(wait=wait_for_tools, env=env) or (server, "http://127.0.0.1:5", "ses_test")
+        ),
+    )
+    tied = []
+    monkeypatch.setattr(opencode_client, "stop_after", lambda run, srv: tied.append((run, srv)))
+    written = []
+    launched = {}
+
+    def popen(cmd, **kwargs):
+        launched.update(cmd=cmd, **kwargs)
+        return SimpleNamespace(stdin=SimpleNamespace(write=written.append, close=lambda: None))
+
+    monkeypatch.setattr(opencode_client.subprocess, "Popen", popen)
+    proc = opencode_client.launch("play", None, None, {"mcp": {}}, [str(opencode2), "run", "--format", "json"])
+    assert launched["cmd"] == [
+        str(opencode2),
+        "run",
+        "--server",
+        "http://127.0.0.1:5",
+        "--session",
+        "ses_test",
+        "--format",
+        "json",
+    ]
+    assert launched["env"] is started["env"]
+    assert started["wait"] is True
+    assert written == [b"play"]
+    # The server is stopped once the run ends.
+    assert tied == [(proc, server)]
+
+
+def test_opencode2_server_is_stopped_when_the_run_cannot_start(opencode2, monkeypatch):
+    server = FakeServer()
+    monkeypatch.setattr(opencode_client, "start_server", lambda *_args, **_kwargs: (server, "http://x", "ses_test"))
+    stopped = []
+    monkeypatch.setattr(opencode_client, "stop_process", stopped.append)
+
+    def popen(cmd, **kwargs):
+        raise OSError("cannot start")
+
+    monkeypatch.setattr(opencode_client.subprocess, "Popen", popen)
+    with pytest.raises(OSError, match="cannot start"):
+        opencode_client.launch("play", None, None, {}, [str(opencode2), "run"])
+    assert stopped == [server]
+
+
+def test_the_server_is_stopped_after_the_run_ends(monkeypatch):
+    stopped = []
+    monkeypatch.setattr(opencode_client, "stop_process", stopped.append)
+    server = FakeServer()
+    opencode_client.stop_after(SimpleNamespace(wait=lambda: 0), server)
+    for thread in [t for t in __import__("threading").enumerate() if t.name == "opencode-server"]:
+        thread.join(timeout=5)
+    assert stopped == [server]
+
+
+# OpenCode 2.2.5 error events for a model server's answers, recorded on 2026-11-06 (messages made up).
+def opencode2_error(kind, status, message="Fake message"):
+    return [
+        {"type": "error", "error": {"type": kind, "message": message, "status": status, "response": {"body": "{}"}}}
+    ]
+
+
+def test_opencode2_errors_give_the_message_and_status():
+    events = opencode2_error("provider.quota", 402, "Insufficient balance")
+    assert opencode_client.error_message(events) == "Insufficient balance"
+    assert opencode_client.error_data(events)["statusCode"] == 402
+    for kind, status in (
+        ("provider.auth", 401),
+        ("provider.quota", 402),
+        ("provider.auth", 403),
+        ("provider.invalid-request", 404),
+    ):
+        assert opencode_client.lasting_error(opencode2_error(kind, status))
+    # OpenCode 2 retried these about ten times before it gave up; another try later may pass.
+    assert not opencode_client.lasting_error(opencode2_error("provider.rate-limit", 429))
+    assert not opencode_client.lasting_error(opencode2_error("provider.internal", 500))
+    assert opencode_client.error_message([{"type": "error", "error": {}}]) == "OpenCode reported an error"
+
+
+def exported(*credentials, returncode=0):
+    return SimpleNamespace(returncode=returncode, stdout=json.dumps(list(credentials)))
+
+
+def credential(key=FAKE_KEY, *, kind="key", active=True):
+    return {"id": "cred_test", "integrationID": "openrouter", "active": active, "value": {"type": kind, "key": key}}
+
+
+def test_opencode2_key_comes_from_its_own_store_of_this_home(opencode2, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        opencode_client, "run_cli", lambda args, **_kwargs: calls.append(args) or exported(credential())
+    )
+    # auth.json is not read with OpenCode 2, which keeps keys in its own store (imported from auth.json once).
+    opencode_client.AUTH_PATH.parent.mkdir(parents=True)
+    opencode_client.AUTH_PATH.write_text(json.dumps({"openrouter": {"type": "api", "key": "old-key-not-a-secret"}}))
+    assert opencode_client.read_key("openrouter", "OpenRouter", "openrouter") == FAKE_KEY
+    # Always a private server of the isolated home, never the background service with your own sign-ins.
+    assert calls == [["auth", "export", "openrouter", "--standalone"]]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        exported(),
+        exported(credential(), returncode=1),
+        exported(credential(active=False)),
+        exported(credential(kind="oauth")),
+        SimpleNamespace(returncode=0, stdout="not json"),
+    ],
+)
+def test_opencode2_without_a_stored_key_asks_to_sign_in(opencode2, monkeypatch, answer):
+    monkeypatch.setattr(opencode_client, "run_cli", lambda _args, **_kwargs: answer)
+    with pytest.raises(opencode_client.MissingKeyError, match=r"llm\.sign_in openrouter"):
+        opencode_client.read_key("openrouter", "OpenRouter", "openrouter")
+
+
+def test_opencode2_sign_in_check_reads_only_the_list_of_names(opencode2, monkeypatch):
+    # The shape of opencode auth list --format json (2.2.5); it holds no key.
+    listed = [
+        {
+            "id": "opencode-go",
+            "name": "OpenCode Go",
+            "connections": [{"type": "credential", "id": "cred_test", "label": "OpenCode Go", "method": "key"}],
+        }
+    ]
+    calls = []
+    monkeypatch.setattr(
+        opencode_client,
+        "run_cli",
+        lambda args, **_kwargs: calls.append(args) or SimpleNamespace(returncode=0, stdout=json.dumps(listed)),
+    )
+    assert opencode_client.has_credential("opencode-go")
+    assert not opencode_client.has_credential("opencode")
+    assert calls[0] == ["auth", "list", "--standalone", "--format", "json"]
+
+
+def test_opencode2_model_list_gives_each_models_variants(opencode2, monkeypatch):
+    # The shape of GET /api/model (2.2.5), trimmed to what is read.
+    listing = {
+        "location": {"directory": "x"},
+        "data": [
+            {
+                "id": "deepseek-v4.1-flash",
+                "providerID": "opencode",
+                "variants": [{"id": "low", "settings": {"reasoningEffort": "low"}}, {"id": "high", "settings": {}}],
+            },
+            {"id": "big-pickle", "providerID": "opencode", "variants": []},
+            {"id": "glm-5.3", "providerID": "zai-coding-plan", "variants": [{"id": "max", "settings": {}}]},
+        ],
+    }
+    calls = []
+    monkeypatch.setattr(
+        opencode_client,
+        "run_cli",
+        lambda args, **_kwargs: calls.append(args) or SimpleNamespace(returncode=0, stdout=json.dumps(listing)),
+    )
+    assert opencode_client.read_efforts("opencode") == {"deepseek-v4.1-flash": ["low", "high"], "big-pickle": []}
+    assert calls == [["api", "--standalone", "GET", "/api/model"]]
+    assert opencode_client.parse_model_list("not json", "opencode") == {}

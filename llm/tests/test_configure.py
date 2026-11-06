@@ -62,6 +62,15 @@ def test_npm_launcher_resolves_to_the_native_codex(monkeypatch, tmp_path):
     assert executables.native_executable("codex", executables.CODEX_NPM_EXE) == str(native)
 
 
+@pytest.mark.parametrize("layout", [executables.OPENCODE2_NPM_EXE, executables.OPENCODE_NPM_EXE])
+def test_npm_launcher_resolves_to_opencode_1_or_2(monkeypatch, tmp_path, layout):
+    native = tmp_path / layout
+    native.parent.mkdir(parents=True)
+    native.write_text("")
+    monkeypatch.setattr(executables.shutil, "which", lambda _name: str(tmp_path / "opencode.CMD"))
+    assert executables.detect()["opencode_executable"] == str(native)
+
+
 def test_main_writes_the_settings_and_the_player_folder(nothing_on_path, tmp_path):
     opencode = tmp_path / "opencode.exe"
     opencode.write_text("")
@@ -98,8 +107,30 @@ def test_sign_in_reads_only_provider_names_and_skips_a_done_sign_in(monkeypatch,
     auth = tmp_path / "auth.json"
     auth.write_text(json.dumps({"openrouter": {"type": "api", "key": "sk-or-test"}}))
     monkeypatch.setattr(sign_in.opencode_client, "AUTH_PATH", auth)
+    monkeypatch.setattr(sign_in.opencode_client, "served", lambda _exe=None: False)
     monkeypatch.setattr(sign_in.subprocess, "run", lambda *_args, **_kwargs: pytest.fail("no login needed"))
     assert sign_in.main(["openrouter"]) == 0
     assert "sk-or-test" not in capsys.readouterr().out
     assert sign_in.signed_in("zai-coding-plan") is False
     assert sign_in.main(["other"]) == 2
+
+
+def test_opencode2_sign_in_asks_for_the_key_with_a_private_server(monkeypatch, tmp_path):
+    monkeypatch.setattr(paths, "PLAYER_CWD", tmp_path / "player-sandbox")
+    monkeypatch.setattr(sign_in.opencode_client, "OPENCODE_HOME", tmp_path / "opencode-home")
+    monkeypatch.setattr(sign_in.opencode_client, "executable", lambda: "opencode.exe")
+    monkeypatch.setattr(sign_in.opencode_client, "served", lambda _exe=None: True)
+    saved = []
+    monkeypatch.setattr(sign_in.opencode_client, "has_credential", lambda provider: provider in saved)
+    logins = []
+
+    def run(cmd, **kwargs):
+        logins.append(cmd)
+        saved.append("opencode")
+
+    monkeypatch.setattr(sign_in.subprocess, "run", run)
+    assert sign_in.main(["opencode-zen"]) == 0
+    assert logins == [["opencode.exe", "auth", "login", "opencode", "--standalone", "--method", "key"]]
+    # Already signed in: nothing is asked again.
+    assert sign_in.main(["opencode-zen"]) == 0
+    assert len(logins) == 1

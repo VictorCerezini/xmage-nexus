@@ -180,3 +180,24 @@ def test_zen_is_a_provider_with_its_own_trace_files_and_sign_in():
     trace_files = [item.events_file for item in providers.PROVIDERS.values()]
     assert len(trace_files) == len(set(trace_files))
     assert sign_in.PROVIDERS["opencode-zen"] == ("opencode", "OpenCode Zen", "https://opencode.ai/console")
+
+
+def test_opencode2_reasoning_follows_the_model(fake_local, monkeypatch):
+    monkeypatch.setattr(opencode_client, "major_version", lambda _exe: 2)
+    launched = {}
+    monkeypatch.setattr(opencode_client, "launch", lambda *args: launched.update(cmd=args[4]))
+    opencode_zen_client.start("play", None, None, None, model="deepseek-v4.1-flash", reasoning="low")
+    assert launched["cmd"][launched["cmd"].index("--model") + 1] == "opencode/deepseek-v4.1-flash#low"
+    assert "--variant" not in launched["cmd"]
+    assert "--pure" not in launched["cmd"]
+
+
+def test_opencode2_errors_point_at_the_credits_and_the_sign_in():
+    def opencode2_error(kind, status, message):
+        return [{"type": "error", "error": {"type": kind, "message": message, "status": status}}]
+
+    broke = opencode_zen_client.failure_reason(opencode2_error("provider.quota", 402, "Insufficient balance"))
+    assert "add credits at opencode.ai/console" in broke
+    assert opencode_client.lasting_error(opencode2_error("provider.quota", 402, "Insufficient balance"))
+    refused = opencode_zen_client.failure_reason(opencode2_error("provider.auth", 401, "Invalid API key"))
+    assert "llm.sign_in opencode-zen" in refused

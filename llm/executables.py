@@ -9,17 +9,19 @@ CODEX_NPM_EXE = (
     / "vendor/x86_64-pc-windows-msvc/bin/codex.exe"
 )
 OPENCODE_NPM_EXE = Path("node_modules/opencode-ai/bin/opencode.exe")
+# OpenCode 2 moved to the @opencode/cli package.
+OPENCODE2_NPM_EXE = Path("node_modules/@opencode/cli/bin/opencode.exe")
 
 
-def native_executable(command, npm_layout):
+def native_executable(command, *npm_layouts):
     """The native executable behind a command on PATH; npm installs a launcher script that wraps it."""
     found = shutil.which(command)
     if not found:
         return None
     if Path(found).suffix.lower() == ".exe":
         return found
-    candidate = Path(found).parent / npm_layout
-    return str(candidate) if candidate.is_file() else None
+    candidates = (Path(found).parent / layout for layout in npm_layouts)
+    return next((str(candidate) for candidate in candidates if candidate.is_file()), None)
 
 
 def desktop_app_claude():
@@ -40,5 +42,5 @@ def detect():
     return {
         "codex_executable": native_executable("codex", CODEX_NPM_EXE),
         "claude_executable": find_claude(),
-        "opencode_executable": native_executable("opencode", OPENCODE_NPM_EXE),
+        "opencode_executable": native_executable("opencode", OPENCODE2_NPM_EXE, OPENCODE_NPM_EXE),
     }

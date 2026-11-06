@@ -2,14 +2,21 @@
 
 OpenCode runs from its own home (paths.OPENCODE_HOME, under the ignored .run/llm unless configured), so it
 never sees your user profile, skills, CLAUDE.md, your normal OpenCode setup, or the Claude and ChatGPT sign-ins.
-Provider keys live in that home's auth.json, written by python -m llm.sign_in; they are only sent to their own
-provider and never copied into catalogs or logs.
+Provider keys live in that home, written by python -m llm.sign_in: OpenCode 1 keeps them in auth.json and
+OpenCode 2 in its own database. They are only sent to their own provider and never copied into catalogs or logs.
+
+OpenCode 1 plays with one run --pure process. OpenCode 2 plays through a private, password-protected server
+of its own for each player (see start_server), never the background service that uses your normal setup.
 """
 
 import json
 import os
 import re
+import secrets
+import socket
 import subprocess
+import threading
+import time
 import urllib.request
 from pathlib import Path
 
@@ -45,6 +52,14 @@ CREDENTIAL_OVERRIDES = {
 # allowed because repeating an identical pass_priority call is normal play.
 TOOL_SWITCHES = {"*": False, GAME_TOOL_PREFIX + "*": True}
 PERMISSIONS = {"*": "deny", GAME_TOOL_PREFIX + "*": "allow", "doom_loop": "allow"}
+# OpenCode 2 appends rules of its own after every agent's (for its browser), and the last rule naming a tool
+# decides whether the model is offered it, so its skill tool stayed offered. Rules given to the session come
+# after those, so the game's rules are repeated there.
+SESSION_PERMISSIONS = [{"action": action, "resource": "*", "effect": effect} for action, effect in PERMISSIONS.items()]
+# A named session saves OpenCode 2 a model request to give it a title.
+SESSION_TITLE = "XMage game"
+SERVER_START_SECONDS = 60
+_MAJOR_VERSIONS = {}
 
 
 def executable():
@@ -56,10 +71,11 @@ def executable():
 
 def clean_env():
     # Inherited OPENCODE_* settings could add config, credentials or plugins, so none are passed through.
+    # OpenCode 2 also takes its working folder from PWD, which a shell may have set to your own folder.
     env = {
         key: value
         for key, value in os.environ.items()
-        if key not in CREDENTIAL_OVERRIDES and not key.startswith("OPENCODE_")
+        if key not in CREDENTIAL_OVERRIDES and not key.startswith("OPENCODE_") and key.upper() != "PWD"
     }
     home = OPENCODE_HOME / "home"
     home.mkdir(parents=True, exist_ok=True)
@@ -116,8 +132,52 @@ def config(mcp_url, provider, models=None, tool_timeout_seconds=180):
     return result
 
 
+def run_cli(args, *, env=None, exe=None, timeout=120):
+    """One short OpenCode command from the isolated home; its output is captured, never shown."""
+    paths.PLAYER_CWD.mkdir(parents=True, exist_ok=True)
+    return subprocess.run(
+        [exe or executable(), *args],
+        cwd=paths.PLAYER_CWD,
+        env=env or clean_env(),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+
+
+def major_version(exe):
+    """OpenCode's major version, read once per executable; 1 when it cannot be read, so nothing changes for it."""
+    path = Path(exe)
+    try:
+        key = (str(path.resolve()), path.stat().st_mtime_ns)
+    except OSError:
+        return 1
+    if key not in _MAJOR_VERSIONS:
+        try:
+            match = re.search(r"(\d+)\.\d+", run_cli(["--version"], exe=exe, timeout=60).stdout)
+        except (OSError, subprocess.SubprocessError):
+            match = None
+        _MAJOR_VERSIONS[key] = int(match.group(1)) if match else 1
+    return _MAJOR_VERSIONS[key]
+
+
+def served(exe=None):
+    """Whether this OpenCode (2 or later) plays through a private server instead of one run --pure process."""
+    return major_version(exe or executable()) >= 2
+
+
 def command(provider, model, reasoning=DEFAULT_EFFORT):
-    cmd = [executable(), "run", "--pure", "--format", "json", "--agent", "mage", "--model", f"{provider}/{model}"]
+    exe = executable()
+    if served(exe):
+        # OpenCode 2 has no --pure or --variant: the variant follows the model, and launch() adds the server.
+        spec = f"{provider}/{model}" if reasoning == DEFAULT_EFFORT else f"{provider}/{model}#{reasoning}"
+        return [exe, "run", "--format", "json", "--agent", "mage", "--model", spec]
+    cmd = [exe, "run", "--pure", "--format", "json", "--agent", "mage", "--model", f"{provider}/{model}"]
     if reasoning != DEFAULT_EFFORT:
         cmd.extend(["--variant", reasoning])
     return cmd
@@ -126,18 +186,119 @@ def command(provider, model, reasoning=DEFAULT_EFFORT):
 def launch(prompt, stdout, stderr, game_config, cmd):
     env = clean_env()
     env["OPENCODE_CONFIG_CONTENT"] = json.dumps(game_config)
-    proc = subprocess.Popen(
-        cmd,
+    server = None
+    if served(cmd[0]):
+        server, url, session = start_server(cmd[0], env, stderr, wait_for_tools="mcp" in game_config)
+        cmd = [*cmd[:2], "--server", url, "--session", session, *cmd[2:]]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=paths.PLAYER_CWD,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=stdout,
+            stderr=stderr,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        proc.stdin.write(prompt.encode("utf-8"))
+        proc.stdin.close()
+    except BaseException:
+        if server:
+            stop_process(server)
+        raise
+    if server:
+        stop_after(proc, server)
+    return proc
+
+
+def free_port():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def api(exe, url, env, method, path, body=None):
+    """One request to an OpenCode 2 server; its JSON answer, or None while the server cannot answer."""
+    args = ["api", "--server", url, method, path]
+    if body is not None:
+        args += ["-d", json.dumps(body)]
+    result = run_cli(args, env=env, exe=exe, timeout=60)
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def start_server(exe, env, stderr, *, wait_for_tools=True):
+    """OpenCode 2's private server for one player, with its session ready: (server process, url, session id).
+
+    It listens only on this computer, behind a random password that env now carries for run and api. The
+    player starts once the game tools are connected: run --standalone sends the first model request before
+    they are, so the model would begin without them.
+    """
+    env["OPENCODE_PASSWORD"] = secrets.token_urlsafe(24)
+    port = free_port()
+    url = f"http://127.0.0.1:{port}"
+    server = subprocess.Popen(
+        [exe, "serve", "--hostname", "127.0.0.1", "--port", str(port)],
         cwd=paths.PLAYER_CWD,
         env=env,
-        stdin=subprocess.PIPE,
-        stdout=stdout,
+        stdin=subprocess.DEVNULL,
+        stdout=stderr,
         stderr=stderr,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
-    proc.stdin.write(prompt.encode("utf-8"))
-    proc.stdin.close()
-    return proc
+    try:
+        wait_for_server(exe, url, env, server, game_tools=wait_for_tools)
+        body = {"title": SESSION_TITLE, "permissions": SESSION_PERMISSIONS}
+        session = ((api(exe, url, env, "POST", "/api/session", body) or {}).get("data") or {}).get("id")
+        if not session:
+            raise RuntimeError("OpenCode's server did not open a game session")
+    except BaseException:
+        stop_process(server)
+        raise
+    return server, url, session
+
+
+def wait_for_server(exe, url, env, server, *, game_tools):
+    """Wait until the server answers and, for a game, has connected the game tools."""
+    deadline = time.monotonic() + SERVER_START_SECONDS
+    while True:
+        if server.poll() is not None:
+            raise RuntimeError(f"OpenCode's server stopped while starting (exit code {server.returncode})")
+        answer = api(exe, url, env, "GET", "/api/mcp")
+        if answer is not None and (
+            not game_tools
+            or any(
+                item.get("name") == "mage" and (item.get("status") or {}).get("status") == "connected"
+                for item in answer.get("data") or []
+            )
+        ):
+            return
+        if time.monotonic() > deadline:
+            if game_tools:
+                raise RuntimeError("OpenCode did not connect to the game tools within a minute")
+            raise RuntimeError("OpenCode's server did not start within a minute")
+        time.sleep(0.25)
+
+
+def stop_process(proc):
+    from llm import runtime  # noqa: PLC0415 - psutil is only needed once a server ran
+
+    runtime.stop_tree(proc)
+
+
+def stop_after(run, server):
+    """Stop the private server once the player's run ends, however it ends. Python waits for this thread
+    before it exits (it is not a daemon), so the server never outlives the seat."""
+
+    def watch():
+        run.wait()
+        stop_process(server)
+
+    threading.Thread(target=watch, name="opencode-server", daemon=False).start()
 
 
 def require_game_only_events(events):
@@ -164,11 +325,18 @@ def usage(events):
 
 
 def error_data(events):
-    """OpenCode's last error event's details (message, statusCode, isRetryable), or None."""
+    """OpenCode's last error event's details (message, statusCode, isRetryable), or None.
+
+    OpenCode 1 nests them under error.data. OpenCode 2 gives message, status and type (provider.auth,
+    provider.quota, provider.rate-limit...) in error itself, after retrying what may pass.
+    """
     errors = [event for event in events if event.get("type") == "error"]
     if not errors:
         return None
-    return (errors[-1].get("error") or {}).get("data") or {}
+    error = errors[-1].get("error") or {}
+    if "data" in error or not ("status" in error or "message" in error):
+        return error.get("data") or {}
+    return {"message": error.get("message"), "statusCode": error.get("status"), "type": error.get("type")}
 
 
 def error_message(events):
@@ -203,10 +371,43 @@ class MissingKeyError(RuntimeError):
 
 def read_key(provider, label, sign_in):
     """The stored key, used only for that provider's own requests; never returned to catalogs or logs."""
+    if served():
+        # OpenCode 2 keeps keys in its own database. When it first opened a home OpenCode 1 had used, it
+        # imported that home's auth.json keys (its import_legacy_credentials step), so no new sign-in was needed.
+        keys = [
+            item["value"]["key"]
+            for item in stored_credentials(provider)
+            if item.get("active", True) and (item.get("value") or {}).get("type") == "key" and item["value"].get("key")
+        ]
+        if not keys:
+            raise MissingKeyError(label, sign_in)
+        return keys[0]
     entry = json.loads(AUTH_PATH.read_text(encoding="utf-8")).get(provider) if AUTH_PATH.is_file() else None
     if not entry or entry.get("type") != "api" or not entry.get("key"):
         raise MissingKeyError(label, sign_in)
     return entry["key"]
+
+
+def stored_credentials(provider):
+    """OpenCode 2's saved credentials for one provider, keys included; kept in memory, never printed."""
+    result = run_cli(["auth", "export", provider, "--standalone"])
+    try:
+        items = json.loads(result.stdout) if result.returncode == 0 else []
+    except json.JSONDecodeError:
+        return []
+    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+
+def has_credential(provider):
+    """Whether OpenCode 2 has a sign-in saved for a provider, from its list of names (no key is read)."""
+    result = run_cli(["auth", "list", "--standalone", "--format", "json"])
+    try:
+        listed = json.loads(result.stdout) if result.returncode == 0 else []
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(listed, list):
+        return False
+    return any(isinstance(item, dict) and item.get("id") == provider and item.get("connections") for item in listed)
 
 
 def get_json(url, key=None, user_agent=None):
@@ -222,6 +423,8 @@ def get_json(url, key=None, user_agent=None):
 
 def read_efforts(provider):
     """Reasoning variants OpenCode knows for each of a provider's models, from its refreshed catalog."""
+    if served():
+        return parse_model_list(run_cli(["api", "--standalone", "GET", "/api/model"]).stdout, provider)
     result = subprocess.run(
         [executable(), "models", provider, "--verbose", "--refresh", "--pure"],
         cwd=paths.PLAYER_CWD,
@@ -247,6 +450,19 @@ def parse_models(text):
         if isinstance(item, dict) and "id" in item:
             efforts[item["id"]] = list(item.get("variants") or {})
     return efforts
+
+
+def parse_model_list(text, provider):
+    """OpenCode 2's model list (GET /api/model): each of the provider's models with its variant names."""
+    try:
+        listed = json.loads(text).get("data") or []
+    except (json.JSONDecodeError, AttributeError):
+        return {}
+    return {
+        item["id"]: [variant["id"] for variant in item.get("variants") or [] if variant.get("id")]
+        for item in listed
+        if isinstance(item, dict) and item.get("providerID") == provider and item.get("id")
+    }
 
 
 def listed_playable(item, known_efforts):

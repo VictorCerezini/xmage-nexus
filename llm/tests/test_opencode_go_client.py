@@ -259,3 +259,11 @@ def test_other_reasons_keep_their_words_and_a_name(fake_local):
         RuntimeError, match=r"No OpenCode Go key is saved for this app yet\. Sign in with: .*opencode-go"
     ):
         providers.discover_all({go.id: go})
+
+
+def test_opencode2_region_refusal_also_stops_the_seat():
+    events = [{"type": "error", "error": {"type": "provider.invalid-request", "message": REGION, "status": 400}}]
+    assert opencode_go_client.lasting_failure(events)
+    assert "Settings, Privacy, Regions" in opencode_go_client.failure_reason(events)
+    refused = [{"type": "error", "error": {"type": "provider.auth", "message": "Invalid credential", "status": 401}}]
+    assert "llm.sign_in opencode-go" in opencode_go_client.failure_reason(refused)
