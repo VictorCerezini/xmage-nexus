@@ -57,7 +57,7 @@ def missing_cli(cli, flag, sign_in=None):
 
 
 def sign_in_command(provider):
-    """How to store an OpenRouter or Z.ai key: the checkout's command, or a PowerShell line for the desktop app."""
+    """How to store an OpenCode provider's key: the checkout's command, or a PowerShell line for the desktop app."""
     if not desktop():
         return f"python -m llm.sign_in {provider}"
     return (
@@ -77,7 +77,7 @@ def _configured_folder(key, default):
 
 # The CLIs run from this empty folder, so no project instructions or config are near them.
 PLAYER_CWD = _configured_folder("player_cwd", RUN_ROOT / "player-sandbox")
-# OpenCode's isolated home with the OpenRouter and Z.ai keys; it can point at an existing one.
+# OpenCode's isolated home with the OpenRouter, Z.ai and OpenCode Go keys; it can point at an existing one.
 OPENCODE_HOME = _configured_folder("opencode_home", RUN_ROOT / "opencode-home")
 
 

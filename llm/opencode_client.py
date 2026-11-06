@@ -198,10 +198,12 @@ def read_key(provider, sign_in):
     return entry["key"]
 
 
-def get_json(url, key=None):
+def get_json(url, key=None, user_agent=None):
     headers = {"Accept": "application/json"}
     if key:
         headers["Authorization"] = "Bearer " + key
+    if user_agent:
+        headers["User-Agent"] = user_agent
     request = urllib.request.Request(url, headers=headers)  # noqa: S310 - callers pass their provider's fixed https URL
     with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - same fixed https URL
         return json.loads(response.read())

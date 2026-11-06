@@ -3,7 +3,15 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from llm import claude_client, model_catalog, opencode_client, openrouter_client, subscription_client, zai_client
+from llm import (
+    claude_client,
+    model_catalog,
+    opencode_client,
+    opencode_go_client,
+    openrouter_client,
+    subscription_client,
+    zai_client,
+)
 
 
 @dataclass(frozen=True)
@@ -113,6 +121,20 @@ PROVIDERS = {
             require_game_only_events=opencode_client.require_game_only_events,
             usage=opencode_client.usage,
             failure_reason=zai_client.failure_reason,
+            lasting_failure=opencode_client.lasting_error,
+        ),
+        Provider(
+            id=opencode_go_client.PROVIDER,
+            label="OpenCode Go",
+            auth="OpenCode Go key in the isolated OpenCode sign-in",
+            events_file="opencode-go-events.jsonl",
+            stderr_file="opencode-go-stderr.log",
+            discover=opencode_go_client.discover,
+            validate_selection=opencode_go_client.validate_selection,
+            start=opencode_go_client.start,
+            require_game_only_events=opencode_client.require_game_only_events,
+            usage=opencode_client.usage,
+            failure_reason=opencode_go_client.failure_reason,
             lasting_failure=opencode_client.lasting_error,
         ),
     )

@@ -1,6 +1,6 @@
-"""Store an OpenRouter or Z.ai key in OpenCode's isolated home for model seats.
+"""Store an OpenRouter, Z.ai or OpenCode Go key in OpenCode's isolated home for model seats.
 
-python -m llm.sign_in openrouter|zai runs OpenCode's own key prompt with its home redirected to
+python -m llm.sign_in openrouter|zai|opencode-go runs OpenCode's own key prompt with its home redirected to
 paths.OPENCODE_HOME, so your normal OpenCode setup and the Claude and ChatGPT sign-ins are never read or
 changed, and the key never passes through this program. ChatGPT and Claude seats use the CLIs' own
 sign-ins: codex login, and claude auth login --claudeai.
@@ -16,6 +16,8 @@ PROVIDERS = {
     "openrouter": ("openrouter", "OpenRouter", "https://openrouter.ai/settings/keys"),
     # The GLM Coding Plan key, not a pay-as-you-go Z.ai API key: only the plan endpoint is used.
     "zai": ("zai-coding-plan", "the Z.ai GLM Coding Plan", "https://z.ai/manage-apikey/apikey-list"),
+    # The key of an OpenCode Go (or Go Plus, Go Teams) subscription, from the OpenCode console.
+    "opencode-go": ("opencode-go", "OpenCode Go", "https://opencode.ai/console"),
 }
 
 
@@ -28,7 +30,7 @@ def signed_in(provider):
 
 def main(argv):
     if len(argv) != 1 or argv[0] not in PROVIDERS:
-        print("Usage: python -m llm.sign_in openrouter|zai", file=sys.stderr)
+        print("Usage: python -m llm.sign_in openrouter|zai|opencode-go", file=sys.stderr)
         return 2
     provider, label, key_page = PROVIDERS[argv[0]]
     if signed_in(provider):

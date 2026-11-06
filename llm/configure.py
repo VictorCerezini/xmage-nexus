@@ -6,7 +6,7 @@ python -m llm.configure [--codex PATH] [--claude PATH] [--opencode PATH] [--java
 CLIs not given are looked up on PATH, and Claude Code also in the Claude desktop app. --from-mage-bench
 takes a mage-bench-windows checkout's executables and its isolated OpenCode sign-in folder, so nothing
 has to be signed in again and no key is copied. Each CLI keeps its own sign-in: codex login,
-claude auth login --claudeai, and python -m llm.sign_in for OpenRouter and Z.ai.
+claude auth login --claudeai, and python -m llm.sign_in for OpenRouter, Z.ai and OpenCode Go.
 """
 
 import argparse
@@ -65,7 +65,7 @@ def main(argv):
     parser.add_argument("--claude", help="claude.exe")
     parser.add_argument("--opencode", help="native opencode.exe")
     parser.add_argument("--java-home", help="JDK 17+ for the bridge (default: JAVA_HOME, then java on PATH)")
-    parser.add_argument("--opencode-home", help="OpenCode's isolated home with the OpenRouter/Z.ai keys")
+    parser.add_argument("--opencode-home", help="OpenCode's isolated home with the OpenRouter/Z.ai/OpenCode Go keys")
     parser.add_argument("--player-cwd", help="empty working folder for the player CLIs")
     parser.add_argument("--from-mage-bench", metavar="REPO", help="reuse a mage-bench-windows checkout's setup")
     args = parser.parse_args(argv)
