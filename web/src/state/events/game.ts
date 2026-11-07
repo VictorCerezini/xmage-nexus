@@ -21,7 +21,7 @@ import { clearFlights } from '../../board/flightManager'
 import type { Snapshot, EmbeddedGame } from './context'
 import { waitingForName } from '../../game/waitingState'
 import { sniffShuffle } from '../../board/shuffleFx'
-import { syncSharedArt } from '../sharedArtSync'
+import { syncSharedArtOnChatReady } from '../sharedArtSync'
 
 interface GameMeta {
   gameId: string
@@ -97,6 +97,7 @@ export function handleStartGame(data: unknown, s: Snapshot): void {
     void cmds.getGameChatId(d!.gameId!).then((cid) => {
       setState({ gameChatId: cid ?? null })
       if (cid) void cmds.joinChat(cid)
+      if (cid) syncSharedArtOnChatReady()
     })
   }
 }
@@ -133,6 +134,7 @@ export function handleGameUpdate(method: string, objectId: string | null, data: 
         void cmds.getGameChatId(objectId).then((cid) => {
           setState({ gameChatId: cid ?? null })
           if (cid) void cmds.joinChat(cid)
+          if (cid) syncSharedArtOnChatReady()
         })
       }
       if (objectId && (embeddedGame.players ?? []).some((p) => p.controlled)) {
@@ -166,7 +168,6 @@ export function handleGameUpdate(method: string, objectId: string | null, data: 
       patch.combat = { ...(s.combat ?? emptyCombat()), mode, chosen: combatChosenFrom(embeddedGame, mode) }
     }
     setState(patch)
-    syncSharedArt(objectId ?? s.gameId, embeddedGame)
   }
 }
 

@@ -30,6 +30,7 @@ import { notifyStagingRoster } from './stagingSounds'
 import { perfMark } from '../system/perfProbe'
 import { isRollbackPending } from './actions'
 import { applyRollbackOutcome } from './rollbackVote'
+import { syncSharedArt } from './sharedArtSync'
 
 export function handleMessage(msg: ProxyMessage) {
   switch (msg.type) {
@@ -186,6 +187,9 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
         ...(rollbackRestored ? { feedback: null, playableIds: [], playableWindow: null, combat: null } : null),
       })
       if (s.settings.boardRewind) captureRewind(objectId ?? s.gameId ?? null, getState().game)
+      // every game view counts, not only full updates: the deciding player gets the prompts
+      // (who starts, mulligans, targets) instead, and a commander first shows up in those
+      if (isGameEvent) syncSharedArt(objectId ?? s.gameId, embeddedGame)
       if (rollbackRestored) {
         addLog('partida', `Rollback aplicado: la mesa vuelve al turno ${embeddedGame.turn}`)
         applyRollbackOutcome(objectId ?? s.gameId, embeddedGame.turn)

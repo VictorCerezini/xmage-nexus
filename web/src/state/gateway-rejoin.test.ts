@@ -4,6 +4,10 @@ import { getState, setState } from './state'
 import { reset } from './store'
 import { clearActiveDraft, loadActiveDraft, saveActiveDraft, saveActiveGame, loadActiveGame, clearActiveGame } from './persistence'
 import * as cmds from '../net/commands'
+import { handleMessage } from './eventHandler'
+import { decodeSharedArt, resetSharedArt } from '../cards/sharedArt'
+import { resetCardArtPreferences, setCardArtPreference } from '../cards/artPreferences'
+import { makeGameView, makePermanent, makePlayer } from '../__fixtures__/gameViews'
 
 vi.mock('../net/commands', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../net/commands')>()
@@ -15,6 +19,11 @@ vi.mock('../net/commands', async (importOriginal) => {
     joinGame: vi.fn(),
     watchGame: vi.fn(),
     getGameChatId: vi.fn(),
+    sendChatMessage: vi.fn(),
+    sendManaPaymentMode: vi.fn(),
+    updateManaConfirmPreference: vi.fn(),
+    updatePreferences: vi.fn(),
+    sendPlayerAction: vi.fn(),
   }
 })
 
@@ -182,6 +191,39 @@ describe('attachGateway — re-unión al reconectar', () => {
     await vi.waitFor(() => expect(getState().error).toBeTruthy())
     expect(getState().phase).toBe('lobby')
     expect(loadActiveGame()).toBeNull()
+    clearActiveGame()
+  })
+
+  it('CRD-6: after a reload, the art waiting for the game chat goes out once the rejoin learns the chat id', async () => {
+    resetSharedArt()
+    resetCardArtPreferences()
+    setCardArtPreference('Sol Ring', 'SLD', '1011')
+    vi.mocked(cmds.sendChatMessage).mockReset().mockResolvedValue({ ok: true } as never)
+    let chatReady: (id: string) => void = () => {}
+    vi.mocked(cmds.getGameChatId)
+      .mockReturnValueOnce(new Promise((r) => { chatReady = r }) as never)
+      // the GAME_INIT handler asks too; leave that answer pending so only the rejoin's counts
+      .mockReturnValueOnce(new Promise(() => {}) as never)
+    const events = await attachStub()
+    saveActiveGame('g-art')
+    setState({ conn: { serverHost: 'h', port: 1, username: 'Alice', password: 'x' }, phase: 'lobby' } as never)
+    await events.onOpen?.()
+    await vi.waitFor(() => expect(cmds.joinGame).toHaveBeenCalledWith('g-art'))
+
+    const view = makeGameView({
+      turn: 4,
+      myPlayerId: 'p-Alice',
+      players: [makePlayer({ playerId: 'p-Alice', name: 'Alice', controlled: true, battlefield: { r1: makePermanent({ id: 'r1', name: 'Sol Ring', controllerId: 'p-Alice' }) } })],
+    })
+    handleMessage({ type: 'event', method: 'GAME_INIT', messageId: 1, objectId: 'g-art', data: view } as never)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(cmds.sendChatMessage).not.toHaveBeenCalled()
+
+    chatReady('c-art')
+    await vi.waitFor(() => expect(cmds.sendChatMessage).toHaveBeenCalledTimes(1))
+    const [chatId, text] = vi.mocked(cmds.sendChatMessage).mock.calls[0]
+    expect(chatId).toBe('c-art')
+    expect(decodeSharedArt(text as string)).toMatchObject({ r: 1, a: [['Sol Ring', 'SLD', '1011']] })
     clearActiveGame()
   })
 })

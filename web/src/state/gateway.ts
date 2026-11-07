@@ -9,6 +9,7 @@ import { resetGameEventOrder } from './gameUtils'
 import { t } from '../i18n'
 import { versionMismatchOf, type VersionMismatch } from '../net/versionMismatch'
 import { cancelTournamentPanelJoin } from './events/tournament'
+import { syncSharedArtOnChatReady } from './sharedArtSync'
 import type { ProxyMessage, ServerLinkEnvelope } from '../net/types'
 
 let gateway: Gateway | null = null
@@ -163,7 +164,10 @@ function resumeActiveGame(): void {
       if (!r?.ok) abandonResume(gameId, false)
     })
   }
-  void cmds.getGameChatId(gameId).then((cid) => setState({ gameChatId: cid ?? null }))
+  void cmds.getGameChatId(gameId).then((cid) => {
+    setState({ gameChatId: cid ?? null })
+    if (cid) syncSharedArtOnChatReady()
+  })
 }
 
 /** Rejoins the active draft/tournament: the in-memory state first; after a page

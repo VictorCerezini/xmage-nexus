@@ -14,6 +14,8 @@ import { getState } from './state'
 
 const RESEND_DELAY_MS = 400
 let resendTimer: ReturnType<typeof setTimeout> | null = null
+/** The last game view seen, for `syncSharedArtOnChatReady`. */
+let lastView: { gameId: string; game: GameView } | null = null
 
 async function post(chatId: string, lines: string[]): Promise<boolean> {
   let ok = true
@@ -31,6 +33,7 @@ async function post(chatId: string, lines: string[]): Promise<boolean> {
 /** Call with every game view this client receives. */
 export function syncSharedArt(gameId: string | null | undefined, game: GameView | null | undefined): void {
   if (!gameId || !game) return
+  lastView = { gameId, game }
   const entries = noteGameView(gameId, game)
   const chatId = getState().gameChatId
   const isPlayer = (game.players ?? []).some((p) => p.controlled)
@@ -40,6 +43,15 @@ export function syncSharedArt(gameId: string | null | undefined, game: GameView 
   void post(chatId, lines).then((ok) => {
     if (!ok) forgetAnnounced(entries, request)
   })
+}
+
+/**
+ * Call once the game chat id is known: the first game view can arrive before it, and what that view
+ * had to post then waits for it (not for the next view, which can take a while).
+ */
+export function syncSharedArtOnChatReady(): void {
+  const s = getState()
+  if (lastView && lastView.gameId === s.gameId) syncSharedArt(lastView.gameId, lastView.game)
 }
 
 /**

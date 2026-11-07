@@ -76,12 +76,18 @@ line never shows in the chat, the log or a model seat's view. A player can still
 someone else's card for themselves during a match; that change wins on their screen, lasts for that
 match only, and does not change their own deck's art. The art follows the card's owner, also while
 another player controls it, and stays when a double-faced card transforms. A spectator who starts
-watching mid-game asks the players to post their choices again, so it sees them too.
+watching mid-game asks the players to post their choices again, so it sees them too. The art goes
+out from the first game screen that shows the card, also a prompt (who starts, a mulligan, a
+target), so a commander shows its art from the start of the game, not only after the mulligans;
+and it goes out as soon as the game chat is known, also when that is after the first game screen.
 
 - Why: the art picked in the deck builder was stored only on the player's own computer, and the
   XMage server swaps any printing it does not know for one it does, so the other players saw the
-  default image unless each of them changed it by hand.
-- Guard: `src/cards/sharedArt.test.ts` · `src/state/sharedArtSync.test.ts`
+  default image unless each of them changed it by hand. The first version only posted on full game
+  updates, which the deciding player does not get during the "who starts" choice and the
+  mulligans, so in a real Commander test the other player saw the default commander art for the
+  whole mulligan phase.
+- Guard: `src/cards/sharedArt.test.ts` · `src/state/sharedArtSync.test.ts` · `src/state/gateway-rejoin.test.ts`
 
 ### CRD-7 · The art picker never says a printing is unavailable
 Every Scryfall printing in the art picker can be picked, and none is marked "not on server".
