@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setGateway } from '../net/commands'
 import type { Gateway } from '../net/Gateway'
-import { fetchDeckIssues, fetchFormatIssues, xmageDeckTypeFor, applySuggestion, applySuggestions, autoResolveFixes, deckIssueKey, fixesForIssue, issuePrintings, findFlaggedSameName, issueKeysFromReport, isSamePrinting, syncCommandersForValidation } from './deckIssues'
+import { fetchDeckIssues, fetchFormatIssues, xmageDeckTypeFor, applySuggestion, applySuggestions, deckIssueKey, fixPrintingsQuietly, isPrintingOnlyIssue, withoutPrintingOnlyIssues, fixesForIssue, issuePrintings, findFlaggedSameName, issueKeysFromReport, isSamePrinting, syncCommandersForValidation } from './deckIssues'
 import type { DeckValidationResult } from '../net/types'
 
 const report: DeckValidationResult = {
@@ -113,17 +113,50 @@ describe('deckIssues helpers', () => {
     expect(synced.commanders).toEqual([cmd])
   })
 
-  it('autoResolveFixes takes the first suggestion of every flagged card that has one', () => {
-    const withMismatchSuggestion: DeckValidationResult = {
-      ...report,
-      mismatches: [
-        { ...report.mismatches[0], suggestions: [{ cardName: 'Banisher Priest', setCode: 'M14', cardNumber: '7' }, { cardName: 'Banisher Priest', setCode: 'C20', cardNumber: '1' }] },
+  it("DCK-17: a card the server has in another printing is the app's to fix; one it cannot play is the player's", () => {
+    const unimplemented = { cardName: 'Nope', setCode: 'ZZZ', cardNumber: '1', amount: 1, reason: 'UNIMPLEMENTED' as const }
+    const swappedWithFix = { ...report.mismatches[0], suggestions: [{ cardName: 'Banisher Priest', setCode: 'M14', cardNumber: '7' }] }
+    expect(isPrintingOnlyIssue(report.missing[0])).toBe(true)
+    expect(isPrintingOnlyIssue(swappedWithFix)).toBe(true)
+    // loaded as another card and no printing of the right one: a real problem
+    expect(isPrintingOnlyIssue(report.mismatches[0])).toBe(false)
+    expect(isPrintingOnlyIssue(unimplemented)).toBe(false)
+    const left = withoutPrintingOnlyIssues({ ...report, missing: [...report.missing, unimplemented], mismatches: [swappedWithFix] })
+    expect(left.missing).toEqual([unimplemented])
+    expect(left.mismatches).toEqual([])
+  })
+
+  it("DCK-17: the quiet fix moves the card to a printing the server has and keeps the deck's printing as its art", () => {
+    const deck = {
+      name: 't',
+      cards: [
+        { cardName: 'Rhystic Tutor', setCode: 'CY', cardNumber: '77', amount: 1 },
+        { cardName: 'Banisher Priest', setCode: 'C20', cardNumber: '77', amount: 2 },
+        { cardName: 'Island', setCode: 'LEA', cardNumber: '288', amount: 20 },
       ],
+      sideboard: [{ cardName: 'Rhystic Tutor', setCode: 'CY', cardNumber: '77', amount: 1 }],
     }
-    expect(autoResolveFixes(report)).toEqual([
-      { from: { cardName: 'Rhystic Tutor', setCode: 'CY', cardNumber: '77' }, to: { cardName: 'Rhystic Tutor', setCode: 'PCY', cardNumber: '77' } },
+    const quiet = fixPrintingsQuietly(deck, report)
+    expect(quiet.fixed).toBe(1)
+    expect(quiet.deck.cards.map((c) => `${c.setCode}#${c.cardNumber}`)).toEqual(['PCY#77', 'C20#77', 'LEA#288'])
+    expect(quiet.deck.sideboard[0].setCode).toBe('PCY')
+    expect(quiet.arts).toEqual([
+      { art: { cardName: 'Rhystic Tutor', setCode: 'CY', cardNumber: '77' }, sent: { cardName: 'Rhystic Tutor', setCode: 'PCY', cardNumber: '77' }, only: true },
     ])
-    expect(autoResolveFixes(withMismatchSuggestion).map((f) => f.to.setCode)).toEqual(['PCY', 'M14'])
+    // nothing to fix: the very same deck comes back
+    expect(fixPrintingsQuietly(deck, { ready: true, missing: [], mismatches: report.mismatches })).toEqual({ deck, arts: [], fixed: 0 })
+  })
+
+  it('DCK-17: a card imported with no printing is fixed but has no art of its own to keep', () => {
+    const noPrinting: DeckValidationResult = {
+      ready: true,
+      missing: [{ cardName: 'Forest', setCode: '', cardNumber: '', amount: 17, reason: 'OUTDATED_PRINTING', suggestions: [{ cardName: 'Forest', setCode: 'M21', cardNumber: '274' }] }],
+      mismatches: [],
+    }
+    const deck = { name: 't', cards: [{ cardName: 'Forest', setCode: '', cardNumber: '', amount: 17 }], sideboard: [] }
+    const quiet = fixPrintingsQuietly(deck, noPrinting)
+    expect(quiet.deck.cards[0]).toMatchObject({ setCode: 'M21', cardNumber: '274' })
+    expect(quiet.arts).toEqual([])
   })
 
   it('applySuggestions applies every fix across main and sideboard', () => {
@@ -156,10 +189,70 @@ describe('deckIssues helpers', () => {
     }
     expect(issueKeysFromReport(promo).has("Agatha's Soul Cauldron|PWOE|242s")).toBe(true)
     expect(issuePrintings(promo.missing[0]).map((p) => p.setCode)).toEqual(['WOE', 'PWOE'])
-    const deck = { name: 't', cards: [{ cardName: "Agatha's Soul Cauldron", setCode: 'PWOE', cardNumber: '242s' }], sideboard: [] }
+    const deck = { name: 't', cards: [{ cardName: "Agatha's Soul Cauldron", setCode: 'PWOE', cardNumber: '242s', amount: 1 }], sideboard: [] }
     const viaRow = applySuggestions(deck, fixesForIssue(promo.missing[0], promo.missing[0].suggestions![0]))
-    expect(viaRow.cards[0]).toEqual({ cardName: "Agatha's Soul Cauldron", setCode: 'WOE', cardNumber: '242' })
-    expect(applySuggestions(deck, autoResolveFixes(promo)).cards[0].setCode).toBe('WOE')
+    expect(viaRow.cards[0]).toEqual({ cardName: "Agatha's Soul Cauldron", setCode: 'WOE', cardNumber: '242', amount: 1 })
+    const quiet = fixPrintingsQuietly(deck, promo)
+    expect(quiet.deck.cards[0].setCode).toBe('WOE')
+    // the art kept is the printing the deck stored, not the one the proxy normalized it to
+    expect(quiet.arts).toEqual([
+      {
+        art: { cardName: "Agatha's Soul Cauldron", setCode: 'PWOE', cardNumber: '242s' },
+        sent: { cardName: "Agatha's Soul Cauldron", setCode: 'WOE', cardNumber: '242' },
+        only: true,
+      },
+    ])
+  })
+
+  it('DCK-17: several arts of one card each get a printing of their own, so each keeps its art', () => {
+    const lands = ['M21|260', 'M21|261', 'M21|262'].map((p) => ({ cardName: 'Island', setCode: p.split('|')[0], cardNumber: p.split('|')[1] }))
+    const twoArts: DeckValidationResult = {
+      ready: true,
+      missing: [
+        { cardName: 'Island', setCode: 'SLD', cardNumber: '1', amount: 2, reason: 'OUTDATED_PRINTING', suggestions: lands },
+        { cardName: 'Island', setCode: 'SLD', cardNumber: '2', amount: 3, reason: 'OUTDATED_PRINTING', suggestions: lands },
+      ],
+      mismatches: [],
+    }
+    const deck = {
+      name: 't',
+      cards: [
+        { cardName: 'Island', setCode: 'SLD', cardNumber: '1', amount: 2 },
+        { cardName: 'Island', setCode: 'SLD', cardNumber: '2', amount: 3 },
+        // a printing the server has: sent as it is, and never given to a swapped one
+        { cardName: 'Island', setCode: 'M21', cardNumber: '260', amount: 4 },
+      ],
+      sideboard: [],
+    }
+    const quiet = fixPrintingsQuietly(deck, twoArts)
+    expect(quiet.deck.cards.map((c) => `${c.setCode}#${c.cardNumber}`)).toEqual(['M21#261', 'M21#262', 'M21#260'])
+    expect(quiet.arts.map((a) => [`${a.art.setCode}#${a.art.cardNumber}`, `${a.sent.setCode}#${a.sent.cardNumber}`, a.only])).toEqual([
+      ['SLD#1', 'M21#261', false],
+      ['SLD#2', 'M21#262', false],
+    ])
+  })
+
+  it('DCK-17: when the server has too few printings, a swapped one shares the first', () => {
+    const one = [{ cardName: 'Island', setCode: 'M21', cardNumber: '260' }]
+    const report2: DeckValidationResult = {
+      ready: true,
+      missing: [
+        { cardName: 'Island', setCode: 'SLD', cardNumber: '1', amount: 2, reason: 'OUTDATED_PRINTING', suggestions: one },
+        { cardName: 'Island', setCode: 'SLD', cardNumber: '2', amount: 3, reason: 'OUTDATED_PRINTING', suggestions: one },
+      ],
+      mismatches: [],
+    }
+    const deck = {
+      name: 't',
+      cards: [
+        { cardName: 'Island', setCode: 'SLD', cardNumber: '1', amount: 2 },
+        { cardName: 'Island', setCode: 'SLD', cardNumber: '2', amount: 3 },
+      ],
+      sideboard: [],
+    }
+    const quiet = fixPrintingsQuietly(deck, report2)
+    expect(quiet.deck.cards.map((c) => c.cardNumber)).toEqual(['260', '260'])
+    expect(quiet.arts.map((a) => a.only)).toEqual([false, false])
   })
 
   it('findFlaggedSameName localiza solo entradas marcadas', () => {

@@ -20,7 +20,7 @@ import { DeckInspectorModal } from './DeckInspectorModal'
 import { DeckImportModal } from './DeckImportModal'
 import { exportTxt } from './parseDck'
 import type { CardStripMeta } from './ArenaCardStrip'
-import { applySuggestions, deckIssueKey, fetchDeckIssues, fetchFormatIssues, type DeckFix } from './deckIssues'
+import { fetchDeckIssues, fetchFormatIssues, withoutPrintingOnlyIssues } from './deckIssues'
 import { aggregateCards, deckCardKey } from './deckCardOps'
 import { commanderCardsFor, derivePartnerCard, withCommanderFirst } from './deckUtils'
 import { FORMAT_CONFIGS } from './formatRules'
@@ -246,7 +246,8 @@ export default function DeckBuilder({ deckId, onClose }: { deckId: string; onClo
     const seq = ++validationSeqRef.current
     void Promise.all([fetchDeckIssues(d, d.format), fetchFormatIssues(d, d.format)]).then(([report, formatReport]) => {
       if (seq !== validationSeqRef.current) return
-      setServerIssues(report)
+      // a card the server only lacks in this printing is swapped when the deck is sent: not a problem
+      setServerIssues(report ? withoutPrintingOnlyIssues(report) : null)
       setFormatIssues(formatReport)
     })
   }, [])
@@ -399,24 +400,6 @@ export default function DeckBuilder({ deckId, onClose }: { deckId: string; onClo
   const stableSwap = useEventCallback(mutations.handleSwap)
   const stableHover = useEventCallback(handleHoverCard)
   const stableLeave = useEventCallback(handleLeaveCard)
-
-  const handleRepairIssue = (fixes: DeckFix[]) => {
-    if (!deck) return
-    const next = applySuggestions(deck, fixes)
-    schedulePersist(next)
-    updateMetaForDeck([...next.cards, ...next.sideboard])
-    setServerIssues((prev) => {
-      if (!prev) return null
-      const fixedFromKeys = new Set(fixes.map((f) => deckIssueKey(f.from.cardName, f.from.setCode, f.from.cardNumber)))
-      const keep = (c: { cardName: string; setCode: string; cardNumber: string }) =>
-        !fixedFromKeys.has(deckIssueKey(c.cardName, c.setCode, c.cardNumber))
-      return {
-        ...prev,
-        missing: prev.missing.filter(keep),
-        mismatches: prev.mismatches.filter(keep),
-      }
-    })
-  }
 
   const mainList = deck?.cards ?? EMPTY_CARDS
   const sideList = deck?.sideboard ?? EMPTY_CARDS
@@ -880,7 +863,7 @@ export default function DeckBuilder({ deckId, onClose }: { deckId: string; onClo
         />
       )}
 
-      <DeckServerIssues issues={serverIssueList} onRepair={handleRepairIssue} />
+      <DeckServerIssues issues={serverIssueList} />
       <DeckFormatIssues issues={xmageDeckIssues} validator={formatIssues?.validator} />
 
       {phone ? (pilesView && (

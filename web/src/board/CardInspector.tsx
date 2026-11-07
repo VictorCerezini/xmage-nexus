@@ -6,6 +6,7 @@ import { useCardImageUrl } from '../cards/useCardImageUrl'
 import { getEffectiveCardLang, useLocalizedCardText } from '../cards/cardLocalization'
 import { customArtName } from '../cards/customCardArt'
 import { setCardArtPreference } from '../cards/artPreferences'
+import { artFor, isOtherPlayersCard, setMatchArtOverride } from '../cards/sharedArt'
 import { cardTypeLine } from '../cards/rendered/cardLayout'
 import { CardPrintingsModal } from '../decks/CardPrintingsModal'
 import { extractOwnedKeywords } from '../data/keywordExtractor'
@@ -359,11 +360,15 @@ export default function CardInspector() {
       {canCustomize && showPrintings && card && (
         <CardPrintingsModal
           cardName={customArtName(active as CardView) ?? displayName}
-          currentSet={(active as CardView).expansionSetCode ?? ''}
-          currentNumber={(active as CardView).cardNumber ?? ''}
+          currentSet={(source && artFor(source))?.setCode ?? (active as CardView).expansionSetCode ?? ''}
+          currentNumber={(source && artFor(source))?.cardNumber ?? (active as CardView).cardNumber ?? ''}
           onSelectPrinting={(setCode, cardNumber) => {
             const name = customArtName(active as CardView)
-            if (name) setCardArtPreference(name, setCode, cardNumber)
+            if (!name) return
+            // another player's copy: change it on this screen for this match only, so their own pick
+            // stays the default everyone else sees; our own copy: a normal preference (then shared)
+            if (source && isOtherPlayersCard(source)) setMatchArtOverride(source, name, setCode, cardNumber)
+            else setCardArtPreference(name, setCode, cardNumber)
           }}
           onClose={() => setShowPrintings(false)}
         />

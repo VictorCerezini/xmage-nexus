@@ -75,6 +75,34 @@ describe('CardPrintingsModal', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('CRD-7: no printing is marked unavailable, and any one can be picked', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockPrintsData,
+    }) as any
+    const onSelect = vi.fn()
+
+    const { container } = render(
+      <CardPrintingsModal
+        cardName="Lightning Bolt"
+        currentSet="M10"
+        currentNumber="146"
+        onSelectPrinting={onSelect}
+        onClose={vi.fn()}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Dominaria United')).toBeDefined()
+    })
+    expect(container.querySelectorAll('.printing-card-item')).toHaveLength(2)
+    expect(container.querySelector('.is-unavailable, [data-unavailable], .printing-unavailable-badge')).toBeNull()
+    // the fetches made are Scryfall's only: nothing asks the server which printings it has
+    for (const [url] of vi.mocked(globalThis.fetch).mock.calls) expect(String(url)).toContain('api.scryfall.com')
+    fireEvent.click(screen.getByText('Magic 2010'))
+    expect(onSelect).toHaveBeenCalledWith('M10', '146')
+  })
+
   it('shows the uploaded custom image and removes it from the custom art section', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

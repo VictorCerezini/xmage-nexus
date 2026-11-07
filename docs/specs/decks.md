@@ -251,3 +251,21 @@ stays one row.
   `separateCreatures` flag of its `.dck` layout settings); the user asked to implement what the
   first version left out (2026-10-28).
 - Guard: `src/state/persistence.test.ts` · `src/decks/stackColumns.test.ts` · `src/decks/DeckEditorToolbar.test.tsx` · `src/decks/DeckBuilder.test.tsx`
+
+### DCK-17 · A printing the server does not have never bothers the player
+A deck keeps the printings it was imported with (Moxfield, Archidekt, a .dck file, "Keep as is"),
+and the deck builder shows their art. When the server does not have one of those printings but has
+the same card in another one, nothing is shown: no warning in the deck builder, no dialog when
+joining. When the deck is sent, the app swaps the printing for one the server has and keeps the
+deck's printing as that card's art in the game, for this player and for the others (CRD-6). The
+player is only told about a card the server cannot play at all (not implemented, or loaded as
+another card with no printing of the right one), with the choice to remove it and play. Each
+swapped printing keeps its own art: a deck with several arts of one card (basic lands, say) keeps
+them all, as long as the server has enough printings of that card. The art is only kept once the
+deck is really sent (a cancelled join changes nothing), it survives a page reload, and it never
+carries over to a deck built from a draft or sealed pool.
+
+- Why: the server's card list lacks many printings Scryfall has (e.g. most Trostani, Selesnya's
+  Voice printings), so imports raised warnings and an "Auto-resolve" button that, once pressed,
+  replaced the art the player had chosen with a printing the server knew.
+- Guard: `src/decks/deckIssues.test.ts` · `src/lobby/DeckIssuesDialog.test.tsx` · `src/decks/DeckServerIssues.test.tsx` · `src/decks/deckArt.test.ts` · `src/state/events/draft.test.ts` · `e2e/deckvalidation.spec.ts`

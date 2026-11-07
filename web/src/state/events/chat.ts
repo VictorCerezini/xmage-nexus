@@ -7,9 +7,12 @@ import { sniffRollbackAnnounce } from './game'
 import { ingestRollbackChat } from '../rollbackVote'
 import { sniffShuffle } from '../../board/shuffleFx'
 import { sniffGameLogFx } from '../../board/gameLogFx'
+import { handleSharedArtChat } from '../sharedArtSync'
 
 export function handleChatMessage(data: unknown, objectId: string | null, s: Snapshot): void {
   const m = data as ChatMessageEvent
+  // hidden line carrying another player's picked card art: read it, never show it
+  if (handleSharedArtChat(m.username, m.message)) return
   if (m.soundToPlay === 'PlayerWhispered') {
     soundManager.play('whisper', 'ui')
   } else if (m.soundToPlay === 'PlayerLeft') {

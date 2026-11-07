@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import DeckServerIssues from './DeckServerIssues'
 import type { ServerIssueItem } from './useDeckValidation'
@@ -8,43 +8,40 @@ describe('DeckServerIssues', () => {
     cleanup()
   })
 
-  const trostaniIssue: ServerIssueItem = {
+  const unimplemented: ServerIssueItem = {
     kind: 'missing',
-    name: "Trostani, Selesnya's Voice",
-    set: 'SLD',
-    num: '2429',
+    name: 'Nope',
+    set: 'ZZZ',
+    num: '1',
     amount: 1,
-    message: 'Esa impresión (set/número) no existe',
-    to: { cardName: "Trostani, Selesnya's Voice", setCode: 'C19', cardNumber: '204' },
-    fixes: [
-      {
-        from: { cardName: "Trostani, Selesnya's Voice", setCode: 'SLD', cardNumber: '2429' },
-        to: { cardName: "Trostani, Selesnya's Voice", setCode: 'C19', cardNumber: '204' },
-      },
-    ],
+    message: 'No implementada en el servidor',
+  }
+  const loadsAnother: ServerIssueItem = {
+    kind: 'mismatch',
+    name: 'Banisher Priest',
+    set: 'C20',
+    num: '77',
+    amount: 2,
+    message: 'El servidor cargará "Fiend Hunter"',
   }
 
-  it('renders the issue and suggestion button', () => {
-    render(<DeckServerIssues issues={[trostaniIssue]} onRepair={vi.fn()} />)
-    expect(screen.getByText(/Trostani, Selesnya's Voice/)).toBeDefined()
-    expect(screen.getByTestId('builder-issue-auto-resolve')).toBeDefined()
-    expect(screen.getByTestId('builder-issue-repair')).toBeDefined()
+  it('DCK-17: lists the cards the server cannot play, with no repair or auto-resolve button', () => {
+    render(<DeckServerIssues issues={[unimplemented, loadsAnother]} />)
+    expect(screen.getByText(/Nope/)).toBeDefined()
+    expect(screen.getByText(/Banisher Priest/)).toBeDefined()
+    expect(screen.queryByTestId('builder-issue-auto-resolve')).toBeNull()
+    expect(screen.queryByTestId('builder-issue-repair')).toBeNull()
   })
 
-  it('optimistically hides repaired item when individual repair is clicked', () => {
-    const onRepair = vi.fn()
-    render(<DeckServerIssues issues={[trostaniIssue]} onRepair={onRepair} />)
-    fireEvent.click(screen.getByTestId('builder-issue-repair'))
-    expect(onRepair).toHaveBeenCalledWith(trostaniIssue.fixes)
-    // Banner should disappear because all fixable issues are repaired
-    expect(screen.queryByTestId('builder-server-issues')).toBeNull()
+  it('a "loads as another card" warning can be accepted and hidden', () => {
+    render(<DeckServerIssues issues={[unimplemented, loadsAnother]} />)
+    fireEvent.click(screen.getByTestId('builder-issue-accept'))
+    expect(screen.queryByText(/Banisher Priest/)).toBeNull()
+    expect(screen.getByText(/Nope/)).toBeDefined()
   })
 
-  it('optimistically hides all items when Auto-resolver is clicked', () => {
-    const onRepair = vi.fn()
-    render(<DeckServerIssues issues={[trostaniIssue]} onRepair={onRepair} />)
-    fireEvent.click(screen.getByTestId('builder-issue-auto-resolve'))
-    expect(onRepair).toHaveBeenCalledWith(trostaniIssue.fixes)
+  it('shows nothing when there is nothing the player has to deal with', () => {
+    render(<DeckServerIssues issues={[]} />)
     expect(screen.queryByTestId('builder-server-issues')).toBeNull()
   })
 })

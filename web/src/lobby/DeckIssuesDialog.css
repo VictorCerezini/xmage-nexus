@@ -49,21 +49,9 @@
   font-style: italic;
 }
 
-.deck-issue-fixes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-1h);
-  margin-left: auto;
-}
-
 .deck-issues-footer {
   display: flex;
   justify-content: flex-end;
   gap: var(--sp-2h);
 }
 
-.deck-issue-same-card {
-  width: 100%;
-  font-size: var(--fs-xs);
-  color: var(--ok);
-}

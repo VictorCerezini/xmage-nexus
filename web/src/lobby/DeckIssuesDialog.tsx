@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Deck } from './decks'
-import { applySuggestions, autoResolveFixes, fetchDeckIssues, fixesForIssue } from '../decks/deckIssues'
+import { fetchDeckIssues, fixPrintingsQuietly, withoutPrintingOnlyIssues } from '../decks/deckIssues'
+import { rememberDeckArt } from '../decks/deckArt'
 import type { DeckMismatchCard, DeckMissingCard, DeckValidationResult } from '../net/types'
 import DialogShell from '../ui/DialogShell'
 import { useTranslation } from '../i18n'
@@ -8,12 +9,13 @@ import './DeckIssuesDialog.css'
 import Button from '../ui/Button'
 
 /**
- * Diálogo modal pre-unión: muestra las cartas del mazo que el servidor XMage
- * rechazará ("Card not found") o cargará como otra carta, y ofrece repararlas
- * (impresión alternativa) o quitarlas y jugar con el mazo corregido.
+ * Pre-join check. A card the server only lacks in this printing is moved to a printing it has,
+ * without asking: the deck's printing stays the card's art in the game (`decks/deckArt.ts`). The
+ * dialog only opens for cards the server cannot play at all (rejected, or loaded as another card
+ * with no printing of the right one), and offers to remove them and play.
  *
- * API por promesas: `requestDeckValidation(deck)` devuelve el mazo final
- * (posiblemente corregido) o null si el usuario cancela.
+ * Promise API: `requestDeckValidation(deck)` resolves with the deck to send, or null if the player
+ * cancels.
  */
 
 interface ActiveRequest {
@@ -44,15 +46,28 @@ export function requestDeckValidation(deck: Deck): Promise<Deck | null> {
   return (async () => {
     const report = await fetchDeckIssues(deck)
     if (!report) {
+      void rememberDeckArt([])
       return deck
     }
-    const hasMissing = report.missing.length > 0
-    const hasMismatches = report.mismatches.length > 0
-    if (!hasMissing && !hasMismatches) {
-      return deck
+    const quiet = fixPrintingsQuietly(deck, report)
+    // the art is only kept once the deck is really sent: a cancelled join leaves the last one as it was
+    const send = (d: Deck | null): Deck | null => {
+      if (d) void rememberDeckArt(quiet.arts)
+      return d
     }
+    let left = withoutPrintingOnlyIssues(report)
+    if (left.missing.length === 0 && left.mismatches.length === 0) return send(quiet.deck)
+    // the dialog's "remove and play" deck must come from the deck as it will be sent
+    if (quiet.fixed > 0) {
+      const again = await fetchDeckIssues(quiet.deck)
+      // without a fresh report the proxy's "deck without the rejected cards" would also drop the
+      // cards just fixed: offer no removal then, only cancel
+      left = again ? withoutPrintingOnlyIssues(again) : { ...left, fixedDeck: undefined }
+      if (left.missing.length === 0 && left.mismatches.length === 0) return send(quiet.deck)
+    }
+    const shown = left
     return new Promise<Deck | null>((resolve) => {
-      active = { deck, report, resolve }
+      active = { deck: quiet.deck, report: shown, resolve: (d) => resolve(send(d)) }
       notify()
     })
   })()
@@ -74,18 +89,6 @@ export default function DeckIssuesDialog() {
   const missing: DeckMissingCard[] = report.missing
   const mismatches: DeckMismatchCard[] = report.mismatches
   const removable = missing.reduce((acc, c) => acc + c.amount, 0)
-  const autoFixes = autoResolveFixes(report)
-  const autoFixable = [...missing, ...mismatches].filter((c) => (c.suggestions?.length ?? 0) > 0).length
-
-  const retryWith = (next: Deck) => {
-    // resolver la petición original con el resultado de la re-validación
-    const originalResolve = active?.resolve
-    active = null
-    notify()
-    void requestDeckValidation(next).then((result) => {
-      originalResolve?.(result)
-    })
-  }
 
   return (
     <DialogShell
@@ -115,23 +118,6 @@ export default function DeckIssuesDialog() {
                         ? t('decks', 'issues_reason_outdated')
                         : t('decks', 'issues_reason_unimplemented')}
                     </span>
-                    {c.suggestions && c.suggestions.length > 0 && (
-                      <span className="deck-issue-same-card">
-                        {t('decks', 'issues_banner_same_card', { set: c.suggestions[0].setCode, num: c.suggestions[0].cardNumber })}
-                      </span>
-                    )}
-                    {c.suggestions && c.suggestions.length > 0 && (
-                      <span className="deck-issue-fixes">
-                        {c.suggestions.slice(0, 3).map((s) => (
-                          <Button variant="subtle" size="sm"
-                            key={`${s.setCode}:${s.cardNumber}`}
-                            data-testid="deck-issue-suggestion"
-                            onClick={() => retryWith(applySuggestions(deck, fixesForIssue(c, s)))}>
-                            {t('decks', 'issues_use_suggestion', { set: s.setCode, num: s.cardNumber })}
-                          </Button>
-                        ))}
-                      </span>
-                    )}
                   </li>
                 ))}
               </ul>
@@ -149,18 +135,6 @@ export default function DeckIssuesDialog() {
                       <span className="deck-issue-printing">({c.setCode} #{c.cardNumber})</span>
                     </span>
                     <span className="deck-issue-reason">{t('decks', 'issues_mismatch_resolved', { resolved: c.resolvedName })}</span>
-                    {c.suggestions && c.suggestions.length > 0 && (
-                      <span className="deck-issue-fixes">
-                        {c.suggestions.slice(0, 3).map((s) => (
-                          <Button variant="subtle" size="sm"
-                            key={`${s.setCode}:${s.cardNumber}`}
-                            data-testid="deck-issue-suggestion"
-                            onClick={() => retryWith(applySuggestions(deck, fixesForIssue(c, s)))}>
-                            {t('decks', 'issues_use_suggestion', { set: s.setCode, num: s.cardNumber })}
-                          </Button>
-                        ))}
-                      </span>
-                    )}
                   </li>
                 ))}
               </ul>
@@ -172,16 +146,6 @@ export default function DeckIssuesDialog() {
           <Button variant="subtle" type="button" data-testid="deck-issues-cancel" onClick={() => closeRequest(null)}>
             {t('decks', 'issues_cancel')}
           </Button>
-          {autoFixes.length > 0 && (
-            <Button variant="success"
-              type="button"
-              data-testid="deck-issues-auto-resolve"
-              title={t('decks', 'issues_auto_resolve_hint')}
-              onClick={() => retryWith(applySuggestions(deck, autoFixes))}
-            >
-              {t('decks', 'issues_auto_resolve', { count: autoFixable })}
-            </Button>
-          )}
           {missing.length === 0 && mismatches.length > 0 && (
             <Button variant="primary"
               type="button"

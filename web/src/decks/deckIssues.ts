@@ -189,12 +189,94 @@ export function applySuggestions<D extends { cards: DeckPrinting[]; sideboard: D
   return fixes.reduce((acc, f) => applySuggestion(acc, f.from, f.to), deck)
 }
 
-/** First suggestion of every flagged card that has one (missing + mismatches). */
-export function autoResolveFixes(report: DeckValidationResult): DeckFix[] {
-  return [...report.missing, ...report.mismatches].flatMap((c) => {
-    const s = c.suggestions?.[0]
-    return s ? fixesForIssue(c, s) : []
-  })
+/**
+ * The server lacks this printing but has the same card in another one. The app swaps the printing by
+ * itself when the deck is sent (`fixPrintingsQuietly`) and keeps the deck's printing as the card's
+ * art, so this is never shown to the player. Only a card the server cannot play at all is.
+ */
+export function isPrintingOnlyIssue(issue: DeckIssue): boolean {
+  if (!issue.suggestions || issue.suggestions.length === 0) return false
+  return 'resolvedName' in issue || issue.reason === 'OUTDATED_PRINTING'
+}
+
+/** The report without the problems the app fixes by itself: what is left needs the player. */
+export function withoutPrintingOnlyIssues(report: DeckValidationResult): DeckValidationResult {
+  return {
+    ...report,
+    missing: report.missing.filter((c) => !isPrintingOnlyIssue(c)),
+    mismatches: report.mismatches.filter((c) => !isPrintingOnlyIssue(c)),
+  }
+}
+
+/** A printing the server lacked, the one sent in its place, and whether the art can stand alone. */
+export interface DeckArtSwap {
+  /** the deck's own printing: the art the player chose */
+  art: DeckPrinting
+  /** the printing sent to the server in its place: the one the game will show */
+  sent: DeckPrinting
+  /** no other printing of this card goes to the server, so every copy of it in the game is this one */
+  only: boolean
+}
+
+export interface QuietFix<D> {
+  /** the deck with every printing-only problem moved to a printing the server has */
+  deck: D
+  /** each swapped printing: the art the player chose, and the printing the server got instead */
+  arts: DeckArtSwap[]
+  /** how many problems were fixed */
+  fixed: number
+}
+
+const printingKey = (p: { setCode: string; cardNumber: string }) => `${p.setCode.trim().toUpperCase()}|${p.cardNumber.trim().toLowerCase()}`
+
+/**
+ * Moves every card the server only lacks in this printing to one it has. Each swapped printing gets
+ * a printing of its own where the server has enough (not one the deck already sends, nor one given
+ * to another swapped printing of the same card), so in the game every copy can still show the art
+ * its deck entry had (five Islands with five arts stay five arts).
+ */
+export function fixPrintingsQuietly<D extends DeckLike>(deck: D, report: DeckValidationResult): QuietFix<D> {
+  const issues = [...report.missing, ...report.mismatches].filter(isPrintingOnlyIssue)
+  if (issues.length === 0) return { deck, arts: [], fixed: 0 }
+  const entries = [
+    ...deck.cards,
+    ...deck.sideboard,
+    ...(deck.commanders ?? []),
+    ...(deck.commanderCard ? [deck.commanderCard] : []),
+    ...(deck.partnerCard ? [deck.partnerCard] : []),
+  ]
+  const issueKeys = new Set(issues.flatMap(issuePrintings).map((p) => `${foldCardName(p.cardName)}|${printingKey(p)}`))
+  const kept = entries.filter((c) => !issueKeys.has(`${foldCardName(c.cardName)}|${printingKey(c)}`))
+  const fixes: DeckFix[] = []
+  const swaps: { name: string; art: DeckPrinting | null; sent: DeckPrinting }[] = []
+  for (const issue of issues) {
+    const name = foldCardName(issue.cardName)
+    const taken = new Set([
+      ...kept.filter((c) => foldCardName(c.cardName) === name).map(printingKey),
+      ...swaps.filter((s) => s.name === name).map((s) => printingKey(s.sent)),
+    ])
+    const suggestions = issue.suggestions!
+    const to = suggestions.find((s) => !taken.has(printingKey(s))) ?? suggestions[0]
+    fixes.push(...fixesForIssue(issue, to))
+    const printings = issuePrintings(issue)
+    const stored = entries.find((c) => c.setCode.trim() && c.cardNumber.trim() && printings.some((p) => isSamePrinting(c, p)))
+    swaps.push({
+      name,
+      art: stored ? { cardName: stored.cardName.trim(), setCode: stored.setCode.trim(), cardNumber: stored.cardNumber.trim() } : null,
+      sent: { cardName: to.cardName, setCode: to.setCode, cardNumber: to.cardNumber },
+    })
+  }
+  const arts: DeckArtSwap[] = []
+  for (const s of swaps) {
+    if (!s.art) continue
+    const art = s.art
+    const sameCard = swaps.filter((o) => o.name === s.name)
+    const only =
+      !kept.some((c) => foldCardName(c.cardName) === s.name) &&
+      sameCard.every((o) => !!o.art && printingKey(o.art) === printingKey(art))
+    arts.push({ art, sent: s.sent, only })
+  }
+  return { deck: applySuggestions(deck, fixes), arts, fixed: issues.length }
 }
 
 /** Índice de la entrada con ese nombre marcada como problemática por el servidor (-1 si no hay). */

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CardView } from '../net/types'
 import { awaitImageUrl, cardKey, peekImageUrl } from './cardImages'
 import { customArtName, useCustomCardArt } from './customCardArt'
+import { useSharedArtVersion } from './sharedArt'
 
 interface Resolved {
   key: string | null
@@ -21,6 +22,7 @@ interface Resolved {
  */
 export function useCardImageUrl(card: CardView | null | undefined, enabled = true): string | null {
   const customArt = useCustomCardArt(enabled && card ? customArtName(card) : null)
+  useSharedArtVersion() // another player's art can change this card's key
   const key = enabled && card ? cardKey(card) : null
   const [resolved, setResolved] = useState<Resolved>(() => ({ key, url: peekImageUrl(key) }))
 

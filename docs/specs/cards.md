@@ -66,3 +66,27 @@ supertypes, types and subtypes ("Legendary Planeswalker — Jace"), never the en
 - Why: without a translated text the type line showed `CREATURE` with no subtypes, and the set and
   rarity, which the client already receives, were nowhere.
 - Guard: `src/board/cardInspectorModel.test.ts`
+
+### CRD-6 · Everyone sees the art a player picked for that player's cards
+When a player picks an art for a card (in the deck builder or during a match), the other players
+see that art on that player's copies of the card, for any Scryfall printing. The choice travels as a
+hidden line in the game chat, and only once the card is in a public zone (battlefield, stack,
+graveyard, exile, command zone), so it never tells anyone what is still in a hand or a library. The
+line never shows in the chat, the log or a model seat's view. A player can still change the art of
+someone else's card for themselves during a match; that change wins on their screen, lasts for that
+match only, and does not change their own deck's art. The art follows the card's owner, also while
+another player controls it, and stays when a double-faced card transforms. A spectator who starts
+watching mid-game asks the players to post their choices again, so it sees them too.
+
+- Why: the art picked in the deck builder was stored only on the player's own computer, and the
+  XMage server swaps any printing it does not know for one it does, so the other players saw the
+  default image unless each of them changed it by hand.
+- Guard: `src/cards/sharedArt.test.ts` · `src/state/sharedArtSync.test.ts`
+
+### CRD-7 · The art picker never says a printing is unavailable
+Every Scryfall printing in the art picker can be picked, and none is marked "not on server".
+
+- Why: the badge compared against the server's own printing list, but the image always comes from
+  Scryfall and the pick reaches the other players through CRD-6, so for the player the warning was
+  false (e.g. most Trostani, Voz dos Selesnya printings).
+- Guard: `src/decks/CardPrintingsModal.test.tsx`

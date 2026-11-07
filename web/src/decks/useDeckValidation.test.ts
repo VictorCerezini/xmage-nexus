@@ -184,26 +184,20 @@ describe('useDeckValidation', () => {
       expect(r.mergedCardIssues.has('PMH2:138p:Ragavan')).toBe(true)
     })
 
-    it('lists the issues with the first suggestion as the fix', () => {
+    it('lists each issue the builder was given, with no repair attached', () => {
       const r = run(deck, { server })
       expect(r.serverIssueList).toEqual([
         {
           kind: 'missing', name: 'Shock', set: 'ZZZ', num: '9', amount: 4,
           message: 'Esa impresión (set/número) no existe',
-          to: { cardName: 'Shock', setCode: 'M21', cardNumber: '159' },
-          fixes: [{ from: { cardName: 'Shock', setCode: 'ZZZ', cardNumber: '9' }, to: { cardName: 'Shock', setCode: 'M21', cardNumber: '159' } }],
         },
         {
           kind: 'missing', name: 'Unfinity Card', set: 'UNF', num: '1', amount: 1,
           message: 'No implementada en el servidor',
-          to: undefined,
-          fixes: [],
         },
         {
           kind: 'mismatch', name: 'Lightning Bolt', set: 'M10', num: '146', amount: 4,
           message: 'El servidor cargará «Lava Spike» en su lugar',
-          to: { cardName: 'Lightning Bolt', setCode: 'M11', cardNumber: '149' },
-          fixes: [{ from: { cardName: 'Lightning Bolt', setCode: 'M10', cardNumber: '146' }, to: { cardName: 'Lightning Bolt', setCode: 'M11', cardNumber: '149' } }],
         },
       ])
     })

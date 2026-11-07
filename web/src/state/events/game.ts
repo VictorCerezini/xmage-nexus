@@ -21,6 +21,7 @@ import { clearFlights } from '../../board/flightManager'
 import type { Snapshot, EmbeddedGame } from './context'
 import { waitingForName } from '../../game/waitingState'
 import { sniffShuffle } from '../../board/shuffleFx'
+import { syncSharedArt } from '../sharedArtSync'
 
 interface GameMeta {
   gameId: string
@@ -165,6 +166,7 @@ export function handleGameUpdate(method: string, objectId: string | null, data: 
       patch.combat = { ...(s.combat ?? emptyCombat()), mode, chosen: combatChosenFrom(embeddedGame, mode) }
     }
     setState(patch)
+    syncSharedArt(objectId ?? s.gameId, embeddedGame)
   }
 }
 

@@ -411,7 +411,9 @@ public final class BridgeCallbackProcessorService
             } else if (chatMessage.getMessageType() == ChatMessage.MessageType.TALK) {
                 String user = chatMessage.getUsername();
                 String message = chatMessage.getMessage();
-                if (user != null && message != null && !message.isEmpty()) {
+                // "~nxart1 ..." lines are the web client sharing its picked card art: not talk
+                boolean sharedArtLine = message != null && message.trim().startsWith("~nxart1");
+                if (user != null && message != null && !message.isEmpty() && !sharedArtLine) {
                     processorState.gameLogState().recordTalkMessage(
                         username,
                         user,

@@ -4,6 +4,7 @@ import { translateError } from '../../i18n'
 import { saveActiveDraft, clearActiveDraft, saveActiveConstruct } from '../persistence'
 import type { DraftClientMessage } from '../../net/types.generated'
 import type { DraftState } from '../slices'
+import { rememberDeckArt } from '../../decks/deckArt'
 
 export function handleStartDraft(objectId: string | null, data: unknown): void {
   setState({ draftOverAt: null, lastDraftEventAt: Date.now() })
@@ -171,6 +172,9 @@ export function handleConstruct(data: unknown, objectId: string | null): void {
   const pool = { ...(d?.deck?.sideboard ?? {}), ...(d?.deck?.cards ?? {}) } as Record<string, unknown>
   const time = d?.time ?? 600
   const construct = { deckName, pool, tableId, parentTableId: d?.parentTableId ?? null, timeLeft: time }
+  // a deck built from a draft or sealed pool only has printings the server gave: the art of the last
+  // constructed deck sent must not carry over to it
+  void rememberDeckArt([])
   setState({ construct })
   saveActiveConstruct(construct)
   setState({ draft: null, draftOverAt: null, lastDraftEventAt: null, lastDraftMethod: null })

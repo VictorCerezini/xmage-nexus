@@ -2,7 +2,7 @@ import type { CardView } from '../net/types'
 import { getCardLanguage } from '../i18n'
 import { extractOwnedKeywords } from '../data/keywordExtractor'
 import { scryfallJson } from './scryfallClient'
-import { cardArtPreference } from './artPreferences'
+import { artFor } from './sharedArt'
 import tokenImageData from '../data/tokenImages.generated.json'
 
 const memory = new Map<string, string | null>()
@@ -186,8 +186,10 @@ export function cardKey(card: CardView): string | null {
   }
 
   if (!isToken) {
-    const preferred = cardArtPreference(card.name)
-    if (preferred) return `${preferred.setCode}/${preferred.cardNumber}${backSuffix}`
+    // our own copy: our art pick, else the printing our deck had (the server may have sent another);
+    // another player's copy: the art that player chose (see sharedArt.ts)
+    const art = artFor(card)
+    if (art) return `${art.setCode}/${art.cardNumber}${backSuffix}`
   }
 
   // Cards with a real card number (including copy tokens that inherited the original's number)

@@ -6,7 +6,6 @@ import DialogShell from '../ui/DialogShell'
 import { useTranslation } from '../i18n'
 import { scryfallFetch } from '../cards/scryfallClient'
 import { CustomCardArtSection } from './CustomCardArtSection'
-import { xmagePrintingsOf } from './xmageCatalog'
 import './CardPrintingsModal.css'
 
 export interface CardPrinting {
@@ -55,21 +54,6 @@ export function CardPrintingsModal({
   const [printings, setPrintings] = useState<CardPrinting[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // Impresiones que tiene la release de XMage del servidor (null: sin proxy, no se marca nada)
-  const [onServer, setOnServer] = useState<Set<string> | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setOnServer(null)
-    void xmagePrintingsOf(cardName).then((list) => {
-      if (cancelled || !list) return
-      setOnServer(new Set(list.map((p) => `${p.setCode.toUpperCase()}|${p.cardNumber}`)))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [cardName])
-
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -144,17 +128,14 @@ export function CardPrintingsModal({
                 const isSelected =
                   p.set.toLowerCase() === currentSet.toLowerCase() &&
                   p.collectorNumber === currentNumber
-                const unavailable = !!onServer && !onServer.has(`${p.set}|${p.collectorNumber}`)
 
                 return (
                   <div
                     key={p.id}
-                    className={`printing-card-item ${isSelected ? 'selected' : ''}${unavailable ? ' is-unavailable' : ''}`}
-                    data-unavailable={unavailable || undefined}
-                    title={unavailable ? t('decks', 'printing_not_on_server') : undefined}
+                    className={`printing-card-item ${isSelected ? 'selected' : ''}`}
                     onClick={() => {
-                      // Impresión de Scryfall tal cual: la traducción a la que
-                      // carga el servidor (PLST, promos) la hace el proxy.
+                      // Any Scryfall printing works: the image comes from Scryfall, and other
+                      // players get the choice through the game chat (cards/sharedArt.ts).
                       onSelectPrinting(p.set, p.collectorNumber)
                       onClose()
                     }}
@@ -162,7 +143,6 @@ export function CardPrintingsModal({
                     <div className="printing-img-wrap">
                       <img src={p.imageUrl ?? undefined} alt={`${cardName} (${p.set})`} loading="lazy" />
                       {isSelected && <div className="printing-selected-badge">✓ {t('common', 'done')}</div>}
-                      {unavailable && <div className="printing-unavailable-badge">{t('decks', 'printing_not_on_server_short')}</div>}
                     </div>
 
                     <div className="printing-info">

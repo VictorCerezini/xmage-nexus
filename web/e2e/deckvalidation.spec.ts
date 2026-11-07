@@ -10,11 +10,14 @@ import { showDeckListView } from './support/deck-editor'
 /**
  * @deckvalidation — Pre-validación de mazos contra la BD de cartas del proxy.
  * En fake el FixtureServer responde a `validateDeck` con un informe
- * declarativo; el flujo (diálogo → reparar/quitar → joinTable con el mazo
- * corregido) es idéntico al real.
+ * declarativo; el flujo es idéntico al real. DCK-17: una impresión que el
+ * servidor no tiene se cambia sola (sin diálogo ni aviso); solo una carta que
+ * el servidor no puede jugar abre el diálogo (quitar y jugar).
  */
 
-async function openJoinDialogWithBadDeck(page: import('@playwright/test').Page): Promise<CaptureBuffers> {
+const DEFAULT_DECK = `1 [CY:77] Rhystic Tutor\n20 [LEA:288] Island`
+
+async function openJoinDialogWithBadDeck(page: import('@playwright/test').Page, deckText = DEFAULT_DECK): Promise<CaptureBuffers> {
   const buffers: CaptureBuffers = { frames: [], sent: [], pageErrors: [] }
   installCapture(page, buffers)
   await page.goto(`/?proxyPort=${proxyPort()}`)
@@ -32,7 +35,7 @@ async function openJoinDialogWithBadDeck(page: import('@playwright/test').Page):
 
   // importar un mazo con la carta problemática (set "CY" inexistente en XMage)
   await page.locator('[data-testid="join-import-toggle-btn"]').click()
-  await page.locator('.import-textarea').fill(`1 [CY:77] Rhystic Tutor\n20 [LEA:288] Island`)
+  await page.locator('.import-textarea').fill(deckText)
   await page.locator('[data-testid="import-submit-btn"]').click()
   await expect(page.locator('.join-deck-card.selected', { hasText: /Rhystic Tutor/i })).toBeVisible()
   await page.locator('.join-submit-btn').click()
@@ -43,193 +46,106 @@ async function waitJoinSent(buffers: CaptureBuffers): Promise<Record<string, unk
   let joinSent: Record<string, unknown> | null | undefined
   await expect(async () => {
     joinSent = buffers.sent.find((f) => f?.action === 'joinTable')
-    expect(joinSent, 'joinTable should be sent after the dialog resolves').toBeTruthy()
+    expect(joinSent, 'joinTable should be sent after the check resolves').toBeTruthy()
   }).toPass({ timeout: 15_000 })
   return joinSent as unknown as Record<string, unknown>
 }
 
+async function openNewDeckBuilder(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto(`/?proxyPort=${proxyPort()}`)
+  await dismissSetupWizard(page)
+  await page.getByPlaceholder(/Usuario|Username/i).fill(`dv_${Date.now()}`.slice(0, 13))
+  await page.getByPlaceholder(/Contraseña|Password/i).fill('pass')
+  await page.getByRole('button', { name: /Conectar/i }).click()
+  await expect(page.getByRole('button', { name: /Mesas/ })).toBeVisible({ timeout: 15000 })
+  await page.getByRole('button', { name: /Mis Mazos|Mazos/i }).click()
+  await page.locator('.deck-box-create').click()
+  await expect(page.locator('.deck-builder')).toBeVisible({ timeout: 8000 })
+  await showDeckListView(page)
+}
+
+type SentDeck = { cards: Array<{ cardName: string; setCode: string; cardNumber: string; amount: number }> }
+
 test.describe('Deck validation pre-join @deckvalidation @real', () => {
-  test('shows missing cards dialog and repairs via suggestion', async ({ page }) => {
+  test('DCK-17: a card the server has in another printing joins without any dialog', async ({ page }) => {
     // Solo fake: en real la mesa la tendría que crear otro humano (el dueño no
     // puede abandonarla sin eliminarla — TableController.leaveTable borra la
-    // mesa sin empezar del creador). La validación real sí se cubre en el
-    // tercer test (re-validación en vivo del builder contra la BD real).
+    // mesa sin empezar del creador).
     test.skip(!FAKE_MODE, 'requiere una mesa ajena con asiento libre (solo el escenario fake la provee)')
     await withFakeServer(deckIssuesScenario, async () => {
       const buffers = await openJoinDialogWithBadDeck(page)
-
-      // el diálogo de problemas aparece con la carta y el motivo
-      const dialog = page.getByTestId('deck-issues-dialog')
-      await expect(dialog).toBeVisible({ timeout: 10_000 })
-      const missingRow = page.getByTestId('deck-issue-row').first()
-      await expect(missingRow).toContainText('Rhystic Tutor')
-      await expect(missingRow).toContainText('CY #77')
-
-      // reparar con la sugerencia implementada (PCY #77) → re-valida limpio y une
-      await page.getByTestId('deck-issue-suggestion').first().click()
-      await expect(page.getByTestId('deck-issues-dialog')).toBeHidden({ timeout: 10_000 })
-
+      // joinTable only goes out once the check resolves: with a dialog it would wait for a click
       const joinSent = await waitJoinSent(buffers)
-      const deck = (joinSent.args as { deck?: { cards: Array<{ cardName: string; setCode: string }> } }).deck!
+      await expect(page.getByTestId('deck-issues-dialog')).toHaveCount(0)
+      const deck = (joinSent.args as { deck?: SentDeck }).deck!
       expect(deck.cards.some((c) => c.setCode === 'CY')).toBe(false)
       expect(deck.cards.some((c) => c.setCode === 'PCY' && c.cardName === 'Rhystic Tutor')).toBe(true)
     })
   })
 
-  test('auto-resolve applies every suggestion and joins', async ({ page }) => {
+  test('DCK-17: only a card the server cannot play opens the dialog; remove-and-play keeps the swap', async ({ page }) => {
     test.skip(!FAKE_MODE, 'requiere una mesa ajena con asiento libre (solo el escenario fake la provee)')
     await withFakeServer(deckIssuesScenario, async () => {
-      const buffers = await openJoinDialogWithBadDeck(page)
+      const buffers = await openJoinDialogWithBadDeck(page, `1 [CY:77] Rhystic Tutor\n1 [ZZZ:1] Nonexistent Card\n20 [LEA:288] Island`)
 
       await expect(page.getByTestId('deck-issues-dialog')).toBeVisible({ timeout: 10_000 })
-      await page.getByTestId('deck-issues-auto-resolve').click()
-      await expect(page.getByTestId('deck-issues-dialog')).toBeHidden({ timeout: 10_000 })
+      const rows = page.getByTestId('deck-issue-row')
+      await expect(rows).toHaveCount(1)
+      await expect(rows.first()).toContainText('Nonexistent Card')
+      await expect(page.getByTestId('deck-issues-dialog')).not.toContainText('Rhystic Tutor')
+      await expect(page.getByTestId('deck-issues-auto-resolve')).toHaveCount(0)
+      await expect(page.getByTestId('deck-issue-suggestion')).toHaveCount(0)
 
-      const joinSent = await waitJoinSent(buffers)
-      const deck = (joinSent.args as { deck?: { cards: Array<{ cardName: string; setCode: string }> } }).deck!
-      expect(deck.cards.some((c) => c.setCode === 'CY')).toBe(false)
-      expect(deck.cards.some((c) => c.setCode === 'PCY' && c.cardName === 'Rhystic Tutor')).toBe(true)
-    })
-  })
-
-  test('remove-and-play joins with the fixed deck', async ({ page }) => {
-    test.skip(!FAKE_MODE, 'requiere una mesa ajena con asiento libre (solo el escenario fake la provee)')
-    await withFakeServer(deckIssuesScenario, async () => {
-      const buffers = await openJoinDialogWithBadDeck(page)
-
-      await expect(page.getByTestId('deck-issues-dialog')).toBeVisible({ timeout: 10_000 })
       await page.getByTestId('deck-issues-remove-and-play').click()
       await expect(page.getByTestId('deck-issues-dialog')).toBeHidden({ timeout: 10_000 })
 
       const joinSent = await waitJoinSent(buffers)
-      const deck = (joinSent.args as { deck?: { cards: Array<{ cardName: string; setCode: string; amount: number }> } }).deck!
-      expect(deck.cards.some((c) => c.cardName === 'Rhystic Tutor')).toBe(false)
-      const island = deck.cards.find((c) => c.cardName === 'Island')
-      expect(island?.amount).toBe(20)
+      const deck = (joinSent.args as { deck?: SentDeck }).deck!
+      expect(deck.cards.some((c) => c.cardName === 'Nonexistent Card')).toBe(false)
+      expect(deck.cards.some((c) => c.setCode === 'PCY' && c.cardName === 'Rhystic Tutor')).toBe(true)
+      expect(deck.cards.find((c) => c.cardName === 'Island')?.amount).toBe(20)
     })
   })
 
-  test('deck builder re-validates live: badge appears on edit and clears when fixed', async ({ page }) => {
+  test('DCK-17: the deck builder warns only about cards the server cannot play', async ({ page }) => {
     await withFakeServer(deckIssuesScenario, async () => {
-      await page.goto(`/?proxyPort=${proxyPort()}`)
-      await dismissSetupWizard(page)
-      await page.getByPlaceholder(/Usuario|Username/i).fill(`dv_${Date.now()}`.slice(0, 13))
-      await page.getByPlaceholder(/Contraseña|Password/i).fill('pass')
-      await page.getByRole('button', { name: /Conectar/i }).click()
-      await expect(page.getByRole('button', { name: /Mesas/ })).toBeVisible({ timeout: 15000 })
+      await openNewDeckBuilder(page)
 
-      await page.getByRole('button', { name: /Mis Mazos|Mazos/i }).click()
-      await page.locator('.deck-box-create').click()
-      await expect(page.locator('.deck-builder')).toBeVisible({ timeout: 8000 })
-      await showDeckListView(page)
-
-      // importar una carta problemática (set "CY" inexistente en XMage)
+      // a printing the server lacks, a promo the proxy normalizes, and a card it cannot play
       await page.getByRole('button', { name: /Importar Mazo/i }).click()
-      await page.locator('.deck-import-textarea').fill(`1 [CY:77] Rhystic Tutor\n20 [LEA:288] Island`)
+      await page.locator('.deck-import-textarea').fill(
+        `1 [CY:77] Rhystic Tutor\n1 [PWOE:242s] Agatha's Soul Cauldron\n1 [ZZZ:1] Nonexistent Card\n20 [LEA:288] Island`,
+      )
       await page.locator('[data-testid="import-submit-btn"]').click()
-      // ojo: el strip muestra el nombre LOCALIZADO ("Tutor Rístico"); el nombre
-      // original va en el atributo title
+      // ojo: el strip muestra el nombre LOCALIZADO; el original va en el atributo title
       await expect(page.locator('.arena-card-strip[title*="Rhystic Tutor"]')).toBeVisible({ timeout: 5000 })
 
-      // re-validación en vivo (debounce 1.2s tras la edición): badge ⚠️ en la carta
-      const badStrip = page.locator('.arena-card-strip.has-issue[title*="Rhystic Tutor"]')
-      await expect(badStrip).toBeVisible({ timeout: 8000 })
-
-      // banner de nivel mazo con el detalle (visible sin mirar la carta)
+      // re-validación en vivo (debounce 1.2s tras la edición)
       const banner = page.getByTestId('builder-server-issues')
-      await expect(banner).toBeVisible()
-      await expect(banner).toContainText(/Rhystic Tutor/)
-      await expect(banner).toContainText(/PCY/)
-
-      // drag-reparación: soltar sobre el panel la misma carta con impresión
-      // válida (PCY, la que ofrece la colección) CONVIERTE la ficha marcada
-      // en vez de duplicarla
-      await page.evaluate(() => {
-        const dt = new DataTransfer()
-        dt.setData('application/json', JSON.stringify({ cardName: 'Rhystic Tutor', setCode: 'PCY', cardNumber: '77', amount: 1, source: 'search' }))
-        document.querySelector('.deck-list-panel')!.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
-      })
-      await expect(banner).not.toBeVisible({ timeout: 8000 })
-      await expect(page.locator('.arena-card-strip.has-issue')).toHaveCount(0)
-      await expect(page.locator('.arena-card-strip[title*="Rhystic Tutor"]')).toHaveCount(1)
-
-      // banner con botón Reparar: re-importamos la carta rota y aplicamos la
-      // sugerencia con un clic
-      await page.getByRole('button', { name: /Importar Mazo/i }).click()
-      await page.locator('.deck-import-textarea').fill(`1 [CY:77] Rhystic Tutor`)
-      await page.locator('[data-testid="import-submit-btn"]').click()
       await expect(banner).toBeVisible({ timeout: 8000 })
-      await banner.getByTestId('builder-issue-repair').click()
-      await expect(banner).not.toBeVisible({ timeout: 8000 })
-      await expect(page.locator('.arena-card-strip.has-issue')).toHaveCount(0)
-
-      // el mazo reparado no conserva ninguna entrada CY (el fake solo limpia
-      // el informe cuando la CY ha desaparecido del mazo)
-      await expect(banner).not.toBeVisible({ timeout: 8000 })
-      await expect(page.locator('.arena-card-strip.has-issue')).toHaveCount(0)
+      await expect(banner).toContainText(/Nonexistent Card/)
+      await expect(banner).not.toContainText(/Rhystic Tutor/)
+      await expect(banner).not.toContainText(/Agatha/)
+      await expect(banner.getByTestId('builder-issue-auto-resolve')).toHaveCount(0)
+      await expect(banner.getByTestId('builder-issue-repair')).toHaveCount(0)
+      await expect(page.locator('.arena-card-strip.has-issue')).toHaveCount(1)
+      await expect(page.locator('.arena-card-strip.has-issue[title*="Nonexistent Card"]')).toHaveCount(1)
     })
   })
 
-  test('deck builder banner: accept a substitution warning, then auto-resolve the rest', async ({ page }) => {
+  test('deck builder: a "loads as another card" warning can be accepted', async ({ page }) => {
     test.skip(!FAKE_MODE, 'the mismatch card is declared by the fake scenario')
     await withFakeServer(deckIssuesScenario, async () => {
-      await page.goto(`/?proxyPort=${proxyPort()}`)
-      await dismissSetupWizard(page)
-      await page.getByPlaceholder(/Usuario|Username/i).fill(`dv_${Date.now()}`.slice(0, 13))
-      await page.getByPlaceholder(/Contraseña|Password/i).fill('pass')
-      await page.getByRole('button', { name: /Conectar/i }).click()
-      await expect(page.getByRole('button', { name: /Mesas/ })).toBeVisible({ timeout: 15000 })
-
-      await page.getByRole('button', { name: /Mis Mazos|Mazos/i }).click()
-      await page.locator('.deck-box-create').click()
-      await expect(page.locator('.deck-builder')).toBeVisible({ timeout: 8000 })
-      await showDeckListView(page)
-
+      await openNewDeckBuilder(page)
       await page.getByRole('button', { name: /Importar Mazo/i }).click()
-      await page.locator('.deck-import-textarea').fill(`1 [CY:77] Rhystic Tutor\n1 [C20:77] Banisher Priest\n20 [LEA:288] Island`)
+      await page.locator('.deck-import-textarea').fill(`1 [C20:77] Banisher Priest\n20 [LEA:288] Island`)
       await page.locator('[data-testid="import-submit-btn"]').click()
 
       const banner = page.getByTestId('builder-server-issues')
       await expect(banner).toBeVisible({ timeout: 8000 })
       await expect(banner).toContainText(/Fiend Hunter/)
-      await expect(banner.getByTestId('builder-issue-auto-resolve')).toBeVisible()
-
       await banner.getByTestId('builder-issue-accept').click()
-      await expect(banner).not.toContainText(/Fiend Hunter/)
-      await expect(banner).toContainText(/Rhystic Tutor/)
-
-      await banner.getByTestId('builder-issue-auto-resolve').click()
-      await expect(banner).not.toBeVisible({ timeout: 8000 })
-      await expect(page.locator('.arena-card-strip[title*="Rhystic Tutor"]')).toHaveCount(1)
-    })
-  })
-
-  test('deck builder banner repairs a promo printing the proxy normalized (PWOE #242s → WOE)', async ({ page }) => {
-    test.skip(!FAKE_MODE, 'the normalized promo is declared by the fake scenario')
-    await withFakeServer(deckIssuesScenario, async () => {
-      await page.goto(`/?proxyPort=${proxyPort()}`)
-      await dismissSetupWizard(page)
-      await page.getByPlaceholder(/Usuario|Username/i).fill(`dv_${Date.now()}`.slice(0, 13))
-      await page.getByPlaceholder(/Contraseña|Password/i).fill('pass')
-      await page.getByRole('button', { name: /Conectar/i }).click()
-      await expect(page.getByRole('button', { name: /Mesas/ })).toBeVisible({ timeout: 15000 })
-
-      await page.getByRole('button', { name: /Mis Mazos|Mazos/i }).click()
-      await page.locator('.deck-box-create').click()
-      await expect(page.locator('.deck-builder')).toBeVisible({ timeout: 8000 })
-      await showDeckListView(page)
-
-      await page.getByRole('button', { name: /Importar Mazo/i }).click()
-      await page.locator('.deck-import-textarea').fill(`1 [PWOE:242s] Agatha's Soul Cauldron\n20 [LEA:288] Island`)
-      await page.locator('[data-testid="import-submit-btn"]').click()
-
-      const banner = page.getByTestId('builder-server-issues')
-      await expect(banner).toBeVisible({ timeout: 8000 })
-      await expect(banner).toContainText(/WOE #242s/)
-      await expect(page.locator('.arena-card-strip.has-issue')).toHaveCount(1)
-      await banner.getByTestId('builder-issue-repair').click()
-      await expect(banner).not.toBeVisible({ timeout: 8000 })
-      await expect(page.locator('.arena-card-strip.has-issue')).toHaveCount(0)
+      await expect(banner).not.toBeVisible()
     })
   })
 })

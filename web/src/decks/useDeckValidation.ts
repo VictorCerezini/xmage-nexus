@@ -3,7 +3,7 @@ import type { DeckV2 } from './types'
 import type { CardStripMeta } from './ArenaCardStrip'
 import type { DeckFormatValidationResult, DeckValidationResult, XmageFormatError } from '../net/types'
 import { validateDeckForFormat, type DeckValidationReport, type ValidationIssue } from './formatRules'
-import { deckIssueKey, fixesForIssue, issueKeysFromReport, issuePrintings, type DeckFix } from './deckIssues'
+import { deckIssueKey, issueKeysFromReport, issuePrintings } from './deckIssues'
 import { useTranslation } from '../i18n'
 
 export interface ServerIssueItem {
@@ -13,8 +13,6 @@ export interface ServerIssueItem {
   num: string
   amount: number
   message: string
-  to?: { cardName: string; setCode: string; cardNumber: string }
-  fixes: DeckFix[]
 }
 
 /**
@@ -110,7 +108,6 @@ export function useDeckValidation(
     if (!serverIssues) return []
     const out: ServerIssueItem[] = []
     for (const m of serverIssues.missing) {
-      const sug = m.suggestions?.[0]
       out.push({
         kind: 'missing',
         name: m.cardName,
@@ -118,12 +115,9 @@ export function useDeckValidation(
         num: m.cardNumber,
         amount: m.amount,
         message: m.reason === 'OUTDATED_PRINTING' ? t('decks', 'issues_reason_outdated') : t('decks', 'issues_reason_unimplemented'),
-        to: sug ? { cardName: sug.cardName, setCode: sug.setCode, cardNumber: sug.cardNumber } : undefined,
-        fixes: sug ? fixesForIssue(m, sug) : [],
       })
     }
     for (const m of serverIssues.mismatches) {
-      const sug = m.suggestions?.[0]
       out.push({
         kind: 'mismatch',
         name: m.cardName,
@@ -131,8 +125,6 @@ export function useDeckValidation(
         num: m.cardNumber,
         amount: m.amount,
         message: t('decks', 'issues_mismatch_resolved', { resolved: m.resolvedName }),
-        to: sug ? { cardName: sug.cardName, setCode: sug.setCode, cardNumber: sug.cardNumber } : undefined,
-        fixes: sug ? fixesForIssue(m, sug) : [],
       })
     }
     return out

@@ -4,65 +4,38 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from '../i18n'
 import Icon from '../ui/Icon'
 import type { ServerIssueItem } from './useDeckValidation'
-import type { DeckFix } from './deckIssues'
 
 interface Props {
   issues: ServerIssueItem[]
-  onRepair: (fixes: DeckFix[]) => void
 }
 
 const itemKey = (it: ServerIssueItem) => `${it.kind}|${it.name}|${it.set}|${it.num}`
 
-export default function DeckServerIssues({ issues, onRepair }: Props) {
+/**
+ * Cards in this deck the server cannot play: not implemented, or loaded as another card with no
+ * printing of the right one. A card the server only lacks in this printing is not listed: the app
+ * swaps the printing by itself when the deck is sent and keeps the deck's art (`deckIssues.ts`).
+ */
+export default function DeckServerIssues({ issues }: Props) {
   const { t } = useTranslation()
   const [dismissed, setDismissed] = useState(false)
   const [accepted, setAccepted] = useState<Set<string>>(() => new Set())
-  const [repaired, setRepaired] = useState<Set<string>>(() => new Set())
   useEffect(() => {
     setDismissed(false)
-    setRepaired(new Set())
   }, [issues])
-  const visible = issues.filter((it) => !accepted.has(itemKey(it)) && !repaired.has(itemKey(it)))
+  const visible = issues.filter((it) => !accepted.has(itemKey(it)))
   if (visible.length === 0 || dismissed) return null
-  const fixes = visible.flatMap((it) => it.fixes)
-  const fixable = visible.filter((it) => it.fixes.length > 0).length
   const accept = (it: ServerIssueItem) => setAccepted((prev) => new Set(prev).add(itemKey(it)))
-  const repairItem = (it: ServerIssueItem) => {
-    setRepaired((prev) => new Set(prev).add(itemKey(it)))
-    onRepair(it.fixes)
-  }
-  const repairAll = () => {
-    setRepaired(new Set(visible.map(itemKey)))
-    onRepair(fixes)
-  }
   return (
     <div className="builder-server-issues" data-testid="builder-server-issues" role="status" aria-live="polite">
       <div className="bsi-title">
         <span><Icon name="alert" size={14} /> {t('decks', 'issues_banner_title')}</span>
-        {fixable > 0 && (
-          <Button variant="success" size="sm" className="bsi-auto-btn"
-            data-testid="builder-issue-auto-resolve"
-            title={t('decks', 'issues_auto_resolve_hint')}
-            onClick={repairAll}>
-            {t('decks', 'issues_auto_resolve', { count: fixable })}
-          </Button>
-        )}
       </div>
       <CloseButton variant="plain" size="sm" className="bsi-close" onClick={() => setDismissed(true)} />
       <ul>
         {visible.map((it, i) => (
           <li key={`${itemKey(it)}-${i}`}>
             <strong>{it.amount}× {it.name} ({it.set} #{it.num})</strong> — {it.message}
-            {it.to && (
-              <>
-                <span className="bsi-sug"> · {t('decks', 'issues_banner_same_card', { set: it.to.setCode, num: it.to.cardNumber })}</span>{' '}
-                <Button variant="success" size="sm" className="bsi-repair-btn"
-                  data-testid="builder-issue-repair"
-                  onClick={() => repairItem(it)}>
-                  {t('decks', 'issues_use_suggestion', { set: it.to.setCode, num: it.to.cardNumber })}
-                </Button>
-              </>
-            )}
             {it.kind === 'mismatch' && (
               <Button variant="subtle" size="sm" className="bsi-repair-btn"
                 data-testid="builder-issue-accept"

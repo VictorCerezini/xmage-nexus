@@ -277,3 +277,20 @@ describe('draft persistido (resync tras recargar)', () => {
     expect(loadActiveDraft()).toBeNull()
   })
 })
+
+describe('handleConstruct and the art of the last constructed deck', () => {
+  it('DCK-17: a deck built from a draft or sealed pool does not take the last deck\'s art', async () => {
+    const { setDeckArt, noteGameView, resetSharedArt } = await import('../../cards/sharedArt')
+    const { cardKey } = await import('../../cards/cardImages')
+    resetSharedArt()
+    setDeckArt([{ names: ['Sol Ring'], on: { setCode: 'C21', cardNumber: '263' }, art: { setCode: 'SLD', cardNumber: '1512' }, only: true }])
+    const game = {
+      players: [{ playerId: 'p-me', name: 'me', controlled: true, battlefield: {} }],
+    } as never
+    noteGameView('g-1', game)
+    const solRing = { id: 'x', name: 'Sol Ring', controllerId: 'p-me', expansionSetCode: 'C21', cardNumber: '263' } as never
+    expect(cardKey(solRing)).toBe('SLD/1512')
+    handleConstruct({ deck: { sideboard: { a: { id: 'a', name: 'Sol Ring' } } }, currentTableId: 't-limited' }, null)
+    expect(cardKey(solRing)).toBe('C21/263')
+  })
+})

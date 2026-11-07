@@ -284,10 +284,6 @@
   line-height: 1.4;
 }
 
-.builder-server-issues .bsi-sug {
-  color: var(--ok);
-}
-
 .builder-server-issues .bsi-repair-btn {
   margin-left: var(--sp-1h);
 }
