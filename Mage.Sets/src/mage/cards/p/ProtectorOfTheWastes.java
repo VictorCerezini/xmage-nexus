@@ -117,6 +117,8 @@ class ProtectorOfTheWastesTriggeredAbility extends TriggeredAbilityImpl {
 
     @Override
     public boolean checkTrigger(GameEvent event, Game game) {
-        return event.getSourceId().equals(this.getSourceId());
+        // Both events name the creature in the target id. The event's source id is whatever made it happen, which is
+        // empty for an Aura put onto the battlefield by an effect (and this ability is checked from every zone).
+        return this.getSourceId().equals(event.getTargetId());
     }
 }
