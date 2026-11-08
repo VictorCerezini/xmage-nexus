@@ -68,13 +68,14 @@ supertypes, types and subtypes ("Legendary Planeswalker — Jace"), never the en
 - Guard: `src/board/cardInspectorModel.test.ts`
 
 ### CRD-6 · Everyone sees the art a player picked for that player's cards
-When a player picks an art for a card (in the deck builder or during a match), the other players
-see that art on that player's copies of the card, for any Scryfall printing. The choice travels as a
+When a player picks an art for a card in the deck builder, the other players see that art on that
+player's copies of the card, for any Scryfall printing (a change made during a match is for one copy
+only, and they see it on that copy: CRD-10). The choice travels as a
 hidden line in the game chat, and only once the card is in a public zone (battlefield, stack,
 graveyard, exile, command zone), so it never tells anyone what is still in a hand or a library. The
 line never shows in the chat, the log or a model seat's view. A player can still change the art of
-someone else's card for themselves during a match; that change wins on their screen, lasts for that
-match only, and does not change their own deck's art. The art follows the card's owner, also while
+someone else's card for themselves during a match (CRD-10); that change wins on their screen and does
+not change their own deck's art. The art follows the card's owner, also while
 another player controls it, and stays when a double-faced card transforms. A spectator who starts
 watching mid-game asks the players to post their choices again, so it sees them too. The art goes
 out from the first game screen that shows the card, also a prompt (who starts, a mulligan, a
@@ -98,19 +99,16 @@ Every Scryfall printing in the art picker can be picked, and none is marked "not
 - Guard: `src/decks/CardPrintingsModal.test.tsx`
 
 ### CRD-8 · A card's art changed during a match can go back to its default
-After a player changes a card's art during a match, the same art menu offers "Restore default art".
-For another player's card it drops the viewer's change, so the card shows the art its owner chose
-again (or what it showed before the change, when the owner chose none). For the player's own card it
-puts back the art pick it had before the first change in the match, or no pick (the deck's own
-printing), and the other players see that again too: a dropped pick goes out as a `[name]` entry
-that takes it back (versions before it skip that entry and keep the changed art). The option only
-shows when the art was changed. It lasts for the whole match, also across a page reload in the same
-tab, and ends when the next deck is sent. Like picking a printing, it closes the menu and leaves the
-inspector open on the card, now with that art.
+After a player changes a card's art during a match (CRD-10), the same art menu offers "Restore
+default art" for that card. For another player's card it drops the viewer's change, so the card
+shows the art its owner chose again (or what it showed before the change, when the owner chose
+none). For the player's own card it shows the deck's art again (the art pick from the deck builder,
+else the deck's own printing), and the other players see that again too: the change is taken back
+with a `[name, cardId]` entry. The option only shows when that card's art was changed. Like picking a
+printing, it closes the menu and leaves the inspector open on the card, now with that art.
 
 - Why: once a player changed a card's art during a match there was no way back to the default
-  short of finding that printing again by hand, and for the player's own card the change had
-  replaced the pick from the deck builder.
+  short of finding that printing again by hand.
 - Guard: `src/cards/sharedArt.test.ts` · `src/board/CardInspector.artRestore.test.tsx` · `e2e/card-inspector.spec.ts`
 
 ### CRD-9 · The art menu over the card inspector only closes itself
@@ -123,3 +121,20 @@ own backdrop closes the inspector.
   inspector, and the menu with it. "Upload image" opened the file picker but the menu was gone
   before the chosen file could arrive, so a custom image could not be set during a match.
 - Guard: `src/board/CardInspector.artRestore.test.tsx` · `e2e/card-inspector.spec.ts`
+
+### CRD-10 · An art change during a match changes only that card
+Picking a printing for a card during a match (in the card inspector's art menu) changes that one
+card only: the other cards with the same name, such as the player's other Swamps, keep their art,
+and the deck builder's art for the card is not touched. The change stays with the card while it is
+the same card in the game (in hand, on the battlefield, in the graveyard, in exile; a spell on the
+stack is a new object for the engine and shows the card's usual art there) and lasts for that game,
+also across a page reload in the same tab. On the player's own card the other players see the
+change too, on that card only, once it is in a public zone; it goes out as a `[name, setCode,
+cardNumber, cardId]` entry, which earlier versions skip (they keep showing the player's art for the
+card). On another player's card it shows on this screen only. Picking the art the card shows anyway
+leaves no change. Changing the art from an ability changes the card the ability comes from.
+
+- Why: the change was kept by card name, so changing one Swamp changed every Swamp of that player,
+  on every screen for the player's own cards, and it also replaced the deck builder's art for the
+  card.
+- Guard: `src/cards/sharedArt.test.ts` · `src/board/CardInspector.artRestore.test.tsx` · `e2e/card-inspector.spec.ts`

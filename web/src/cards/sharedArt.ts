@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { CardView, GameView, PermanentView } from '../net/types'
-import { cardArtPreference, clearCardArtPreference, setCardArtPreference, type CardArtPreference } from './artPreferences'
+import { cardArtPreference, type CardArtPreference } from './artPreferences'
 
 /**
  * Shared card art: the art a player picked for a card (`artPreferences.ts`), or the printing their
@@ -15,13 +15,19 @@ import { cardArtPreference, clearCardArtPreference, setCardArtPreference, type C
  * command zone), so the line never tells anyone which cards are still in a hand or a library.
  *
  * Wire format: `~nxart1 <base64url JSON>`, at most `MAX_LINE` characters (the server truncates
- * chat lines at 500). JSON: `{ n, r?, a: [entry, ...] }`. An entry is `[name, setCode, cardNumber]`
- * for an art pick (every copy of the card), or `[name, setCode, cardNumber, onSet, onNumber]` for a
- * deck printing (only the copies the game shows as the printing `onSet`/`onNumber`, the one the
- * server got in its place), or `[name]` to take back an art pick for that name (the player restored
- * its default art; versions before it skip this entry). `n` is a counter (the server drops a line
- * identical to the same user's previous one), `r: 1` asks the other clients to post their choices
- * again (sent when a client, player or spectator, starts or rejoins a game).
+ * chat lines at 500). JSON: `{ n, r?, a: [entry, ...] }`. An entry is one of:
+ * - `[name, setCode, cardNumber]`: an art pick (every copy of the card);
+ * - `[name, setCode, cardNumber, onSet, onNumber]`: a deck printing (only the copies the game shows
+ *   as the printing `onSet`/`onNumber`, the one the server got in its place);
+ * - `[name]`: takes back the art pick for that name (it is gone);
+ * - `[name, setCode, cardNumber, cardId]`: an art change made during the game for one copy, the card
+ *   with that id (the same id for every player, and while it moves between hand, battlefield,
+ *   graveyard and exile);
+ * - `[name, cardId]`: takes back that copy's change (the player restored its default art).
+ * Each version skips the entries it does not know: `[name]` came in 0.7.18, the two copy entries
+ * after it. `n` is a counter (the server drops a line identical to the same user's previous one),
+ * `r: 1` asks the other clients to post their choices again (sent when a client, player or
+ * spectator, starts or rejoins a game).
  */
 
 export const SHARED_ART_PREFIX = '~nxart1 '
@@ -29,8 +35,15 @@ const MAX_LINE = 480
 
 export type SharedArtEntry =
   | [name: string]
+  | [name: string, cardId: string]
   | [name: string, setCode: string, cardNumber: string]
+  | [name: string, setCode: string, cardNumber: string, cardId: string]
   | [name: string, setCode: string, cardNumber: string, onSet: string, onNumber: string]
+
+/** An entry that takes something back (`[name]`, `[name, cardId]`) instead of giving an art. */
+function isTakeBack(e: SharedArtEntry): e is [string] | [string, string] {
+  return e.length <= 2
+}
 
 export interface SharedArtMessage {
   n: number
@@ -100,9 +113,7 @@ export function decodeSharedArt(message: string): SharedArtMessage | null {
     const a: SharedArtEntry[] = []
     for (const e of r.a) {
       if (!Array.isArray(e) || !e.every((x) => typeof x === 'string' && x.trim() !== '')) continue
-      if (e.length === 1) a.push([e[0]])
-      else if (e.length === 3) a.push([e[0], e[1], e[2]])
-      else if (e.length === 5) a.push([e[0], e[1], e[2], e[3], e[4]])
+      if (e.length >= 1 && e.length <= 5) a.push([...e] as SharedArtEntry)
     }
     return { n: typeof r.n === 'number' ? r.n : 0, ...(r.r === 1 ? { r: 1 as const } : {}), a }
   } catch {
@@ -110,9 +121,14 @@ export function decodeSharedArt(message: string): SharedArtMessage | null {
   }
 }
 
-/** Where an entry is kept: the card name, plus the printing the game shows for a deck printing. A
- * `[name]` entry takes back what is kept under the name. */
+/** Where one copy's change is kept (no card name starts with `@`). */
+const copyKey = (cardId: string) => `@${cardId}`
+
+/** Where an entry is kept: the card name, plus the printing the game shows for a deck printing; the
+ * card id for one copy. A take-back entry removes what is kept under the same key. */
 function entryKey(e: SharedArtEntry): string {
+  if (e.length === 2) return copyKey(e[1])
+  if (e.length === 4) return copyKey(e[3])
   return e.length === 5 ? `${norm(e[0])}|${printingOf(e[3], e[4])}` : norm(e[0])
 }
 
@@ -126,8 +142,13 @@ const playerIdByName = new Map<string, string>()
 const byPlayer = new Map<string, Map<string, CardArtPreference>>()
 /** cardId → id of the player whose zone holds it (for cards without a controller in the view). */
 const zoneOwner = new Map<string, string>()
-/** This viewer's own in-match art changes for other players' cards: holderId → name → art. */
-const overrides = new Map<string, Map<string, CardArtPreference>>()
+/**
+ * This viewer's art changes made during the game, each for one copy only: card id → art. On its own
+ * cards the other players see them too; on another player's card only this screen does. Kept for
+ * the current game, also across a page reload in this tab (`COPY_ART_KEY`).
+ */
+const copyArt = new Map<string, CardArtPreference>()
+const COPY_ART_KEY = 'mage-web-copy-art-v1'
 /** What this client already announced in the current game: entry key → entry. */
 const announced = new Map<string, SharedArtEntry>()
 /** Art picks this client is taking back (`[name]` lines): entry key → what it had announced. */
@@ -201,17 +222,43 @@ export function useSharedArtVersion(): number {
 }
 
 export function resetSharedArt(gameId: string | null = null): void {
-  const hadArt = byPlayer.size > 0 || overrides.size > 0
+  const hadArt = byPlayer.size > 0 || copyArt.size > 0
   currentGameId = gameId
   myPlayerId = null
   playerIdByName.clear()
   byPlayer.clear()
-  overrides.clear()
   zoneOwner.clear()
   announced.clear()
   withdrawn.clear()
   requestSent = false
-  if (hadArt) emit()
+  loadCopyArt()
+  if (hadArt || copyArt.size > 0) emit()
+}
+
+/** Reads this game's art changes back after a page reload; another game's are dropped. */
+function loadCopyArt(): void {
+  copyArt.clear()
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(COPY_ART_KEY) ?? 'null') as { game?: unknown; cards?: unknown } | null
+    if (!raw) return
+    if (!currentGameId || raw.game !== currentGameId || !raw.cards || typeof raw.cards !== 'object') {
+      sessionStorage.removeItem(COPY_ART_KEY)
+      return
+    }
+    for (const [id, art] of Object.entries(raw.cards as Record<string, unknown>)) {
+      if (isPrinting(art)) copyArt.set(id, { setCode: art.setCode, cardNumber: art.cardNumber })
+    }
+  } catch {
+    copyArt.clear()
+  }
+}
+
+function saveCopyArt(): void {
+  try {
+    if (copyArt.size > 0 && currentGameId) {
+      sessionStorage.setItem(COPY_ART_KEY, JSON.stringify({ game: currentGameId, cards: Object.fromEntries(copyArt) }))
+    } else sessionStorage.removeItem(COPY_ART_KEY)
+  } catch {}
 }
 
 /** Remembers the art of the deck just sent (see `deckArt`). An empty list forgets the last one. */
@@ -344,28 +391,32 @@ export function noteGameView(gameId: string, game: GameView): SharedArtEntry[] {
 
   const fresh: SharedArtEntry[] = []
   const freshKeys = new Set<string>()
+  const want = (entry: SharedArtEntry) => {
+    const key = entryKey(entry)
+    if (sameArt(announced.get(key), entry) || freshKeys.has(key)) return
+    freshKeys.add(key)
+    fresh.push(entry)
+  }
   for (const card of mine) {
     if (!isArtCard(card)) continue
+    if (card.id) {
+      // this copy's own art change; once restored, take it back (it would keep winning on the others)
+      const copy = copyArt.get(card.id)
+      if (copy) want([card.name.trim(), copy.setCode, copy.cardNumber, card.id])
+      else if (announced.get(copyKey(card.id))?.length === 4) want([card.name.trim(), card.id])
+    }
     const deck = deckArtFor(card)
     for (const name of [card.name, card.secondCardFace?.name]) {
       if (!name?.trim()) continue
       const pick = cardArtPreference(name)
-      const wanted: SharedArtEntry[] = []
-      if (pick) wanted.push([name.trim(), pick.setCode, pick.cardNumber])
+      if (pick) want([name.trim(), pick.setCode, pick.cardNumber])
       else {
-        // a pick announced earlier and gone now (the player restored its default art): take it back,
-        // or it would keep winning over the deck printing on the other screens
-        if (announced.get(norm(name))?.length === 3) wanted.push([name.trim()])
+        // a pick announced earlier and gone now (removed in the deck builder): take it back, or it
+        // would keep winning over the deck printing on the other screens
+        if (announced.get(norm(name))?.length === 3) want([name.trim()])
         if (deck && card.expansionSetCode?.trim() && card.cardNumber?.trim()) {
-          wanted.push([name.trim(), deck.setCode, deck.cardNumber, card.expansionSetCode.trim(), card.cardNumber.trim()])
+          want([name.trim(), deck.setCode, deck.cardNumber, card.expansionSetCode.trim(), card.cardNumber.trim()])
         }
-      }
-      for (const entry of wanted) {
-        const key = entryKey(entry)
-        if (sameArt(announced.get(key), entry)) continue
-        if (freshKeys.has(key)) continue
-        freshKeys.add(key)
-        fresh.push(entry)
       }
     }
   }
@@ -373,7 +424,7 @@ export function noteGameView(gameId: string, game: GameView): SharedArtEntry[] {
 }
 
 function sameArt(a: SharedArtEntry | undefined, b: SharedArtEntry): boolean {
-  return !!a && a.length !== 1 && b.length !== 1 && a[1] === b[1] && a[2] === b[2]
+  return !!a && !isTakeBack(a) && !isTakeBack(b) && a[1] === b[1] && a[2] === b[2]
 }
 
 /** Lines to post now: new entries, plus the one-time request for the others' choices. */
@@ -382,7 +433,7 @@ export function linesToAnnounce(entries: SharedArtEntry[]): { lines: string[]; r
   if (entries.length === 0 && !request) return { lines: [], request: false }
   for (const e of entries) {
     const key = entryKey(e)
-    if (e.length === 1) {
+    if (isTakeBack(e)) {
       const prev = announced.get(key)
       if (prev) withdrawn.set(key, prev)
       announced.delete(key)
@@ -402,9 +453,9 @@ export function linesToResend(): string[] {
 export function forgetAnnounced(entries: SharedArtEntry[], requestFailed: boolean): void {
   for (const e of entries) {
     const key = entryKey(e)
-    if (e.length !== 1) announced.delete(key)
+    if (!isTakeBack(e)) announced.delete(key)
     else {
-      // the others still have the pick: keep it as announced, so the next update takes it back again
+      // the others still have the art: keep it as announced, so the next update takes it back again
       const prev = withdrawn.get(key)
       if (prev && !announced.has(key)) announced.set(key, prev)
     }
@@ -427,7 +478,7 @@ export function ingestSharedArt(gameId: string, game: GameView | null, senderNam
   if (msg.a.length > 0) {
     const map = byPlayer.get(sender.playerId) ?? new Map<string, CardArtPreference>()
     for (const e of msg.a) {
-      if (e.length === 1) map.delete(entryKey(e))
+      if (isTakeBack(e)) map.delete(entryKey(e))
       else map.set(entryKey(e), { setCode: e[1], cardNumber: e[2] })
     }
     byPlayer.set(sender.playerId, map)
@@ -438,138 +489,44 @@ export function ingestSharedArt(gameId: string, game: GameView | null, senderNam
 
 /**
  * True when this copy belongs to another player (or the viewer is not playing). For those copies an
- * art change made during the match only lasts for this match and only on this screen; the owner's
- * own choice stays their default for everyone else.
+ * art change made during the game only shows on this screen; the owner's own choice stays their
+ * default for everyone else.
  */
 export function isOtherPlayersCard(card: CardView): boolean {
   const holder = holderOf(card)
   return !myPlayerId || !holder || holder !== myPlayerId
 }
 
-/** Records this viewer's in-match art change for another player's copy of a card. */
-export function setMatchArtOverride(card: CardView, name: string, setCode: string, cardNumber: string): void {
-  const holder = holderOf(card) ?? '*'
-  const map = overrides.get(holder) ?? new Map<string, CardArtPreference>()
-  map.set(norm(name), { setCode, cardNumber })
-  overrides.set(holder, map)
+// --- changing one copy during the game, and restoring its default art -------------------------
+
+/**
+ * This viewer's art change during the game for one copy of a card, the one with this id: the other
+ * copies with the same name keep their art. On its own copy the other players see it too (it is
+ * announced like any other choice); on another player's copy only this screen does. Picking the art
+ * the copy shows anyway drops the change.
+ */
+export function setCopyArt(card: CardView, setCode: string, cardNumber: string): void {
+  if (!card.id) return
+  const before = baseArtFor(card) ?? { setCode: card.expansionSetCode ?? '', cardNumber: card.cardNumber ?? '' }
+  if (printingOf(before.setCode, before.cardNumber) === printingOf(setCode, cardNumber)) copyArt.delete(card.id)
+  else copyArt.set(card.id, { setCode, cardNumber })
+  saveCopyArt()
   emit()
 }
 
-// --- restoring the default art --------------------------------------------------------------
-
-/**
- * This client's art picks from before it changed the art of its own cards during the match, so the
- * art menu can put them back: face name → the pick it had then (null: none, the card showed its
- * deck's printing). Kept across the games of a match and a page reload in this tab; forgotten when
- * the next deck is sent (`forgetOwnArtDefaults`).
- */
-let ownDefaults: Map<string, CardArtPreference | null> | null = null
-const OWN_DEFAULTS_KEY = 'mage-web-own-art-defaults-v1'
-
-function loadedOwnDefaults(): Map<string, CardArtPreference | null> {
-  if (ownDefaults) return ownDefaults
-  ownDefaults = new Map()
-  try {
-    const raw = JSON.parse(sessionStorage.getItem(OWN_DEFAULTS_KEY) ?? '{}') as unknown
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      for (const [face, pick] of Object.entries(raw as Record<string, unknown>)) {
-        if (pick === null) ownDefaults.set(face, null)
-        else if (isPrinting(pick)) ownDefaults.set(face, { setCode: pick.setCode, cardNumber: pick.cardNumber })
-      }
-    }
-  } catch {
-    ownDefaults = new Map()
-  }
-  return ownDefaults
-}
-
-function saveOwnDefaults(): void {
-  const map = loadedOwnDefaults()
-  try {
-    if (map.size > 0) sessionStorage.setItem(OWN_DEFAULTS_KEY, JSON.stringify(Object.fromEntries(map)))
-    else sessionStorage.removeItem(OWN_DEFAULTS_KEY)
-  } catch {}
-}
-
-/** The keys an art pick is kept under for a card name: each face ("A // B" → a, b). */
-function facesOf(name: string): string[] {
-  return [...new Set(name.split(' // ').map(norm).filter(Boolean))]
-}
-
-function samePick(a: CardArtPreference | null | undefined, b: CardArtPreference | null | undefined): boolean {
-  return (a?.setCode ?? '') === (b?.setCode ?? '') && (a?.cardNumber ?? '') === (b?.cardNumber ?? '')
-}
-
-/** A new deck is being sent (a new match): the art it starts with is the default from now on. */
-export function forgetOwnArtDefaults(): void {
-  if (loadedOwnDefaults().size === 0) return
-  ownDefaults = new Map()
-  saveOwnDefaults()
+/** Whether the art menu can put this copy's default art back: its art was changed during the game. */
+export function canRestoreDefaultArt(card: CardView): boolean {
+  return !!card.id && copyArt.has(card.id)
 }
 
 /**
- * This client's in-match art change for its own copy of a card: a normal art pick (the others see
- * it too), remembering the pick it replaces so `restoreDefaultArt` can put that one back.
+ * Drops this copy's art change: it shows its default art again. Another player's copy: the art that
+ * player chose. This client's own copy: its deck's art (the art pick, else the deck's printing), and
+ * the other players see that again too.
  */
-export function setOwnArtInMatch(name: string, setCode: string, cardNumber: string): void {
-  const defaults = loadedOwnDefaults()
-  for (const face of facesOf(name)) {
-    if (!defaults.has(face)) defaults.set(face, cardArtPreference(face))
-  }
-  saveOwnDefaults()
-  setCardArtPreference(name, setCode, cardNumber)
-  emit()
-}
-
-/** Whose in-match changes can decide this copy's art (see `artFor`). */
-function overrideHolders(card: CardView): string[] {
-  const holder = holderOf(card)
-  return holder ? [holder, '*'] : [...overrides.keys()]
-}
-
-/** The names an in-match change for this copy can be kept under. */
-function overrideKeys(card: CardView, name: string): string[] {
-  return [...new Set([norm(name), ...lookupNames(card)])]
-}
-
-/**
- * Whether the art menu can put this copy's default art back: another player's copy this viewer
- * changed during the match, or this client's own copy whose art it changed during the match.
- */
-export function canRestoreDefaultArt(card: CardView, name: string): boolean {
-  if (isOtherPlayersCard(card)) {
-    const keys = overrideKeys(card, name)
-    return overrideHolders(card).some((h) => keys.some((k) => overrides.get(h)?.has(k)))
-  }
-  const defaults = loadedOwnDefaults()
-  return facesOf(name).some((f) => defaults.has(f) && !samePick(defaults.get(f), cardArtPreference(f)))
-}
-
-/**
- * Puts the default art back. Another player's copy: the art that player chose (this viewer's
- * in-match change is dropped). This client's own copy: the art pick it had before changing it
- * during the match, or none (its deck's printing), and the other players see that again too.
- */
-export function restoreDefaultArt(card: CardView, name: string): void {
-  if (isOtherPlayersCard(card)) {
-    const keys = overrideKeys(card, name)
-    for (const h of overrideHolders(card)) {
-      const map = overrides.get(h)
-      if (!map) continue
-      for (const k of keys) map.delete(k)
-      if (map.size === 0) overrides.delete(h)
-    }
-  } else {
-    const defaults = loadedOwnDefaults()
-    for (const face of facesOf(name)) {
-      if (!defaults.has(face)) continue
-      const before = defaults.get(face)
-      if (before) setCardArtPreference(face, before.setCode, before.cardNumber)
-      else clearCardArtPreference(face)
-      defaults.delete(face)
-    }
-    saveOwnDefaults()
-  }
+export function restoreDefaultArt(card: CardView): void {
+  if (!card.id || !copyArt.delete(card.id)) return
+  saveCopyArt()
   emit()
 }
 
@@ -584,22 +541,38 @@ function uniqueArt(maps: Iterable<Map<string, CardArtPreference>>, card: CardVie
   return found
 }
 
+/** The art one player changed during the game for this very copy (any player when `holder` is unknown). */
+function sharedCopyArt(card: CardView, holder: string | undefined): CardArtPreference | null {
+  if (!card.id) return null
+  const key = copyKey(card.id)
+  if (holder) return byPlayer.get(holder)?.get(key) ?? null
+  for (const map of byPlayer.values()) {
+    const art = map.get(key)
+    if (art) return art
+  }
+  return null
+}
+
+/** The art a copy shows without this viewer's own change for it (see `artFor`). */
+function baseArtFor(card: CardView): CardArtPreference | null {
+  const holder = holderOf(card)
+  if (holder && holder === myPlayerId) return ownArtFor(card)
+  if (holder) return sharedCopyArt(card, holder) ?? artIn(byPlayer.get(holder), card) ?? viewerPick(card)
+  return sharedCopyArt(card, undefined) ?? ownArtFor(card) ?? uniqueArt(byPlayer.values(), card)
+}
+
 /**
  * The art to show for a card in the game, or null for the printing the server sent.
+ * - Any copy this viewer changed during the game: that art (only that copy).
  * - This client's own copy: its art pick, else the printing its deck had.
- * - Another player's copy: this viewer's in-match change, else the art that player chose, else this
- *   viewer's own pick for the card.
- * - A card whose holder the view does not tell (a library search, cards being looked at): this
- *   viewer's in-match change, else its own art (most such cards are its own), else the only art
- *   another player shared for that card.
+ * - Another player's copy: the art that player gave this very copy during the game, else the art
+ *   that player chose for the card, else this viewer's own pick for the card.
+ * - A card whose holder the view does not tell (a library search, cards being looked at): the art a
+ *   player gave this very copy, else this viewer's own art (most such cards are its own), else the
+ *   only art another player shared for that card.
  */
 export function artFor(card: CardView): CardArtPreference | null {
   if (!card.name?.trim() || card.faceDown === true || card.isToken === true) return null
   if (!isArtCard(card)) return cardArtPreference(card.name)
-  const holder = holderOf(card)
-  if (holder && holder === myPlayerId) return ownArtFor(card)
-  if (holder) {
-    return artIn(overrides.get(holder), card) ?? artIn(overrides.get('*'), card) ?? artIn(byPlayer.get(holder), card) ?? viewerPick(card)
-  }
-  return artIn(overrides.get('*'), card) ?? ownArtFor(card) ?? uniqueArt(overrides.values(), card) ?? uniqueArt(byPlayer.values(), card)
+  return (card.id ? copyArt.get(card.id) : undefined) ?? baseArtFor(card)
 }

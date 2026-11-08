@@ -195,8 +195,8 @@ test.describe('Card inspector (right click)', { tag: '@game' }, () => {
   const savedPick = (page: Page, name: string) =>
     page.evaluate((n) => JSON.parse(localStorage.getItem('mage-web-card-art-v1') ?? '{}')[n.toLowerCase()] ?? null, name)
 
-  /** Right-clicks the card (closing the inspector first if it is open) and opens its art menu. */
-  async function openArtMenu(page: Page, slot: Locator) {
+  /** Right-clicks the card, closing the inspector first if it is open on another one. */
+  async function inspectSlot(page: Page, slot: Locator) {
     const inspector = page.locator('.card-inspector')
     if (await inspector.isVisible()) {
       await page.keyboard.press('Escape')
@@ -204,66 +204,81 @@ test.describe('Card inspector (right click)', { tag: '@game' }, () => {
     }
     await expect(slot).toBeVisible({ timeout: 15_000 })
     await slot.click({ button: 'right' })
+    await expect(inspector).toBeVisible()
+  }
+
+  /** Opens the inspector on the card and its art menu. */
+  async function openArtMenu(page: Page, slot: Locator) {
+    await inspectSlot(page, slot)
     await page.locator('.card-inspector-customize').click()
     const menu = page.locator('.printings-modal')
     await expect(menu.locator('.printing-card-item')).toHaveCount(2, { timeout: 10_000 })
     return menu
   }
 
-  test('CRD-8: a card whose art was changed during the match can go back to its default, from the same menu', async ({ page }) => {
+  test('CRD-8, CRD-10: the art picked during the match changes only that card, and can go back to its default', async ({ page }) => {
     await stubPrintings(page)
-    const opponentsRing = {
-      id: 'ring-sim', name: 'The One Ring', displayName: 'The One Ring', expansionSetCode: 'LTR', cardNumber: '246',
-      cardTypes: ['Artifact'], superTypes: ['Legendary'], controllerId: SIM_PLAYER_ID, rules: ['Indestructible.'],
-    } as unknown as PermanentView
-    await withFakeServer(() => cardInspectorScenario({ opponentBattlefield: { 'ring-sim': opponentsRing } }), async () => {
+    const ring = (id: string, controllerId?: string) => ({
+      id, name: 'The One Ring', displayName: 'The One Ring', expansionSetCode: 'LTR', cardNumber: '246',
+      cardTypes: ['Artifact'], superTypes: ['Legendary'], rules: ['Indestructible.'], ...(controllerId ? { controllerId } : {}),
+    }) as unknown as PermanentView
+    const scenario = () => cardInspectorScenario({
+      myExtraBattlefield: { ring2: ring('ring2') },
+      opponentBattlefield: { 'ring-sim': ring('ring-sim', SIM_PLAYER_ID), 'ring-sim2': ring('ring-sim2', SIM_PLAYER_ID) },
+    })
+    await withFakeServer(scenario, async () => {
       const { pageErrors } = await quickStartGame(page, { prefix: 'insp-art' })
-      const mine = page.locator('.card-slot[data-card-id="ring1"]').first()
-      const theirs = page.locator('.card-slot[data-card-id="ring-sim"]').first()
+      const slot = (id: string) => page.locator(`.card-slot[data-card-id="${id}"]`).first()
       const inspector = page.locator('.card-inspector')
       const restore = page.locator('.printings-restore')
       const inspectorImg = page.locator('.card-inspector-img')
 
       // my own copy: nothing changed yet, so no way back is offered
-      let menu = await openArtMenu(page, mine)
+      let menu = await openArtMenu(page, slot('ring1'))
       await expect(restore).toHaveCount(0)
       await menu.locator('.printing-card-item', { hasText: 'Middle-earth Commander' }).click()
       // only the menu closes: the inspector stays on the card, now showing that printing
       await expect(menu).toBeHidden()
       await expect(inspector).toBeVisible()
       await expect(inspectorImg).toHaveAttribute('src', /ltc-380/)
-      expect(await savedPick(page, 'The One Ring')).toEqual({ setCode: 'LTC', cardNumber: '380' })
+      // only that copy changes: my other Ring keeps its art, and the deck's art pick is untouched
+      expect(await savedPick(page, 'The One Ring')).toBeNull()
+      await inspectSlot(page, slot('ring2'))
+      await expect(inspectorImg).toHaveAttribute('src', /ltr-246/)
 
-      await openArtMenu(page, mine)
+      menu = await openArtMenu(page, slot('ring1'))
       await expect(restore).toBeVisible()
       await expect(restore.locator('.printings-restore-hint')).not.toBeEmpty()
       await page.screenshot({ path: test.info().outputPath('art-restore-own.png') })
       await restore.locator('button').click()
       await expect(page.locator('.printings-modal')).toBeHidden()
-      // there was no pick before the match: the deck's own printing again
+      // the deck's own printing again
       await expect(inspectorImg).toHaveAttribute('src', /ltr-246/)
-      expect(await savedPick(page, 'The One Ring')).toBeNull()
-      menu = await openArtMenu(page, mine)
+      menu = await openArtMenu(page, slot('ring1'))
       await expect(restore).toHaveCount(0)
       await menu.locator('.printings-close-btn').click()
       await expect(menu).toBeHidden()
       await expect(inspector).toBeVisible()
 
-      // the opponent's copy: a change only for this screen, which never touches the saved pick
-      menu = await openArtMenu(page, theirs)
+      // the opponent's copy: a change only for this screen and only for that copy
+      menu = await openArtMenu(page, slot('ring-sim'))
       await expect(restore).toHaveCount(0)
       await menu.locator('.printing-card-item', { hasText: 'Tales of Middle-earth' }).click()
       await expect(menu).toBeHidden()
       await expect(inspectorImg).toHaveAttribute('src', /ltr-451/)
       expect(await savedPick(page, 'The One Ring')).toBeNull()
+      await inspectSlot(page, slot('ring-sim2'))
+      await expect(inspectorImg).toHaveAttribute('src', /ltr-246/)
+      await inspectSlot(page, slot('ring1'))
+      await expect(inspectorImg).toHaveAttribute('src', /ltr-246/)
 
-      await openArtMenu(page, theirs)
+      await openArtMenu(page, slot('ring-sim'))
       await expect(restore).toBeVisible()
       await page.screenshot({ path: test.info().outputPath('art-restore-theirs.png') })
       await restore.locator('button').click()
       await expect(page.locator('.printings-modal')).toBeHidden()
       await expect(inspectorImg).toHaveAttribute('src', /ltr-246/)
-      await openArtMenu(page, theirs)
+      await openArtMenu(page, slot('ring-sim'))
       await expect(restore).toHaveCount(0)
 
       expect(pageErrors, `pageerrors: ${pageErrors.map(String).join(' | ')}`).toEqual([])

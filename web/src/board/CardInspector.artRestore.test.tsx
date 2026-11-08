@@ -5,10 +5,8 @@ import { setState } from '../state/store'
 import { makeGameView, makePermanent, makePlayer } from '../__fixtures__/gameViews'
 import { cardArtPreference, resetCardArtPreferences, setCardArtPreference } from '../cards/artPreferences'
 import { resetCardImageCache } from '../cards/cardImages'
-import {
-  artFor, encodeSharedArt, forgetOwnArtDefaults, ingestSharedArt, noteGameView, resetSharedArt, setDeckArt,
-} from '../cards/sharedArt'
-import type { GameView, PermanentView } from '../net/types'
+import { artFor, encodeSharedArt, ingestSharedArt, noteGameView, resetSharedArt, setDeckArt } from '../cards/sharedArt'
+import type { CardView, GameView } from '../net/types'
 
 vi.mock('../cards/cardImages', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../cards/cardImages')>()),
@@ -27,14 +25,16 @@ const CUSTOMIZE = 'Imagen personalizada…'
 const RESTORE = 'Restaurar arte por defecto'
 
 const bobs = makePermanent({ id: 'b1', name: TROSTANI, controllerId: 'p-Bob', expansionSetCode: 'GPT', cardNumber: '128' })
+const bobs2 = makePermanent({ id: 'b2', name: TROSTANI, controllerId: 'p-Bob', expansionSetCode: 'GPT', cardNumber: '128' })
 const mine = makePermanent({ id: 'a1', name: TROSTANI, controllerId: 'p-Alice', expansionSetCode: 'GPT', cardNumber: '128' })
+const mine2 = makePermanent({ id: 'a3', name: TROSTANI, controllerId: 'p-Alice', expansionSetCode: 'GPT', cardNumber: '128' })
 
 function table(): GameView {
   return makeGameView({
     myPlayerId: 'p-Alice',
     players: [
-      makePlayer({ playerId: 'p-Alice', name: 'Alice', controlled: true, battlefield: { a1: mine } }),
-      makePlayer({ playerId: 'p-Bob', name: 'Bob', battlefield: { b1: bobs } }),
+      makePlayer({ playerId: 'p-Alice', name: 'Alice', controlled: true, battlefield: { a1: mine, a3: mine2 } }),
+      makePlayer({ playerId: 'p-Bob', name: 'Bob', battlefield: { b1: bobs, b2: bobs2 } }),
     ],
   })
 }
@@ -47,7 +47,7 @@ const prints = {
 }
 
 /** Opens the inspector on this card (if it is not open on it already) and its art menu. */
-async function openArtMenu(card: PermanentView) {
+async function openArtMenu(card: CardView) {
   act(() => setState({ inspectedCard: card }))
   fireEvent.click(screen.getByText(CUSTOMIZE))
   await waitFor(() => expect(screen.getByText('Ravnica Remastered')).toBeDefined())
@@ -55,13 +55,13 @@ async function openArtMenu(card: PermanentView) {
 
 const menuOpen = () => document.querySelector('.printings-modal') !== null
 const inspectorOpen = () => document.querySelector('.card-inspector') !== null
+const RVR = { setCode: 'RVR', cardNumber: '216' }
 
 describe('the art menu during a match', () => {
   beforeEach(() => {
     resetSharedArt()
     resetCardArtPreferences()
     resetCardImageCache()
-    forgetOwnArtDefaults()
     setDeckArt([])
     globalThis.fetch = vi.fn().mockImplementation(async (url: string) =>
       String(url).includes('/cards/search')
@@ -87,7 +87,7 @@ describe('the art menu during a match', () => {
     // nothing was changed yet: no way back to offer
     expect(screen.queryByText(RESTORE)).toBeNull()
     fireEvent.click(screen.getByText('Ravnica Remastered'))
-    expect(artFor(bobs)).toEqual({ setCode: 'RVR', cardNumber: '216' })
+    expect(artFor(bobs)).toEqual(RVR)
     // the menu closes; the inspector stays open on the card, now with that art
     expect(menuOpen()).toBe(false)
     expect(inspectorOpen()).toBe(true)
@@ -106,7 +106,7 @@ describe('the art menu during a match', () => {
     expect(screen.queryByText(RESTORE)).toBeNull()
   })
 
-  it('CRD-8: my own card goes back to the art it had when the match started, from the same menu', async () => {
+  it('CRD-8: my own card goes back to my deck\'s art, from the same menu', async () => {
     setCardArtPreference(TROSTANI, 'PRM', '50000')
     const game = table()
     noteGameView(GAME, game)
@@ -116,15 +116,48 @@ describe('the art menu during a match', () => {
     await openArtMenu(mine)
     expect(screen.queryByText(RESTORE)).toBeNull()
     fireEvent.click(screen.getByText('Ravnica Remastered'))
-    expect(cardArtPreference(TROSTANI)).toEqual({ setCode: 'RVR', cardNumber: '216' })
+    expect(artFor(mine)).toEqual(RVR)
 
     await openArtMenu(mine)
     expect(screen.getByText('Vuelve al arte que tenía tu mazo al empezar la partida. Los demás jugadores también lo vuelven a ver.')).toBeDefined()
     fireEvent.click(screen.getByText(RESTORE))
-    expect(cardArtPreference(TROSTANI)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
     expect(artFor(mine)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
     await openArtMenu(mine)
     expect(screen.queryByText(RESTORE)).toBeNull()
+  })
+
+  it('CRD-10: the art picked for one card changes that card only, not the others with its name or the deck', async () => {
+    setCardArtPreference(TROSTANI, 'PRM', '50000')
+    const game = table()
+    noteGameView(GAME, game)
+    act(() => setState({ game }))
+    render(<CardInspector />)
+
+    await openArtMenu(mine)
+    fireEvent.click(screen.getByText('Ravnica Remastered'))
+    expect(artFor(mine)).toEqual(RVR)
+    expect(artFor(mine2)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
+    expect(cardArtPreference(TROSTANI)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
+
+    await openArtMenu(bobs2)
+    fireEvent.click(screen.getByText('Secret Lair Drop'))
+    expect(artFor(bobs2)).toEqual({ setCode: 'SLD', cardNumber: '999' })
+    expect(artFor(bobs)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
+  })
+
+  it('CRD-10: changing the art from an ability changes the card the ability comes from', async () => {
+    const game = table()
+    noteGameView(GAME, game)
+    act(() => setState({ game }))
+    render(<CardInspector />)
+
+    const ability = { id: 'ab1', name: 'Ability', mageObjectType: 'ABILITY_STACK', controllerId: 'p-Alice', sourceCard: mine } as CardView
+    await openArtMenu(ability)
+    fireEvent.click(screen.getByText('Ravnica Remastered'))
+    expect(artFor(mine)).toEqual(RVR)
+    expect(artFor(mine2)).toBeNull()
+    await openArtMenu(ability)
+    expect(screen.getByText(RESTORE)).toBeDefined()
   })
 
   it('CRD-9: a click inside the art menu keeps it and the inspector open; outside the menu only closes the menu', async () => {

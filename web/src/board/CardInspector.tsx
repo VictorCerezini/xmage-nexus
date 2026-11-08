@@ -6,7 +6,7 @@ import { useCardImageUrl } from '../cards/useCardImageUrl'
 import { getEffectiveCardLang, useLocalizedCardText } from '../cards/cardLocalization'
 import { customArtName } from '../cards/customCardArt'
 import {
-  artFor, canRestoreDefaultArt, isOtherPlayersCard, restoreDefaultArt, setMatchArtOverride, setOwnArtInMatch,
+  artFor, canRestoreDefaultArt, isOtherPlayersCard, restoreDefaultArt, setCopyArt,
 } from '../cards/sharedArt'
 import { cardTypeLine } from '../cards/rendered/cardLayout'
 import { CardPrintingsModal } from '../decks/CardPrintingsModal'
@@ -40,12 +40,17 @@ function closeInspector() {
   setState({ inspectedCard: null })
 }
 
-/** The art menu's "Restore default art", when this card's art was changed during the match. */
-function restoreDefaultFor(card: CardView | null, name: string | null, t: T): { hint: string; onRestore: () => void } | undefined {
-  if (!card || !name || !canRestoreDefaultArt(card, name)) return undefined
+/** The copy whose art the art menu changes: for an ability, the card it comes from. */
+function artTarget(card: CardView): CardView {
+  return isAbilityCard(card) && card.sourceCard?.id ? card.sourceCard : card
+}
+
+/** The art menu's "Restore default art", when this copy's art was changed during the game. */
+function restoreDefaultFor(card: CardView | null, t: T): { hint: string; onRestore: () => void } | undefined {
+  if (!card || !canRestoreDefaultArt(card)) return undefined
   return {
     hint: t('decks', isOtherPlayersCard(card) ? 'art_restore_hint_theirs' : 'art_restore_hint_mine'),
-    onRestore: () => restoreDefaultArt(card, name),
+    onRestore: () => restoreDefaultArt(card),
   }
 }
 
@@ -378,19 +383,15 @@ export default function CardInspector() {
       {canCustomize && showPrintings && card && (
         <CardPrintingsModal
           cardName={customArtName(active as CardView) ?? displayName}
-          currentSet={(source && artFor(source))?.setCode ?? (active as CardView).expansionSetCode ?? ''}
-          currentNumber={(source && artFor(source))?.cardNumber ?? (active as CardView).cardNumber ?? ''}
+          currentSet={artFor(artTarget(source as CardView))?.setCode ?? (active as CardView).expansionSetCode ?? ''}
+          currentNumber={artFor(artTarget(source as CardView))?.cardNumber ?? (active as CardView).cardNumber ?? ''}
           onSelectPrinting={(setCode, cardNumber) => {
-            const name = customArtName(active as CardView)
-            if (!name) return
-            // another player's copy: change it on this screen for this match only, so their own pick
-            // stays the default everyone else sees; our own copy: a normal preference (then shared),
-            // keeping the one it replaces for "Restore default art"
-            if (source && isOtherPlayersCard(source)) setMatchArtOverride(source, name, setCode, cardNumber)
-            else setOwnArtInMatch(name, setCode, cardNumber)
+            // only this copy changes, for this game: the other cards with the same name keep their
+            // art. Our own copy: the other players see it too; another player's: only this screen
+            setCopyArt(artTarget(source as CardView), setCode, cardNumber)
           }}
           onClose={() => setShowPrintings(false)}
-          restoreDefault={restoreDefaultFor(source, customArtName(active as CardView), t)}
+          restoreDefault={restoreDefaultFor(artTarget(source as CardView), t)}
         />
       )}
     </div>,

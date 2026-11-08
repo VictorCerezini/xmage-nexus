@@ -4,8 +4,13 @@ import type { Scenario } from '../fake'
 import type { GameView, PermanentView, PlayerView } from '../../src/net/types'
 import { GAME_ID, TABLE_ID, SIM_NAME, HUMAN_NAME, HUMAN_PLAYER_ID, SIM_PLAYER_ID } from '../humanGameConstants'
 
-/** `opponentBattlefield`: cards on the other player's battlefield (none by default). */
-export function cardInspectorScenario(opts: { opponentBattlefield?: Record<string, PermanentView> } = {}): Scenario {
+/**
+ * `opponentBattlefield`: cards on the other player's battlefield (none by default). `myExtraBattlefield`:
+ * more cards on this player's battlefield, after the usual ones.
+ */
+export function cardInspectorScenario(
+  opts: { opponentBattlefield?: Record<string, PermanentView>; myExtraBattlefield?: Record<string, PermanentView> } = {},
+): Scenario {
   const human: PlayerView = {
     playerId: HUMAN_PLAYER_ID,
     name: HUMAN_NAME,
@@ -121,6 +126,7 @@ export function cardInspectorScenario(opts: { opponentBattlefield?: Record<strin
           "−12: Exile all cards from target player's library, then that player shuffles their hand into their library.",
         ],
       } as unknown as PermanentView,
+      ...opts.myExtraBattlefield,
     },
   } as unknown as PlayerView
   const sim: PlayerView = {
