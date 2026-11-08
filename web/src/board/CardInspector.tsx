@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CardView, PermanentView } from '../net/types'
-import { cardName, getSourceCardName, isAbilityCard, largeImageUrl } from '../cards/cardImages'
+import { cardName, getSourceCardName, isAbilityCard, isTokenCard, largeImageUrl } from '../cards/cardImages'
 import { useCardImageUrl } from '../cards/useCardImageUrl'
 import { getEffectiveCardLang, useLocalizedCardText } from '../cards/cardLocalization'
 import { customArtName } from '../cards/customCardArt'
@@ -48,8 +48,10 @@ function artTarget(card: CardView): CardView {
 /** The art menu's "Restore default art", when this copy's art was changed during the game. */
 function restoreDefaultFor(card: CardView | null, t: T): { hint: string; onRestore: () => void } | undefined {
   if (!card || !canRestoreDefaultArt(card)) return undefined
+  // our own token has no deck art: it goes back to the game's image for it
+  const mine = isTokenCard(card) ? 'art_restore_hint_token' : 'art_restore_hint_mine'
   return {
-    hint: t('decks', isOtherPlayersCard(card) ? 'art_restore_hint_theirs' : 'art_restore_hint_mine'),
+    hint: t('decks', isOtherPlayersCard(card) ? 'art_restore_hint_theirs' : mine),
     onRestore: () => restoreDefaultArt(card),
   }
 }
@@ -392,6 +394,7 @@ export default function CardInspector() {
           }}
           onClose={() => setShowPrintings(false)}
           restoreDefault={restoreDefaultFor(artTarget(source as CardView), t)}
+          token={isTokenCard(artTarget(source as CardView))}
         />
       )}
     </div>,

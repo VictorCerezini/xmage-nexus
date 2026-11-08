@@ -1989,6 +1989,7 @@ export const es: TranslationSchema = {
     art_restore_default: 'Restaurar arte por defecto',
     art_restore_hint_mine: 'Vuelve al arte que tenía tu mazo al empezar la partida. Los demás jugadores también lo vuelven a ver.',
     art_restore_hint_theirs: 'Vuelve al arte que eligió su dueño. Solo cambia en tu pantalla.',
+    art_restore_hint_token: 'Vuelve a la imagen habitual de la ficha. Los demás jugadores también la vuelven a ver.',
     strip_cover_current: 'Portada actual',
     strip_cover_use: 'Usar como portada',
     strip_remove_all: 'Eliminar todas las copias',

@@ -134,7 +134,16 @@ cardNumber, cardId]` entry, which earlier versions skip (they keep showing the p
 card). On another player's card it shows on this screen only. Picking the art the card shows anyway
 leaves no change. Changing the art from an ability changes the card the ability comes from.
 
+A token works the same way: the art menu lists Scryfall's token printings, found by the token's
+name without the " Token" the game adds ("Zombie Token" is looked up as "Zombie"), and the pick
+changes that one token, on every screen for the player's own token. "Restore default art" brings
+back the game's usual image for it. An art picked for a name (in the deck builder, or shared by its
+owner) never goes on a token. When Scryfall has no printing for a name, the menu says there are no
+cards to show instead of an error.
+
 - Why: the change was kept by card name, so changing one Swamp changed every Swamp of that player,
   on every screen for the player's own cards, and it also replaced the deck builder's art for the
-  card.
-- Guard: `src/cards/sharedArt.test.ts` · `src/board/CardInspector.artRestore.test.tsx` · `e2e/card-inspector.spec.ts`
+  card. For a token, the menu searched Scryfall for "Zombie Token" among normal cards, where no
+  token is listed, so Scryfall answered 404 and the menu only showed an error; and a picked
+  printing would not have shown on a token anyway.
+- Guard: `src/cards/sharedArt.test.ts` · `src/board/CardInspector.artRestore.test.tsx` · `src/decks/CardPrintingsModal.test.tsx` · `e2e/card-inspector.spec.ts`

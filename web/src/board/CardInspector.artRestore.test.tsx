@@ -183,4 +183,34 @@ describe('the art menu during a match', () => {
     fireEvent.click(document.querySelector('.card-inspector-backdrop')!)
     expect(inspectorOpen()).toBe(false)
   })
+
+  it("CRD-10: a token's art can be changed: the menu lists token printings, and only that token changes", async () => {
+    const zombie = (id: string) =>
+      makePermanent({ id, name: 'Zombie Token', controllerId: 'p-Alice', expansionSetCode: 'M21', cardNumber: '0', isToken: true, mageObjectType: 'TOKEN' })
+    const z1 = zombie('z1')
+    const z2 = zombie('z2')
+    const game = makeGameView({
+      myPlayerId: 'p-Alice',
+      players: [
+        makePlayer({ playerId: 'p-Alice', name: 'Alice', controlled: true, battlefield: { z1, z2 } }),
+        makePlayer({ playerId: 'p-Bob', name: 'Bob' }),
+      ],
+    })
+    noteGameView(GAME, game)
+    act(() => setState({ game }))
+    render(<CardInspector />)
+
+    await openArtMenu(z1)
+    const searches = vi.mocked(globalThis.fetch).mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/cards/search'))
+    expect(searches).toHaveLength(1)
+    expect(searches[0]).toContain('q=!%22Zombie%22+include:extras&')
+    fireEvent.click(screen.getByText('Ravnica Remastered'))
+    expect(artFor(z1)).toEqual(RVR)
+    expect(artFor(z2)).toBeNull()
+
+    await openArtMenu(z1)
+    expect(screen.getByText('Vuelve a la imagen habitual de la ficha. Los demás jugadores también la vuelven a ver.')).toBeDefined()
+    fireEvent.click(screen.getByText(RESTORE))
+    expect(artFor(z1)).toBeNull()
+  })
 })

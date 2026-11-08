@@ -1989,6 +1989,7 @@ export const fr: TranslationSchema = {
     art_restore_default: 'Rétablir l’illustration par défaut',
     art_restore_hint_mine: 'Revient à l’illustration qu’avait votre deck au début de la partie. Les autres joueurs la revoient aussi.',
     art_restore_hint_theirs: 'Revient à l’illustration choisie par son propriétaire. Ne change que sur votre écran.',
+    art_restore_hint_token: 'Revient à l’image habituelle du jeton. Les autres joueurs la revoient aussi.',
     strip_cover_current: 'Couverture actuelle',
     strip_cover_use: 'Utiliser comme couverture',
     strip_remove_all: 'Retirer toutes les copies',

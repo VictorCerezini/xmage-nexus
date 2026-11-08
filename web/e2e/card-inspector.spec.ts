@@ -166,16 +166,25 @@ test.describe('Card inspector (right click)', { tag: '@game' }, () => {
     })
   })
 
-  /** Two printings for the art menu; other Scryfall lookups have no text, and every image is a stub. */
-  async function stubPrintings(page: Page): Promise<void> {
-    const print = (set: string, num: string, setName: string) => ({
-      id: `p-${set}-${num}`, set, set_name: setName, collector_number: num, released_at: '2023-06-23', rarity: 'rare',
-      image_uris: { normal: `https://cards.scryfall.io/normal/front/${set}-${num}.svg` },
-    })
+  /** A Scryfall printing whose image is named after it. */
+  const print = (set: string, num: string, setName: string) => ({
+    id: `p-${set}-${num}`, set, set_name: setName, collector_number: num, released_at: '2023-06-23', rarity: 'rare',
+    image_uris: { normal: `https://cards.scryfall.io/normal/front/${set}-${num}.svg` },
+  })
+
+  /**
+   * Two printings for the art menu; other Scryfall lookups have no text, and every image is a stub.
+   * `search`: the printings for a search (its decoded URL), null for Scryfall's 404 when none match.
+   */
+  async function stubPrintings(page: Page, search?: (url: string) => ReturnType<typeof print>[] | null): Promise<void> {
     const prints = { data: [print('ltr', '451', 'Tales of Middle-earth'), print('ltc', '380', 'Middle-earth Commander')] }
     await page.route('**/api.scryfall.com/**', (route) => {
       const url = route.request().url()
-      if (url.includes('/cards/search')) return route.fulfill({ json: prints })
+      if (url.includes('/cards/search')) {
+        if (!search) return route.fulfill({ json: prints })
+        const found = search(decodeURIComponent(url))
+        return found ? route.fulfill({ json: { data: found } }) : route.fulfill({ status: 404, json: { object: 'error', code: 'not_found' } })
+      }
       // a printing lookup: its image is named after the printing, so the test can tell which one shows
       const printing = /\/cards\/([a-z0-9]+)\/([a-z0-9]+)(?:\/|$)/i.exec(new URL(url).pathname)
       if (printing && printing[1] !== 'named') {
@@ -279,6 +288,60 @@ test.describe('Card inspector (right click)', { tag: '@game' }, () => {
       await expect(page.locator('.printings-modal')).toBeHidden()
       await expect(inspectorImg).toHaveAttribute('src', /ltr-246/)
       await openArtMenu(page, slot('ring-sim'))
+      await expect(restore).toHaveCount(0)
+
+      expect(pageErrors, `pageerrors: ${pageErrors.map(String).join(' | ')}`).toEqual([])
+    })
+  })
+
+  test("CRD-10: a token's art can be changed during the match, on that token only", async ({ page }) => {
+    const searches: string[] = []
+    // like Scryfall: a token is only listed with include:extras, under its name without " Token"
+    await stubPrintings(page, (url) => {
+      searches.push(url)
+      return url.includes('!"Zombie"') && url.includes('include:extras')
+        ? [print('tm21', '11', 'Core Set 2021 Tokens'), print('tmh3', '6', 'Modern Horizons 3 Tokens')]
+        : null
+    })
+    const zombie = (id: string, controllerId?: string) => ({
+      id, name: 'Zombie Token', displayName: 'Zombie Token', expansionSetCode: 'M21', cardNumber: '0', isToken: true,
+      mageObjectType: 'TOKEN', cardTypes: ['Creature'], subTypes: ['Zombie'], power: '2', toughness: '2',
+      ...(controllerId ? { controllerId } : {}),
+    }) as unknown as PermanentView
+    const scenario = () => cardInspectorScenario({
+      myExtraBattlefield: { z1: zombie('z1'), z2: zombie('z2') },
+      opponentBattlefield: { 'z-sim': zombie('z-sim', SIM_PLAYER_ID) },
+    })
+    await withFakeServer(scenario, async () => {
+      const { pageErrors } = await quickStartGame(page, { prefix: 'insp-token' })
+      const slot = (id: string) => page.locator(`.card-slot[data-card-id="${id}"]`).first()
+      const inspector = page.locator('.card-inspector')
+      const restore = page.locator('.printings-restore')
+      const inspectorImg = page.locator('.card-inspector-img')
+
+      // the menu lists the token printings: no error
+      let menu = await openArtMenu(page, slot('z1'))
+      await expect(menu.locator('.printings-status-box.error')).toHaveCount(0)
+      expect(searches.at(-1)).toContain('!"Zombie"+include:extras')
+      await expect(restore).toHaveCount(0)
+      await menu.locator('.printing-card-item', { hasText: 'Core Set 2021 Tokens' }).click()
+      await expect(menu).toBeHidden()
+      await expect(inspector).toBeVisible()
+      await expect(inspectorImg).toHaveAttribute('src', /tm21-11/)
+      await page.screenshot({ path: test.info().outputPath('token-art-picked.png') })
+      // the other Zombies keep their image
+      await inspectSlot(page, slot('z2'))
+      await expect(inspectorImg).not.toHaveAttribute('src', /tm21-11/)
+      await inspectSlot(page, slot('z-sim'))
+      await expect(inspectorImg).not.toHaveAttribute('src', /tm21-11/)
+
+      menu = await openArtMenu(page, slot('z1'))
+      await expect(restore).toBeVisible()
+      await expect(restore.locator('.printings-restore-hint')).toContainText(/token|ficha/i)
+      await restore.locator('button').click()
+      await expect(page.locator('.printings-modal')).toBeHidden()
+      await expect(inspectorImg).not.toHaveAttribute('src', /tm21-11/)
+      await openArtMenu(page, slot('z1'))
       await expect(restore).toHaveCount(0)
 
       expect(pageErrors, `pageerrors: ${pageErrors.map(String).join(' | ')}`).toEqual([])

@@ -45,6 +45,7 @@ export function CardPrintingsModal({
   onSelectPrinting,
   onClose,
   restoreDefault,
+  token = false,
 }: {
   cardName: string
   currentSet: string
@@ -53,6 +54,9 @@ export function CardPrintingsModal({
   onClose: () => void
   /** During a match, when this card's art was changed: puts its default art back (`hint` says which). */
   restoreDefault?: { hint: string; onRestore: () => void }
+  /** A token in a game: Scryfall only lists tokens with `include:extras`, and names them without the
+   * " Token" the game adds ("Zombie Token" → "Zombie"). */
+  token?: boolean
 }) {
   const { t } = useTranslation()
   const [printings, setPrintings] = useState<CardPrinting[]>([])
@@ -63,10 +67,14 @@ export function CardPrintingsModal({
     setLoading(true)
     setError(null)
 
-    const url = `https://api.scryfall.com/cards/search?q=!%22${encodeURIComponent(cardName)}%22&unique=prints&order=released&dir=desc`
+    const name = token ? cardName.replace(/\s+Token$/i, '').trim() || cardName : cardName
+    const extras = token ? '+include:extras' : ''
+    const url = `https://api.scryfall.com/cards/search?q=!%22${encodeURIComponent(name)}%22${extras}&unique=prints&order=released&dir=desc`
 
     scryfallFetch(url, { urgent: true })
       .then((res) => {
+        // Scryfall answers 404 when nothing matches: there are no printings, it is not an error
+        if (res.status === 404) return { data: [] }
         if (!res.ok) throw new Error(`${t('errors', 'generic_error')} (${res.status})`)
         return res.json()
       })
@@ -86,7 +94,7 @@ export function CardPrintingsModal({
     return () => {
       cancelled = true
     }
-  }, [cardName, t])
+  }, [cardName, token, t])
 
   return (
     <DialogShell

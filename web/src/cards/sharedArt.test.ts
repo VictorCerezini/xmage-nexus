@@ -510,3 +510,94 @@ describe('restoring the default art', () => {
     expect(cardKey(bobsTrostani)).toBe('SLD/1500')
   })
 })
+
+describe('changing a token during the game', () => {
+  const ZOMBIE = 'Zombie Token'
+  const sent = (lines: string[]) => lines.flatMap((l) => decodeSharedArt(l)!.a)
+  const zombie = (id: string, controllerId: string) =>
+    ({ id, name: ZOMBIE, controllerId, expansionSetCode: 'M21', cardNumber: '0', isToken: true, mageObjectType: 'TOKEN', cardTypes: ['Creature'] }) as CardView
+  /** Alice has two Zombie tokens, Bob one. */
+  const zombies = (me: string) => withBattlefields(me, { z1: zombie('z1', 'p-Alice'), z2: zombie('z2', 'p-Alice') }, { z3: zombie('z3', 'p-Bob') })
+  const TM21 = { setCode: 'TM21', cardNumber: '11' }
+
+  beforeEach(() => setDeckArt([]))
+
+  it('CRD-10: changing one of my Zombie tokens changes that token only, the others see it, and it can be put back', () => {
+    linesToAnnounce(noteGameView(GAME, zombies('Alice')))
+    const z1Before = cardKey(zombie('z1', 'p-Alice'))
+    const z2Before = cardKey(zombie('z2', 'p-Alice'))
+    expect(z1Before).not.toBe('TM21/11')
+    setCopyArt(zombie('z1', 'p-Alice'), 'TM21', '11')
+    expect(artFor(zombie('z1', 'p-Alice'))).toEqual(TM21)
+    expect(cardKey(zombie('z1', 'p-Alice'))).toBe('TM21/11')
+    expect(cardKey(zombie('z2', 'p-Alice'))).toBe(z2Before)
+    expect(artFor(zombie('z3', 'p-Bob'))).toBeNull()
+    expect(cardArtPreference(ZOMBIE)).toBeNull()
+    // the change goes out for that token only, once; a player who asks again gets it too
+    expect(sent(linesToAnnounce(noteGameView(GAME, zombies('Alice'))).lines)).toEqual([[ZOMBIE, 'TM21', '11', 'z1']])
+    expect(linesToAnnounce(noteGameView(GAME, zombies('Alice'))).lines).toEqual([])
+    expect(sent(linesToResend())).toEqual([[ZOMBIE, 'TM21', '11', 'z1']])
+
+    expect(canRestoreDefaultArt(zombie('z1', 'p-Alice'))).toBe(true)
+    restoreDefaultArt(zombie('z1', 'p-Alice'))
+    expect(artFor(zombie('z1', 'p-Alice'))).toBeNull()
+    expect(cardKey(zombie('z1', 'p-Alice'))).toBe(z1Before)
+    expect(sent(linesToAnnounce(noteGameView(GAME, zombies('Alice'))).lines)).toEqual([[ZOMBIE, 'z1']])
+    expect(linesToResend()).toEqual([])
+  })
+
+  it("CRD-10: the other players show a token's change on that token only, and drop it when it is taken back", () => {
+    noteGameView(GAME, zombies('Bob'))
+    const z2Before = cardKey(zombie('z2', 'p-Alice'))
+    const [line] = encodeSharedArt([[ZOMBIE, 'TM21', '11', 'z1']], false, () => 1)
+    ingestSharedArt(GAME, zombies('Bob'), 'Alice', line)
+    expect(cardKey(zombie('z1', 'p-Alice'))).toBe('TM21/11')
+    expect(cardKey(zombie('z2', 'p-Alice'))).toBe(z2Before)
+    expect(artFor(zombie('z3', 'p-Bob'))).toBeNull()
+    const [back] = encodeSharedArt([[ZOMBIE, 'z1']], false, () => 2)
+    ingestSharedArt(GAME, zombies('Bob'), 'Alice', back)
+    expect(artFor(zombie('z1', 'p-Alice'))).toBeNull()
+  })
+
+  it('CRD-10: a token never takes an art picked for its name, by the viewer or by its owner', () => {
+    setCardArtPreference(ZOMBIE, 'PRM', '1')
+    noteGameView(GAME, zombies('Alice'))
+    bobSays([[ZOMBIE, 'SLD', '2']])
+    expect(artFor(zombie('z1', 'p-Alice'))).toBeNull()
+    expect(artFor(zombie('z3', 'p-Bob'))).toBeNull()
+    // and nothing goes out for it
+    expect(noteGameView(GAME, zombies('Alice'))).toEqual([])
+  })
+
+  it("CRD-10: changing another player's token changes it on this screen only", () => {
+    noteGameView(GAME, zombies('Alice'))
+    setCopyArt(zombie('z3', 'p-Bob'), 'TM21', '11')
+    expect(cardKey(zombie('z3', 'p-Bob'))).toBe('TM21/11')
+    expect(artFor(zombie('z1', 'p-Alice'))).toBeNull()
+    expect(noteGameView(GAME, zombies('Alice'))).toEqual([])
+    // its owner's change does not undo it
+    bobSays([[ZOMBIE, 'TM21', '12', 'z3']])
+    expect(cardKey(zombie('z3', 'p-Bob'))).toBe('TM21/11')
+    restoreDefaultArt(zombie('z3', 'p-Bob'))
+    expect(cardKey(zombie('z3', 'p-Bob'))).toBe('TM21/12')
+  })
+
+  it('CRD-10: a token turned face down neither shows nor tells its change', () => {
+    linesToAnnounce(noteGameView(GAME, zombies('Alice')))
+    setCopyArt(zombie('z1', 'p-Alice'), 'TM21', '11')
+    linesToAnnounce(noteGameView(GAME, zombies('Alice')))
+    const hidden = { ...zombie('z1', 'p-Alice'), faceDown: true } as CardView
+    expect(artFor(hidden)).toBeNull()
+    const game = withBattlefields('Alice', { z1: hidden }, {})
+    expect(noteGameView(GAME, game)).toEqual([])
+  })
+
+  it('CRD-10: an ability that comes from a token is not taken for the token', () => {
+    const fromToken = { id: 'ab1', name: ZOMBIE, controllerId: 'p-Alice', isAbility: true, mageObjectType: 'ABILITY_STACK_FROM_TOKEN' } as CardView
+    const game = zombies('Alice')
+    game.stack = { ab1: fromToken } as never
+    linesToAnnounce(noteGameView(GAME, game))
+    setCopyArt(fromToken, 'TM21', '11')
+    expect(noteGameView(GAME, game)).toEqual([])
+  })
+})

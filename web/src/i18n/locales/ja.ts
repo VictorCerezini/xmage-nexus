@@ -1989,6 +1989,7 @@ export const ja: TranslationSchema = {
     art_restore_default: 'デフォルトのアートに戻す',
     art_restore_hint_mine: 'マッチ開始時のデッキのアートに戻します。他のプレイヤーにもそのアートが表示されます。',
     art_restore_hint_theirs: '持ち主が選んだアートに戻します。変わるのはあなたの画面だけです。',
+    art_restore_hint_token: 'トークンの通常の画像に戻します。他のプレイヤーにもその画像が表示されます。',
     strip_cover_current: '現在のカバー',
     strip_cover_use: 'カバーに使用',
     strip_remove_all: 'すべてのコピーを削除',

@@ -1989,6 +1989,7 @@ export const de: TranslationSchema = {
     art_restore_default: 'Standard-Artwork wiederherstellen',
     art_restore_hint_mine: 'Zurück zum Artwork, das dein Deck zu Beginn des Matches hatte. Die anderen Spieler sehen es auch wieder.',
     art_restore_hint_theirs: 'Zurück zum Artwork, das der Besitzer gewählt hat. Ändert es nur auf deinem Bildschirm.',
+    art_restore_hint_token: 'Zurück zum üblichen Bild des Spielsteins. Die anderen Spieler sehen es auch wieder.',
     strip_cover_current: 'Aktuelles Cover',
     strip_cover_use: 'Als Cover verwenden',
     strip_remove_all: 'Alle Kopien entfernen',

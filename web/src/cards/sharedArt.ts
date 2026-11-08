@@ -342,6 +342,13 @@ function isArtCard(card: CardView): boolean {
   return !!card.name?.trim()
 }
 
+/** A token (not face down): it has no art pick or deck printing, but one token's art can be changed
+ * during the game like any other copy's. */
+function isToken(card: CardView): boolean {
+  if (card.faceDown === true || card.isAbility === true || !card.name?.trim()) return false
+  return card.isToken === true || card.mageObjectType === 'TOKEN'
+}
+
 /**
  * Whose copy a card is: its owner when the view names one (a permanent another player controls),
  * else its controller, else the player whose zone holds it.
@@ -398,13 +405,16 @@ export function noteGameView(gameId: string, game: GameView): SharedArtEntry[] {
     fresh.push(entry)
   }
   for (const card of mine) {
-    if (!isArtCard(card)) continue
+    const token = isToken(card)
+    if (!token && !isArtCard(card)) continue
     if (card.id) {
       // this copy's own art change; once restored, take it back (it would keep winning on the others)
       const copy = copyArt.get(card.id)
       if (copy) want([card.name.trim(), copy.setCode, copy.cardNumber, card.id])
       else if (announced.get(copyKey(card.id))?.length === 4) want([card.name.trim(), card.id])
     }
+    // a token has no art pick or deck printing to announce
+    if (token) continue
     const deck = deckArtFor(card)
     for (const name of [card.name, card.secondCardFace?.name]) {
       if (!name?.trim()) continue
@@ -556,6 +566,8 @@ function sharedCopyArt(card: CardView, holder: string | undefined): CardArtPrefe
 /** The art a copy shows without this viewer's own change for it (see `artFor`). */
 function baseArtFor(card: CardView): CardArtPreference | null {
   const holder = holderOf(card)
+  // a token: only the change its holder made to it; else the game's own token image
+  if (isToken(card)) return sharedCopyArt(card, holder)
   if (holder && holder === myPlayerId) return ownArtFor(card)
   if (holder) return sharedCopyArt(card, holder) ?? artIn(byPlayer.get(holder), card) ?? viewerPick(card)
   return sharedCopyArt(card, undefined) ?? ownArtFor(card) ?? uniqueArt(byPlayer.values(), card)
@@ -570,9 +582,13 @@ function baseArtFor(card: CardView): CardArtPreference | null {
  * - A card whose holder the view does not tell (a library search, cards being looked at): the art a
  *   player gave this very copy, else this viewer's own art (most such cards are its own), else the
  *   only art another player shared for that card.
+ * - A token: only a change made to this very token during the game (by this viewer, else by its
+ *   holder), never an art picked for a name.
  */
 export function artFor(card: CardView): CardArtPreference | null {
+  const copy = card.id ? copyArt.get(card.id) : undefined
+  if (isToken(card)) return copy ?? baseArtFor(card)
   if (!card.name?.trim() || card.faceDown === true || card.isToken === true) return null
   if (!isArtCard(card)) return cardArtPreference(card.name)
-  return (card.id ? copyArt.get(card.id) : undefined) ?? baseArtFor(card)
+  return copy ?? baseArtFor(card)
 }

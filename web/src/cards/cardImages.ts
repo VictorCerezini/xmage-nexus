@@ -180,16 +180,15 @@ export function cardKey(card: CardView): string | null {
   const num = card.cardNumber
   const isToken = isTokenCard(card)
 
+  // an art changed during the game for this very copy (a token too); our own copy: our art pick,
+  // else the printing our deck had (the server may have sent another); another player's copy: the
+  // art that player chose (see sharedArt.ts)
+  const art = artFor(card)
+  if (art) return `${art.setCode}/${art.cardNumber}${backSuffix}`
+
   if (isToken) {
     const exact = tokenTableKey(card, isBack)
     if (exact) return pinTokenKey(card, exact)
-  }
-
-  if (!isToken) {
-    // our own copy: our art pick, else the printing our deck had (the server may have sent another);
-    // another player's copy: the art that player chose (see sharedArt.ts)
-    const art = artFor(card)
-    if (art) return `${art.setCode}/${art.cardNumber}${backSuffix}`
   }
 
   // Cards with a real card number (including copy tokens that inherited the original's number)

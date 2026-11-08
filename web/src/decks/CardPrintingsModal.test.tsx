@@ -103,6 +103,80 @@ describe('CardPrintingsModal', () => {
     expect(onSelect).toHaveBeenCalledWith('M10', '146')
   })
 
+  const tokenPrintsData = {
+    data: [
+      {
+        id: 'zombie-1',
+        set: 'tm21',
+        set_name: 'Core Set 2021 Tokens',
+        collector_number: '11',
+        released_at: '2020-07-03',
+        rarity: 'common',
+        image_uris: { normal: 'https://cards.scryfall.io/tm21-11.jpg' },
+      },
+    ],
+  }
+  const searched = () => vi.mocked(globalThis.fetch).mock.calls.map(([url]) => String(url))
+
+  it('CRD-10: a token is looked up among Scryfall\'s token printings, by its name without " Token"', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => tokenPrintsData }) as any
+    const onSelect = vi.fn()
+
+    render(
+      <CardPrintingsModal cardName="Zombie Token" currentSet="M21" currentNumber="0" onSelectPrinting={onSelect} onClose={vi.fn()} token />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Core Set 2021 Tokens')).toBeDefined()
+    })
+    expect(searched()).toHaveLength(1)
+    expect(searched()[0]).toContain('q=!%22Zombie%22+include:extras&')
+    fireEvent.click(screen.getByText('Core Set 2021 Tokens'))
+    expect(onSelect).toHaveBeenCalledWith('TM21', '11')
+  })
+
+  it('CRD-10: a card is looked up by its whole name, without token printings', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => mockPrintsData }) as any
+
+    render(
+      <CardPrintingsModal cardName="Lightning Bolt" currentSet="M10" currentNumber="146" onSelectPrinting={vi.fn()} onClose={vi.fn()} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Dominaria United')).toBeDefined()
+    })
+    expect(searched()[0]).toContain('q=!%22Lightning%20Bolt%22&')
+    expect(searched()[0]).not.toContain('include:extras')
+  })
+
+  it('CRD-10: when Scryfall finds no printing (it answers 404) the menu says so, it shows no error', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({ object: 'error', status: 404 }) }) as any
+
+    const { container } = render(
+      <CardPrintingsModal cardName="Nonexistent Token" currentSet="" currentNumber="" onSelectPrinting={vi.fn()} onClose={vi.fn()} token />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('No hay cartas que mostrar')).toBeDefined()
+    })
+    expect(container.querySelector('.printings-status-box.error')).toBeNull()
+    expect(container.textContent).not.toContain('404')
+  })
+
+  it('CRD-10: any other failed answer still shows an error', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }) as any
+
+    const { container } = render(
+      <CardPrintingsModal cardName="Lightning Bolt" currentSet="" currentNumber="" onSelectPrinting={vi.fn()} onClose={vi.fn()} />
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('.printings-status-box.error')).not.toBeNull()
+    })
+    expect(container.querySelector('.printings-status-box.error')!.textContent).toContain('500')
+    expect(screen.queryByText('No hay cartas que mostrar')).toBeNull()
+  })
+
   it('shows the uploaded custom image and removes it from the custom art section', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

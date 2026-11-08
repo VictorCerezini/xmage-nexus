@@ -1989,6 +1989,7 @@ export const it: TranslationSchema = {
     art_restore_default: 'Ripristina illustrazione predefinita',
     art_restore_hint_mine: "Torna all'illustrazione che il tuo mazzo aveva all'inizio della partita. Anche gli altri giocatori la rivedono.",
     art_restore_hint_theirs: "Torna all'illustrazione scelta dal proprietario. Cambia solo sul tuo schermo.",
+    art_restore_hint_token: "Torna all'immagine abituale della pedina. Anche gli altri giocatori la rivedono.",
     strip_cover_current: 'Copertina attuale',
     strip_cover_use: 'Usa come copertina',
     strip_remove_all: 'Rimuovi tutte le copie',

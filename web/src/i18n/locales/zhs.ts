@@ -1989,6 +1989,7 @@ export const zhs: TranslationSchema = {
     art_restore_default: '恢复默认插画',
     art_restore_hint_mine: '恢复为比赛开始时你套牌中的插画。其他玩家也会重新看到它。',
     art_restore_hint_theirs: '恢复为拥有者选择的插画。只在你的屏幕上更改。',
+    art_restore_hint_token: '恢复为该衍生物的默认图片。其他玩家也会重新看到它。',
     strip_cover_current: '当前封面',
     strip_cover_use: '设为封面',
     strip_remove_all: '移除全部',

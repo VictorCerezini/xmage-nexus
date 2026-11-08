@@ -1989,6 +1989,7 @@ export const pt: TranslationSchema = {
     art_restore_default: 'Restaurar arte padrão',
     art_restore_hint_mine: 'Volta à arte que seu deck tinha no início da partida. Os outros jogadores também voltam a vê-la.',
     art_restore_hint_theirs: 'Volta à arte escolhida pelo dono. Só muda na sua tela.',
+    art_restore_hint_token: 'Volta à imagem normal da ficha. Os outros jogadores também voltam a vê-la.',
     strip_cover_current: 'Capa atual',
     strip_cover_use: 'Usar como capa',
     strip_remove_all: 'Remover todas as cópias',

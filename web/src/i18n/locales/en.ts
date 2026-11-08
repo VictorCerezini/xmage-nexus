@@ -1987,6 +1987,7 @@ export const en = {
     art_restore_default: 'Restore default art',
     art_restore_hint_mine: 'Back to the art your deck had when the match started. The other players see it again too.',
     art_restore_hint_theirs: 'Back to the art its owner chose. This only changes it on your screen.',
+    art_restore_hint_token: "Back to the token's usual image. The other players see it again too.",
     strip_cover_current: 'Current cover',
     strip_cover_use: 'Use as cover',
     strip_remove_all: 'Remove all copies',
