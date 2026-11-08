@@ -124,6 +124,21 @@
   display: none;
 }
 
+/* "Restore default art" (only during a match, after the art was changed) */
+.printings-restore {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0 var(--sp-4h) var(--sp-4);
+}
+
+.printings-restore-hint {
+  flex: 1 1 200px;
+  font-size: var(--fs-sm);
+  color: var(--fg-2);
+}
+
 .printings-status-box {
   display: flex;
   flex-direction: column;

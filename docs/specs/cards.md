@@ -96,3 +96,30 @@ Every Scryfall printing in the art picker can be picked, and none is marked "not
   Scryfall and the pick reaches the other players through CRD-6, so for the player the warning was
   false (e.g. most Trostani, Voz dos Selesnya printings).
 - Guard: `src/decks/CardPrintingsModal.test.tsx`
+
+### CRD-8 · A card's art changed during a match can go back to its default
+After a player changes a card's art during a match, the same art menu offers "Restore default art".
+For another player's card it drops the viewer's change, so the card shows the art its owner chose
+again (or what it showed before the change, when the owner chose none). For the player's own card it
+puts back the art pick it had before the first change in the match, or no pick (the deck's own
+printing), and the other players see that again too: a dropped pick goes out as a `[name]` entry
+that takes it back (versions before it skip that entry and keep the changed art). The option only
+shows when the art was changed. It lasts for the whole match, also across a page reload in the same
+tab, and ends when the next deck is sent. Like picking a printing, it closes the menu and leaves the
+inspector open on the card, now with that art.
+
+- Why: once a player changed a card's art during a match there was no way back to the default
+  short of finding that printing again by hand, and for the player's own card the change had
+  replaced the pick from the deck builder.
+- Guard: `src/cards/sharedArt.test.ts` · `src/board/CardInspector.artRestore.test.tsx` · `e2e/card-inspector.spec.ts`
+
+### CRD-9 · The art menu over the card inspector only closes itself
+A click inside the art menu opened from the card inspector (a printing, "Upload image", "Restore
+default art") never closes the inspector. Picking closes only the menu; a click outside the menu
+closes only the menu; Esc closes the menu first and then the inspector; a click on the inspector's
+own backdrop closes the inspector.
+
+- Why: the menu is drawn inside the inspector's backdrop, so every click in it also closed the
+  inspector, and the menu with it. "Upload image" opened the file picker but the menu was gone
+  before the chosen file could arrive, so a custom image could not be set during a match.
+- Guard: `src/board/CardInspector.artRestore.test.tsx` · `e2e/card-inspector.spec.ts`

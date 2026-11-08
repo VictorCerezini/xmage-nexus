@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeCard, makeGameView, makePermanent, makePlayer } from '../__fixtures__/gameViews'
 import type { CardView, GameView } from '../net/types'
-import { resetCardArtPreferences, setCardArtPreference } from './artPreferences'
+import { rememberDeckArt } from '../decks/deckArt'
+import { cardArtPreference, resetCardArtPreferences, setCardArtPreference } from './artPreferences'
 import { cardKey, resetCardImageCache } from './cardImages'
 import {
   SHARED_ART_PREFIX,
@@ -15,7 +16,13 @@ import {
   noteGameView,
   resetSharedArt,
   artFor,
+  canRestoreDefaultArt,
+  forgetAnnounced,
+  forgetOwnArtDefaults,
+  restoreDefaultArt,
+  setDeckArt,
   setMatchArtOverride,
+  setOwnArtInMatch,
   type SharedArtEntry,
 } from './sharedArt'
 
@@ -269,5 +276,187 @@ describe('which art another player\'s copy shows', () => {
     expect(decodeSharedArt(l)?.a).toEqual(entries)
     // an entry of any other length is dropped
     expect(decodeSharedArt(SHARED_ART_PREFIX + btoa('{"a":[["Island","SLD","1","M21"]]}'))?.a).toEqual([])
+  })
+})
+
+describe('restoring the default art', () => {
+  const TROSTANI = "Trostani, Selesnya's Voice"
+  const sent = (lines: string[]) => lines.flatMap((l) => decodeSharedArt(l)!.a)
+
+  beforeEach(() => {
+    forgetOwnArtDefaults()
+    setDeckArt([])
+  })
+
+  it("CRD-8: another player's card goes back to the art its owner chose", () => {
+    noteGameView(GAME, view())
+    bobSays([[TROSTANI, 'SLD', '999']])
+    expect(canRestoreDefaultArt(bobsTrostani, TROSTANI)).toBe(false)
+    setMatchArtOverride(bobsTrostani, TROSTANI, 'RVR', '216')
+    expect(cardKey(bobsTrostani)).toBe('RVR/216')
+    expect(canRestoreDefaultArt(bobsTrostani, TROSTANI)).toBe(true)
+
+    restoreDefaultArt(bobsTrostani, TROSTANI)
+    expect(cardKey(bobsTrostani)).toBe('SLD/999')
+    expect(canRestoreDefaultArt(bobsTrostani, TROSTANI)).toBe(false)
+    // what Bob picks later shows again
+    bobSays([[TROSTANI, 'SLD', '1000']])
+    expect(cardKey(bobsTrostani)).toBe('SLD/1000')
+  })
+
+  it("CRD-8: restoring another player's card leaves the viewer's own pick alone, and shows what it showed before", () => {
+    setCardArtPreference(TROSTANI, 'PRM', '50000')
+    noteGameView(GAME, view())
+    // Bob shared nothing: before the change his copy showed the viewer's own pick
+    expect(cardKey(bobsTrostani)).toBe('PRM/50000')
+    setMatchArtOverride(bobsTrostani, TROSTANI, 'RVR', '216')
+    restoreDefaultArt(bobsTrostani, TROSTANI)
+    expect(cardKey(bobsTrostani)).toBe('PRM/50000')
+    expect(cardArtPreference(TROSTANI)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
+    expect(cardKey(myTrostani)).toBe('PRM/50000')
+    // nothing new to tell the others: the change never left this screen
+    expect(noteGameView(GAME, view())).toEqual([[TROSTANI, 'PRM', '50000']])
+  })
+
+  it("CRD-8: a change made while the card's owner was unknown (a library search) is undone too", () => {
+    noteGameView(GAME, view())
+    bobSays([[TROSTANI, 'SLD', '999']])
+    const searched = { id: 'lib-9', name: TROSTANI, expansionSetCode: 'GPT', cardNumber: '128' } as CardView
+    setMatchArtOverride(searched, TROSTANI, 'RVR', '216')
+    expect(cardKey(bobsTrostani)).toBe('RVR/216')
+    expect(canRestoreDefaultArt(bobsTrostani, TROSTANI)).toBe(true)
+    restoreDefaultArt(bobsTrostani, TROSTANI)
+    expect(cardKey(bobsTrostani)).toBe('SLD/999')
+    expect(canRestoreDefaultArt(searched, TROSTANI)).toBe(false)
+  })
+
+  it('CRD-8: my own card goes back to the art pick it had when the match started, and the others get it again', () => {
+    setCardArtPreference(TROSTANI, 'PRM', '50000')
+    linesToAnnounce(noteGameView(GAME, view()))
+    expect(canRestoreDefaultArt(myTrostani, TROSTANI)).toBe(false)
+    setOwnArtInMatch(TROSTANI, 'SLD', '999')
+    // a second change: the default is still the pick from before the first one
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    expect(cardKey(myTrostani)).toBe('RVR/216')
+    expect(sent(linesToAnnounce(noteGameView(GAME, view())).lines)).toEqual([[TROSTANI, 'RVR', '216']])
+    expect(canRestoreDefaultArt(myTrostani, TROSTANI)).toBe(true)
+
+    restoreDefaultArt(myTrostani, TROSTANI)
+    expect(cardArtPreference(TROSTANI)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
+    expect(cardKey(myTrostani)).toBe('PRM/50000')
+    expect(canRestoreDefaultArt(myTrostani, TROSTANI)).toBe(false)
+    expect(sent(linesToAnnounce(noteGameView(GAME, view())).lines)).toEqual([[TROSTANI, 'PRM', '50000']])
+  })
+
+  it('CRD-8: my own card with no pick before goes back to its deck printing, and the others drop my pick', () => {
+    setDeckArt([{ names: [TROSTANI], on: { setCode: 'TEST', cardNumber: '0' }, art: { setCode: 'SLD', cardNumber: '1500' }, only: true }])
+    expect(sent(linesToAnnounce(noteGameView(GAME, view())).lines)).toEqual([[TROSTANI, 'SLD', '1500', 'TEST', '0']])
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    expect(sent(linesToAnnounce(noteGameView(GAME, view())).lines)).toEqual([[TROSTANI, 'RVR', '216']])
+
+    restoreDefaultArt(myTrostani, TROSTANI)
+    expect(cardArtPreference(TROSTANI)).toBeNull()
+    expect(cardKey(myTrostani)).toBe('SLD/1500')
+    // the pick is taken back; the deck printing went out before, so it is not sent again
+    expect(sent(linesToAnnounce(noteGameView(GAME, view())).lines)).toEqual([[TROSTANI]])
+    expect(linesToAnnounce(noteGameView(GAME, view())).lines).toEqual([])
+    // a player who asks again gets the deck printing, not the pick
+    expect(sent(linesToResend())).toEqual([[TROSTANI, 'SLD', '1500', 'TEST', '0']])
+  })
+
+  it('CRD-8: with a pick only made during the match and no deck printing, the others go back to the printing the server sent', () => {
+    linesToAnnounce(noteGameView(GAME, view()))
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    linesToAnnounce(noteGameView(GAME, view()))
+    restoreDefaultArt(myTrostani, TROSTANI)
+    expect(cardKey(myTrostani)).toBe('GPT/128')
+    expect(sent(linesToAnnounce(noteGameView(GAME, view())).lines)).toEqual([[TROSTANI]])
+    expect(linesToResend()).toEqual([])
+  })
+
+  it("CRD-8: when another player takes back a pick, their card shows their deck printing (or the server's) again", () => {
+    noteGameView(GAME, view())
+    bobSays([[TROSTANI, 'SLD', '1500', 'GPT', '128'], [TROSTANI, 'RVR', '216']])
+    expect(cardKey(bobsTrostani)).toBe('RVR/216')
+    bobSays([[TROSTANI]])
+    expect(cardKey(bobsTrostani)).toBe('SLD/1500')
+    bobSays([['Lightning Bolt', 'LEA', '161']])
+    bobSays([['Lightning Bolt']])
+    expect(artFor({ id: 'zz', name: 'Lightning Bolt' } as CardView)).toBeNull()
+  })
+
+  it('CRD-8: if taking back the pick fails to post, the next update tries again', () => {
+    linesToAnnounce(noteGameView(GAME, view()))
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    linesToAnnounce(noteGameView(GAME, view()))
+    restoreDefaultArt(myTrostani, TROSTANI)
+    const entries = noteGameView(GAME, view())
+    expect(entries).toEqual([[TROSTANI]])
+    linesToAnnounce(entries)
+    forgetAnnounced(entries, false)
+    expect(noteGameView(GAME, view())).toEqual([[TROSTANI]])
+  })
+
+  it('CRD-8: picking the default art again leaves nothing to restore', () => {
+    setCardArtPreference(TROSTANI, 'PRM', '50000')
+    noteGameView(GAME, view())
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    setOwnArtInMatch(TROSTANI, 'PRM', '50000')
+    expect(canRestoreDefaultArt(myTrostani, TROSTANI)).toBe(false)
+  })
+
+  it('CRD-8: after a restore, the next change goes back to the art the card had just before it', () => {
+    setCardArtPreference(TROSTANI, 'PRM', '50000')
+    noteGameView(GAME, view())
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    restoreDefaultArt(myTrostani, TROSTANI)
+    // changed in the deck builder in the meantime
+    setCardArtPreference(TROSTANI, 'SLD', '999')
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    restoreDefaultArt(myTrostani, TROSTANI)
+    expect(cardArtPreference(TROSTANI)).toEqual({ setCode: 'SLD', cardNumber: '999' })
+  })
+
+  it('CRD-8: a take-back entry round-trips through a line', () => {
+    const entries: SharedArtEntry[] = [[TROSTANI], ['Sol Ring', 'LEA', '270']]
+    const [l] = encodeSharedArt(entries, false, () => 1)
+    expect(decodeSharedArt(l)?.a).toEqual(entries)
+  })
+
+  it('CRD-8: both halves of a split card go back', () => {
+    const fireIce = { id: 'a7', name: 'Fire // Ice', controllerId: 'p-Alice' } as CardView
+    noteGameView(GAME, view())
+    setCardArtPreference('Fire // Ice', 'MH2', '290')
+    setOwnArtInMatch('Fire // Ice', 'APC', '128')
+    expect(canRestoreDefaultArt(fireIce, 'Fire // Ice')).toBe(true)
+    restoreDefaultArt(fireIce, 'Fire // Ice')
+    expect(cardArtPreference('Fire')).toEqual({ setCode: 'MH2', cardNumber: '290' })
+    expect(cardArtPreference('Ice')).toEqual({ setCode: 'MH2', cardNumber: '290' })
+  })
+
+  it('CRD-8: the undo lasts the whole match, and stops once the next deck is sent', async () => {
+    setCardArtPreference(TROSTANI, 'PRM', '50000')
+    noteGameView(GAME, view())
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    // the next game of the match
+    noteGameView('g-next', view())
+    expect(canRestoreDefaultArt(myTrostani, TROSTANI)).toBe(true)
+    // a new table: the art it starts with is the default now
+    await rememberDeckArt([])
+    expect(canRestoreDefaultArt(myTrostani, TROSTANI)).toBe(false)
+    expect(cardArtPreference(TROSTANI)).toEqual({ setCode: 'RVR', cardNumber: '216' })
+  })
+
+  it('CRD-8: the undo survives a page reload in the same tab', async () => {
+    setCardArtPreference(TROSTANI, 'PRM', '50000')
+    noteGameView(GAME, view())
+    setOwnArtInMatch(TROSTANI, 'RVR', '216')
+    vi.resetModules()
+    const reloaded = await import('./sharedArt')
+    const prefs = await import('./artPreferences')
+    reloaded.noteGameView(GAME, view())
+    expect(reloaded.canRestoreDefaultArt(myTrostani, TROSTANI)).toBe(true)
+    reloaded.restoreDefaultArt(myTrostani, TROSTANI)
+    expect(prefs.cardArtPreference(TROSTANI)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
   })
 })

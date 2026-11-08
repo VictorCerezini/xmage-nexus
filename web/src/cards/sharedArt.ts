@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { CardView, GameView, PermanentView } from '../net/types'
-import { cardArtPreference, type CardArtPreference } from './artPreferences'
+import { cardArtPreference, clearCardArtPreference, setCardArtPreference, type CardArtPreference } from './artPreferences'
 
 /**
  * Shared card art: the art a player picked for a card (`artPreferences.ts`), or the printing their
@@ -18,15 +18,17 @@ import { cardArtPreference, type CardArtPreference } from './artPreferences'
  * chat lines at 500). JSON: `{ n, r?, a: [entry, ...] }`. An entry is `[name, setCode, cardNumber]`
  * for an art pick (every copy of the card), or `[name, setCode, cardNumber, onSet, onNumber]` for a
  * deck printing (only the copies the game shows as the printing `onSet`/`onNumber`, the one the
- * server got in its place). `n` is a counter (the server drops a line identical to the same user's
- * previous one), `r: 1` asks the other clients to post their choices again (sent when a client,
- * player or spectator, starts or rejoins a game).
+ * server got in its place), or `[name]` to take back an art pick for that name (the player restored
+ * its default art; versions before it skip this entry). `n` is a counter (the server drops a line
+ * identical to the same user's previous one), `r: 1` asks the other clients to post their choices
+ * again (sent when a client, player or spectator, starts or rejoins a game).
  */
 
 export const SHARED_ART_PREFIX = '~nxart1 '
 const MAX_LINE = 480
 
 export type SharedArtEntry =
+  | [name: string]
   | [name: string, setCode: string, cardNumber: string]
   | [name: string, setCode: string, cardNumber: string, onSet: string, onNumber: string]
 
@@ -98,7 +100,8 @@ export function decodeSharedArt(message: string): SharedArtMessage | null {
     const a: SharedArtEntry[] = []
     for (const e of r.a) {
       if (!Array.isArray(e) || !e.every((x) => typeof x === 'string' && x.trim() !== '')) continue
-      if (e.length === 3) a.push([e[0], e[1], e[2]])
+      if (e.length === 1) a.push([e[0]])
+      else if (e.length === 3) a.push([e[0], e[1], e[2]])
       else if (e.length === 5) a.push([e[0], e[1], e[2], e[3], e[4]])
     }
     return { n: typeof r.n === 'number' ? r.n : 0, ...(r.r === 1 ? { r: 1 as const } : {}), a }
@@ -107,7 +110,8 @@ export function decodeSharedArt(message: string): SharedArtMessage | null {
   }
 }
 
-/** Where an entry is kept: the card name, plus the printing the game shows for a deck printing. */
+/** Where an entry is kept: the card name, plus the printing the game shows for a deck printing. A
+ * `[name]` entry takes back what is kept under the name. */
 function entryKey(e: SharedArtEntry): string {
   return e.length === 5 ? `${norm(e[0])}|${printingOf(e[3], e[4])}` : norm(e[0])
 }
@@ -126,6 +130,8 @@ const zoneOwner = new Map<string, string>()
 const overrides = new Map<string, Map<string, CardArtPreference>>()
 /** What this client already announced in the current game: entry key → entry. */
 const announced = new Map<string, SharedArtEntry>()
+/** Art picks this client is taking back (`[name]` lines): entry key → what it had announced. */
+const withdrawn = new Map<string, SharedArtEntry>()
 let requestSent = false
 // random start: after a page reload the first line must not repeat the last one sent before it
 let counter = Math.floor(Math.random() * 1_000_000)
@@ -203,6 +209,7 @@ export function resetSharedArt(gameId: string | null = null): void {
   overrides.clear()
   zoneOwner.clear()
   announced.clear()
+  withdrawn.clear()
   requestSent = false
   if (hadArt) emit()
 }
@@ -343,28 +350,44 @@ export function noteGameView(gameId: string, game: GameView): SharedArtEntry[] {
     for (const name of [card.name, card.secondCardFace?.name]) {
       if (!name?.trim()) continue
       const pick = cardArtPreference(name)
-      let entry: SharedArtEntry | null = null
-      if (pick) entry = [name.trim(), pick.setCode, pick.cardNumber]
-      else if (deck && card.expansionSetCode?.trim() && card.cardNumber?.trim()) {
-        entry = [name.trim(), deck.setCode, deck.cardNumber, card.expansionSetCode.trim(), card.cardNumber.trim()]
+      const wanted: SharedArtEntry[] = []
+      if (pick) wanted.push([name.trim(), pick.setCode, pick.cardNumber])
+      else {
+        // a pick announced earlier and gone now (the player restored its default art): take it back,
+        // or it would keep winning over the deck printing on the other screens
+        if (announced.get(norm(name))?.length === 3) wanted.push([name.trim()])
+        if (deck && card.expansionSetCode?.trim() && card.cardNumber?.trim()) {
+          wanted.push([name.trim(), deck.setCode, deck.cardNumber, card.expansionSetCode.trim(), card.cardNumber.trim()])
+        }
       }
-      if (!entry) continue
-      const key = entryKey(entry)
-      const prev = announced.get(key)
-      if (prev && prev[1] === entry[1] && prev[2] === entry[2]) continue
-      if (freshKeys.has(key)) continue
-      freshKeys.add(key)
-      fresh.push(entry)
+      for (const entry of wanted) {
+        const key = entryKey(entry)
+        if (sameArt(announced.get(key), entry)) continue
+        if (freshKeys.has(key)) continue
+        freshKeys.add(key)
+        fresh.push(entry)
+      }
     }
   }
   return fresh
+}
+
+function sameArt(a: SharedArtEntry | undefined, b: SharedArtEntry): boolean {
+  return !!a && a.length !== 1 && b.length !== 1 && a[1] === b[1] && a[2] === b[2]
 }
 
 /** Lines to post now: new entries, plus the one-time request for the others' choices. */
 export function linesToAnnounce(entries: SharedArtEntry[]): { lines: string[]; request: boolean } {
   const request = !requestSent
   if (entries.length === 0 && !request) return { lines: [], request: false }
-  for (const e of entries) announced.set(entryKey(e), e)
+  for (const e of entries) {
+    const key = entryKey(e)
+    if (e.length === 1) {
+      const prev = announced.get(key)
+      if (prev) withdrawn.set(key, prev)
+      announced.delete(key)
+    } else announced.set(key, e)
+  }
   requestSent = true
   return { lines: encodeSharedArt(entries, request, () => ++counter), request }
 }
@@ -377,7 +400,15 @@ export function linesToResend(): string[] {
 
 /** Undo `linesToAnnounce` bookkeeping after the chat send failed, so the next update retries. */
 export function forgetAnnounced(entries: SharedArtEntry[], requestFailed: boolean): void {
-  for (const e of entries) announced.delete(entryKey(e))
+  for (const e of entries) {
+    const key = entryKey(e)
+    if (e.length !== 1) announced.delete(key)
+    else {
+      // the others still have the pick: keep it as announced, so the next update takes it back again
+      const prev = withdrawn.get(key)
+      if (prev && !announced.has(key)) announced.set(key, prev)
+    }
+  }
   if (requestFailed) requestSent = false
 }
 
@@ -395,7 +426,10 @@ export function ingestSharedArt(gameId: string, game: GameView | null, senderNam
   if (!sender) return { resendRequested: msg.r === 1 }
   if (msg.a.length > 0) {
     const map = byPlayer.get(sender.playerId) ?? new Map<string, CardArtPreference>()
-    for (const e of msg.a) map.set(entryKey(e), { setCode: e[1], cardNumber: e[2] })
+    for (const e of msg.a) {
+      if (e.length === 1) map.delete(entryKey(e))
+      else map.set(entryKey(e), { setCode: e[1], cardNumber: e[2] })
+    }
     byPlayer.set(sender.playerId, map)
     emit()
   }
@@ -418,6 +452,124 @@ export function setMatchArtOverride(card: CardView, name: string, setCode: strin
   const map = overrides.get(holder) ?? new Map<string, CardArtPreference>()
   map.set(norm(name), { setCode, cardNumber })
   overrides.set(holder, map)
+  emit()
+}
+
+// --- restoring the default art --------------------------------------------------------------
+
+/**
+ * This client's art picks from before it changed the art of its own cards during the match, so the
+ * art menu can put them back: face name → the pick it had then (null: none, the card showed its
+ * deck's printing). Kept across the games of a match and a page reload in this tab; forgotten when
+ * the next deck is sent (`forgetOwnArtDefaults`).
+ */
+let ownDefaults: Map<string, CardArtPreference | null> | null = null
+const OWN_DEFAULTS_KEY = 'mage-web-own-art-defaults-v1'
+
+function loadedOwnDefaults(): Map<string, CardArtPreference | null> {
+  if (ownDefaults) return ownDefaults
+  ownDefaults = new Map()
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(OWN_DEFAULTS_KEY) ?? '{}') as unknown
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [face, pick] of Object.entries(raw as Record<string, unknown>)) {
+        if (pick === null) ownDefaults.set(face, null)
+        else if (isPrinting(pick)) ownDefaults.set(face, { setCode: pick.setCode, cardNumber: pick.cardNumber })
+      }
+    }
+  } catch {
+    ownDefaults = new Map()
+  }
+  return ownDefaults
+}
+
+function saveOwnDefaults(): void {
+  const map = loadedOwnDefaults()
+  try {
+    if (map.size > 0) sessionStorage.setItem(OWN_DEFAULTS_KEY, JSON.stringify(Object.fromEntries(map)))
+    else sessionStorage.removeItem(OWN_DEFAULTS_KEY)
+  } catch {}
+}
+
+/** The keys an art pick is kept under for a card name: each face ("A // B" → a, b). */
+function facesOf(name: string): string[] {
+  return [...new Set(name.split(' // ').map(norm).filter(Boolean))]
+}
+
+function samePick(a: CardArtPreference | null | undefined, b: CardArtPreference | null | undefined): boolean {
+  return (a?.setCode ?? '') === (b?.setCode ?? '') && (a?.cardNumber ?? '') === (b?.cardNumber ?? '')
+}
+
+/** A new deck is being sent (a new match): the art it starts with is the default from now on. */
+export function forgetOwnArtDefaults(): void {
+  if (loadedOwnDefaults().size === 0) return
+  ownDefaults = new Map()
+  saveOwnDefaults()
+}
+
+/**
+ * This client's in-match art change for its own copy of a card: a normal art pick (the others see
+ * it too), remembering the pick it replaces so `restoreDefaultArt` can put that one back.
+ */
+export function setOwnArtInMatch(name: string, setCode: string, cardNumber: string): void {
+  const defaults = loadedOwnDefaults()
+  for (const face of facesOf(name)) {
+    if (!defaults.has(face)) defaults.set(face, cardArtPreference(face))
+  }
+  saveOwnDefaults()
+  setCardArtPreference(name, setCode, cardNumber)
+  emit()
+}
+
+/** Whose in-match changes can decide this copy's art (see `artFor`). */
+function overrideHolders(card: CardView): string[] {
+  const holder = holderOf(card)
+  return holder ? [holder, '*'] : [...overrides.keys()]
+}
+
+/** The names an in-match change for this copy can be kept under. */
+function overrideKeys(card: CardView, name: string): string[] {
+  return [...new Set([norm(name), ...lookupNames(card)])]
+}
+
+/**
+ * Whether the art menu can put this copy's default art back: another player's copy this viewer
+ * changed during the match, or this client's own copy whose art it changed during the match.
+ */
+export function canRestoreDefaultArt(card: CardView, name: string): boolean {
+  if (isOtherPlayersCard(card)) {
+    const keys = overrideKeys(card, name)
+    return overrideHolders(card).some((h) => keys.some((k) => overrides.get(h)?.has(k)))
+  }
+  const defaults = loadedOwnDefaults()
+  return facesOf(name).some((f) => defaults.has(f) && !samePick(defaults.get(f), cardArtPreference(f)))
+}
+
+/**
+ * Puts the default art back. Another player's copy: the art that player chose (this viewer's
+ * in-match change is dropped). This client's own copy: the art pick it had before changing it
+ * during the match, or none (its deck's printing), and the other players see that again too.
+ */
+export function restoreDefaultArt(card: CardView, name: string): void {
+  if (isOtherPlayersCard(card)) {
+    const keys = overrideKeys(card, name)
+    for (const h of overrideHolders(card)) {
+      const map = overrides.get(h)
+      if (!map) continue
+      for (const k of keys) map.delete(k)
+      if (map.size === 0) overrides.delete(h)
+    }
+  } else {
+    const defaults = loadedOwnDefaults()
+    for (const face of facesOf(name)) {
+      if (!defaults.has(face)) continue
+      const before = defaults.get(face)
+      if (before) setCardArtPreference(face, before.setCode, before.cardNumber)
+      else clearCardArtPreference(face)
+      defaults.delete(face)
+    }
+    saveOwnDefaults()
+  }
   emit()
 }
 

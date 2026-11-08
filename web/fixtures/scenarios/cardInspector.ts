@@ -4,7 +4,8 @@ import type { Scenario } from '../fake'
 import type { GameView, PermanentView, PlayerView } from '../../src/net/types'
 import { GAME_ID, TABLE_ID, SIM_NAME, HUMAN_NAME, HUMAN_PLAYER_ID, SIM_PLAYER_ID } from '../humanGameConstants'
 
-export function cardInspectorScenario(): Scenario {
+/** `opponentBattlefield`: cards on the other player's battlefield (none by default). */
+export function cardInspectorScenario(opts: { opponentBattlefield?: Record<string, PermanentView> } = {}): Scenario {
   const human: PlayerView = {
     playerId: HUMAN_PLAYER_ID,
     name: HUMAN_NAME,
@@ -132,7 +133,7 @@ export function cardInspectorScenario(): Scenario {
     isActive: false,
     handCount: 0,
     libraryCount: 40,
-    battlefield: {},
+    battlefield: opts.opponentBattlefield ?? {},
   } as unknown as PlayerView
   const getGameView = (): GameView => ({
     turn: 1,

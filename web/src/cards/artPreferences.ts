@@ -45,6 +45,15 @@ export function setCardArtPreference(cardName: string, setCode: string, cardNumb
   } catch {}
 }
 
+/** Forgets the art pick for a card (each face of it): the card shows its deck's printing again. */
+export function clearCardArtPreference(cardName: string): void {
+  const map = load()
+  for (const key of faceKeys(cardName)) delete map[key]
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
+  } catch {}
+}
+
 export function resetCardArtPreferences(): void {
   cache = {}
   try {

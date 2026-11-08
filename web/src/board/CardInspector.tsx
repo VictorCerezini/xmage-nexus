@@ -5,8 +5,9 @@ import { cardName, getSourceCardName, isAbilityCard, largeImageUrl } from '../ca
 import { useCardImageUrl } from '../cards/useCardImageUrl'
 import { getEffectiveCardLang, useLocalizedCardText } from '../cards/cardLocalization'
 import { customArtName } from '../cards/customCardArt'
-import { setCardArtPreference } from '../cards/artPreferences'
-import { artFor, isOtherPlayersCard, setMatchArtOverride } from '../cards/sharedArt'
+import {
+  artFor, canRestoreDefaultArt, isOtherPlayersCard, restoreDefaultArt, setMatchArtOverride, setOwnArtInMatch,
+} from '../cards/sharedArt'
 import { cardTypeLine } from '../cards/rendered/cardLayout'
 import { CardPrintingsModal } from '../decks/CardPrintingsModal'
 import { extractOwnedKeywords } from '../data/keywordExtractor'
@@ -37,6 +38,15 @@ import './CardInspector.css'
 
 function closeInspector() {
   setState({ inspectedCard: null })
+}
+
+/** The art menu's "Restore default art", when this card's art was changed during the match. */
+function restoreDefaultFor(card: CardView | null, name: string | null, t: T): { hint: string; onRestore: () => void } | undefined {
+  if (!card || !name || !canRestoreDefaultArt(card, name)) return undefined
+  return {
+    hint: t('decks', isOtherPlayersCard(card) ? 'art_restore_hint_theirs' : 'art_restore_hint_mine'),
+    onRestore: () => restoreDefaultArt(card, name),
+  }
 }
 
 type T = ReturnType<typeof useTranslation>['t']
@@ -198,7 +208,15 @@ export default function CardInspector() {
   const pickFace = (back: boolean) => setShowBackFace(transformedInPlay ? !back : back)
 
   return createPortal(
-    <div className="card-inspector-backdrop" onClick={closeInspector} data-space-shortcut-off="true">
+    // only a click on the backdrop itself closes: the art menu is drawn inside it, and a click there
+    // (a printing, "Upload image") must not close the inspector and the menu with it
+    <div
+      className="card-inspector-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) closeInspector()
+      }}
+      data-space-shortcut-off="true"
+    >
       <div
         className="card-inspector"
         role="dialog"
@@ -366,11 +384,13 @@ export default function CardInspector() {
             const name = customArtName(active as CardView)
             if (!name) return
             // another player's copy: change it on this screen for this match only, so their own pick
-            // stays the default everyone else sees; our own copy: a normal preference (then shared)
+            // stays the default everyone else sees; our own copy: a normal preference (then shared),
+            // keeping the one it replaces for "Restore default art"
             if (source && isOtherPlayersCard(source)) setMatchArtOverride(source, name, setCode, cardNumber)
-            else setCardArtPreference(name, setCode, cardNumber)
+            else setOwnArtInMatch(name, setCode, cardNumber)
           }}
           onClose={() => setShowPrintings(false)}
+          restoreDefault={restoreDefaultFor(source, customArtName(active as CardView), t)}
         />
       )}
     </div>,

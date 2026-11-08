@@ -2,6 +2,7 @@ import CloseButton from '../ui/CloseButton'
 import { useState, useEffect } from 'react'
 import { scryfallCardImage, type ScryfallSearchCard } from './scryfallSearch'
 import Icon from '../ui/Icon'
+import Button from '../ui/Button'
 import DialogShell from '../ui/DialogShell'
 import { useTranslation } from '../i18n'
 import { scryfallFetch } from '../cards/scryfallClient'
@@ -43,12 +44,15 @@ export function CardPrintingsModal({
   currentNumber,
   onSelectPrinting,
   onClose,
+  restoreDefault,
 }: {
   cardName: string
   currentSet: string
   currentNumber: string
   onSelectPrinting: (setCode: string, cardNumber: string) => void
   onClose: () => void
+  /** During a match, when this card's art was changed: puts its default art back (`hint` says which). */
+  restoreDefault?: { hint: string; onRestore: () => void }
 }) {
   const { t } = useTranslation()
   const [printings, setPrintings] = useState<CardPrinting[]>([])
@@ -102,6 +106,22 @@ export function CardPrintingsModal({
     >
         <div className="printings-body">
           <CustomCardArtSection cardName={cardName} />
+
+          {restoreDefault && (
+            <div className="printings-restore">
+              <Button
+                icon="undo"
+                size="sm"
+                onClick={() => {
+                  restoreDefault.onRestore()
+                  onClose()
+                }}
+              >
+                {t('decks', 'art_restore_default')}
+              </Button>
+              <span className="printings-restore-hint">{restoreDefault.hint}</span>
+            </div>
+          )}
 
           {loading && (
             <div className="printings-status-box">

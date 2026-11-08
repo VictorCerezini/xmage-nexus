@@ -4,7 +4,9 @@ fakeOnly()
 import { quickStartGame } from './support/start-game'
 import { withFakeServer } from './support/fake-backend'
 import { cardInspectorScenario } from '../fixtures/scenarios/cardInspector'
-import type { Page } from '@playwright/test'
+import { SIM_PLAYER_ID } from '../fixtures/humanGameConstants'
+import type { PermanentView } from '../src/net/types'
+import type { Locator, Page } from '@playwright/test'
 
 const LOCALIZED = {
   name: 'The One Ring',
@@ -160,6 +162,145 @@ test.describe('Card inspector (right click)', { tag: '@game' }, () => {
       await expect(inspector.locator('.card-inspector-cost')).toHaveText(['+2', '0', '\u22121', '\u221212'])
       await expect(inspector.locator('.card-inspector-ability.is-unaffordable')).toHaveCount(1)
       await expect(inspector.locator('.card-inspector-ability.is-unaffordable')).toContainText('Exile all cards')
+      expect(pageErrors, `pageerrors: ${pageErrors.map(String).join(' | ')}`).toEqual([])
+    })
+  })
+
+  /** Two printings for the art menu; other Scryfall lookups have no text, and every image is a stub. */
+  async function stubPrintings(page: Page): Promise<void> {
+    const print = (set: string, num: string, setName: string) => ({
+      id: `p-${set}-${num}`, set, set_name: setName, collector_number: num, released_at: '2023-06-23', rarity: 'rare',
+      image_uris: { normal: `https://cards.scryfall.io/normal/front/${set}-${num}.svg` },
+    })
+    const prints = { data: [print('ltr', '451', 'Tales of Middle-earth'), print('ltc', '380', 'Middle-earth Commander')] }
+    await page.route('**/api.scryfall.com/**', (route) => {
+      const url = route.request().url()
+      if (url.includes('/cards/search')) return route.fulfill({ json: prints })
+      // a printing lookup: its image is named after the printing, so the test can tell which one shows
+      const printing = /\/cards\/([a-z0-9]+)\/([a-z0-9]+)(?:\/|$)/i.exec(new URL(url).pathname)
+      if (printing && printing[1] !== 'named') {
+        const [, set, num] = printing
+        return route.fulfill({
+          json: { name: 'The One Ring', image_uris: { normal: `https://cards.scryfall.io/normal/front/${set.toLowerCase()}-${num}.svg` } },
+        })
+      }
+      return route.fulfill({ status: 404, json: { object: 'error' } })
+    })
+    await page.route('**/cards.scryfall.io/**', (route) =>
+      route.fulfill({ contentType: 'image/svg+xml', body: svg(488, 680, '#9ecbff', 'CARD') }),
+    )
+  }
+
+  /** The saved art pick for a card name, as the deck builder and the game read it. */
+  const savedPick = (page: Page, name: string) =>
+    page.evaluate((n) => JSON.parse(localStorage.getItem('mage-web-card-art-v1') ?? '{}')[n.toLowerCase()] ?? null, name)
+
+  /** Right-clicks the card (closing the inspector first if it is open) and opens its art menu. */
+  async function openArtMenu(page: Page, slot: Locator) {
+    const inspector = page.locator('.card-inspector')
+    if (await inspector.isVisible()) {
+      await page.keyboard.press('Escape')
+      await expect(inspector).toBeHidden()
+    }
+    await expect(slot).toBeVisible({ timeout: 15_000 })
+    await slot.click({ button: 'right' })
+    await page.locator('.card-inspector-customize').click()
+    const menu = page.locator('.printings-modal')
+    await expect(menu.locator('.printing-card-item')).toHaveCount(2, { timeout: 10_000 })
+    return menu
+  }
+
+  test('CRD-8: a card whose art was changed during the match can go back to its default, from the same menu', async ({ page }) => {
+    await stubPrintings(page)
+    const opponentsRing = {
+      id: 'ring-sim', name: 'The One Ring', displayName: 'The One Ring', expansionSetCode: 'LTR', cardNumber: '246',
+      cardTypes: ['Artifact'], superTypes: ['Legendary'], controllerId: SIM_PLAYER_ID, rules: ['Indestructible.'],
+    } as unknown as PermanentView
+    await withFakeServer(() => cardInspectorScenario({ opponentBattlefield: { 'ring-sim': opponentsRing } }), async () => {
+      const { pageErrors } = await quickStartGame(page, { prefix: 'insp-art' })
+      const mine = page.locator('.card-slot[data-card-id="ring1"]').first()
+      const theirs = page.locator('.card-slot[data-card-id="ring-sim"]').first()
+      const inspector = page.locator('.card-inspector')
+      const restore = page.locator('.printings-restore')
+      const inspectorImg = page.locator('.card-inspector-img')
+
+      // my own copy: nothing changed yet, so no way back is offered
+      let menu = await openArtMenu(page, mine)
+      await expect(restore).toHaveCount(0)
+      await menu.locator('.printing-card-item', { hasText: 'Middle-earth Commander' }).click()
+      // only the menu closes: the inspector stays on the card, now showing that printing
+      await expect(menu).toBeHidden()
+      await expect(inspector).toBeVisible()
+      await expect(inspectorImg).toHaveAttribute('src', /ltc-380/)
+      expect(await savedPick(page, 'The One Ring')).toEqual({ setCode: 'LTC', cardNumber: '380' })
+
+      await openArtMenu(page, mine)
+      await expect(restore).toBeVisible()
+      await expect(restore.locator('.printings-restore-hint')).not.toBeEmpty()
+      await page.screenshot({ path: test.info().outputPath('art-restore-own.png') })
+      await restore.locator('button').click()
+      await expect(page.locator('.printings-modal')).toBeHidden()
+      // there was no pick before the match: the deck's own printing again
+      await expect(inspectorImg).toHaveAttribute('src', /ltr-246/)
+      expect(await savedPick(page, 'The One Ring')).toBeNull()
+      menu = await openArtMenu(page, mine)
+      await expect(restore).toHaveCount(0)
+      await menu.locator('.printings-close-btn').click()
+      await expect(menu).toBeHidden()
+      await expect(inspector).toBeVisible()
+
+      // the opponent's copy: a change only for this screen, which never touches the saved pick
+      menu = await openArtMenu(page, theirs)
+      await expect(restore).toHaveCount(0)
+      await menu.locator('.printing-card-item', { hasText: 'Tales of Middle-earth' }).click()
+      await expect(menu).toBeHidden()
+      await expect(inspectorImg).toHaveAttribute('src', /ltr-451/)
+      expect(await savedPick(page, 'The One Ring')).toBeNull()
+
+      await openArtMenu(page, theirs)
+      await expect(restore).toBeVisible()
+      await page.screenshot({ path: test.info().outputPath('art-restore-theirs.png') })
+      await restore.locator('button').click()
+      await expect(page.locator('.printings-modal')).toBeHidden()
+      await expect(inspectorImg).toHaveAttribute('src', /ltr-246/)
+      await openArtMenu(page, theirs)
+      await expect(restore).toHaveCount(0)
+
+      expect(pageErrors, `pageerrors: ${pageErrors.map(String).join(' | ')}`).toEqual([])
+    })
+  })
+
+  test('CRD-9: "Upload image" in the art menu during a match keeps the menu open and the image is used', async ({ page }) => {
+    await stubPrintings(page)
+    await withFakeServer(cardInspectorScenario, async () => {
+      const { pageErrors } = await quickStartGame(page, { prefix: 'insp-upload' })
+      const ring = page.locator('.card-slot[data-card-id="ring1"]').first()
+      const menu = await openArtMenu(page, ring)
+
+      const chooser = page.waitForEvent('filechooser')
+      await menu.locator('.custom-art-drop').click()
+      // a 1x1 PNG
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+      await (await chooser).setFiles({ name: 'my-ring.png', mimeType: 'image/png', buffer: png })
+      await expect(menu.locator('.custom-art-drop.has-image')).toBeVisible({ timeout: 10_000 })
+
+      // a click outside the menu closes only the menu; the inspector shows the uploaded image
+      await page.locator('.printings-backdrop').click({ position: { x: 5, y: 5 } })
+      await expect(menu).toBeHidden()
+      await expect(page.locator('.card-inspector')).toBeVisible()
+      await expect(page.locator('.card-inspector-img')).toHaveAttribute('src', /^data:image\//)
+      // the inspector's own backdrop still closes it
+      await page.locator('.card-inspector-backdrop').click({ position: { x: 5, y: 5 } })
+      await expect(page.locator('.card-inspector')).toBeHidden()
+
+      // Esc closes the menu first, then the inspector
+      await openArtMenu(page, ring)
+      await page.keyboard.press('Escape')
+      await expect(menu).toBeHidden()
+      await expect(page.locator('.card-inspector')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.card-inspector')).toBeHidden()
+
       expect(pageErrors, `pageerrors: ${pageErrors.map(String).join(' | ')}`).toEqual([])
     })
   })
