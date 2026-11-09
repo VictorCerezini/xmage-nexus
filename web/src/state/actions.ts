@@ -337,10 +337,12 @@ export async function requestUndoPriority(gameId: string) {
   const asksOthers = otherRollbackVoters(getState().game) > 0
   if (asksOthers) startOwnRollbackVote(gameId, 0, 'undo')
   armRollbackPending(gameId)
+  holdAutoPassAfterUndo(gameId)
   const res = await cmds.sendPlayerAction('UNDO_LAST_PRIORITY', gameId)
   if (!res.ok) {
     if (asksOthers) dismissRollbackVote()
     disarmRollbackPending()
+    releaseAutoPassHold(gameId)
     setState({ error: res.error ?? 'Error requesting undo' })
   }
   return res
@@ -549,19 +551,64 @@ export function applyGameplayPreset(id: GameplayPresetId) {
 
 let lastSmartAnswer: GameView | null = null
 
+/** Games whose server goes back to priorities (it sent canUndoPriority: true). There the smart-stops
+ * pass goes as PASS_PRIORITY_AUTO, so the server keeps no point to go back to for it: Ctrl+Z skips
+ * the windows the player never saw. Elsewhere (older or official servers) it's a plain pass. */
+const undoGames = new Set<string>()
+/** Games whose server refused PASS_PRIORITY_AUTO: plain passes there from then on. */
+const autoPassRefused = new Set<string>()
+
+/** Armed by my own Ctrl+Z: the next question I get (the one it goes back to) is shown, never passed
+ * by smart stops. `after` is the question on screen when it was armed, which doesn't count. */
+let undoHold: { gameId: string; after: GameView | null } | null = null
+
+export function holdAutoPassAfterUndo(gameId: string): void {
+  undoHold = { gameId, after: getState().priorityRequest }
+}
+
+/** The undo didn't happen (refused or failed): smart stops go on as usual. */
+export function releaseAutoPassHold(gameId?: string | null): void {
+  if (!gameId || undoHold?.gameId === gameId) undoHold = null
+}
+
+/** Forget the smart-stops pass state (store reset). */
+export function resetAutoPass(): void {
+  lastSmartAnswer = null
+  undoGames.clear()
+  autoPassRefused.clear()
+  undoHold = null
+}
+
 export function maybeAutoPass(game: GameView) {
   const s = getState()
-  if (!s.settings.smartStops || s.feedback || !s.gameId) return
+  if (!s.gameId) return
+  if (game.canUndoPriority === true) undoGames.add(s.gameId)
+  const request = s.priorityRequest
+  if (undoHold?.gameId === s.gameId && request && s.game === request && request !== undoHold.after) {
+    // the question my Ctrl+Z went back to: show it, even with nothing to do
+    undoHold = null
+    lastSmartAnswer = request
+    return
+  }
+  if (!s.settings.smartStops || s.feedback) return
   if (isRollbackVoting(s.rollbackVote, s.gameId)) return
   if (isControllingPriority(game)) return
   const me = game.players?.find((p) => p.controlled)
   if (!me?.hasPriority) return
   if (s.combat && s.combat.selectable.length > 0) return
-  const request = s.priorityRequest
   if (!request || s.game !== request || request === lastSmartAnswer) return
   if (decideStop(game, s.phaseStops).action === 'stop') return
   lastSmartAnswer = request
-  void cmds.sendPlayerBoolean(false, s.gameId)
+  void sendAutoPass(s.gameId)
+}
+
+async function sendAutoPass(gameId: string) {
+  if (undoGames.has(gameId) && !autoPassRefused.has(gameId)) {
+    const res = await cmds.sendPlayerAction('PASS_PRIORITY_AUTO', gameId)
+    if (res.ok) return
+    autoPassRefused.add(gameId)
+  }
+  await cmds.sendPlayerBoolean(false, gameId)
 }
 
 export function appendLocalChatMessage(message: string, chatId?: string | null): void {

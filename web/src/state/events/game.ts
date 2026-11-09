@@ -5,7 +5,7 @@ import { manaPaymentActions } from '../../game/manaPayment'
 import { serverAutoAnswerActions } from '../../game/autoAnswers'
 import { clonePhaseStops, serverPhaseStops } from '../../game/phaseStops'
 import { getState, setState, addLog } from '../state'
-import { sniffDungeonEntry, sniffSpeedLevel, sniffRoomDoor, enterTableChat, exitTableChat, armRollbackPending, disarmRollbackPending, sniffElimination } from '../actions'
+import { sniffDungeonEntry, sniffSpeedLevel, sniffRoomDoor, enterTableChat, exitTableChat, armRollbackPending, disarmRollbackPending, releaseAutoPassHold, sniffElimination } from '../actions'
 import { ingestRollbackServerMessage } from '../rollbackVote'
 import { t as tStatic } from '../../i18n'
 import { saveActiveGame, clearActiveGame, loadActiveGame } from '../persistence'
@@ -232,6 +232,7 @@ export function sniffRollbackAnnounce(message: string, gameId: string | null | u
   } else if (ROLLBACK_DENY_RE.test(message)) {
     const s = getState()
     if (s.rollbackPendingFor === gameId) disarmRollbackPending()
+    releaseAutoPassHold(gameId)
   }
   ingestRollbackServerMessage(message, gameId)
 }

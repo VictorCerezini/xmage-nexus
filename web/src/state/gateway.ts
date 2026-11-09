@@ -10,6 +10,7 @@ import { t } from '../i18n'
 import { versionMismatchOf, type VersionMismatch } from '../net/versionMismatch'
 import { cancelTournamentPanelJoin } from './events/tournament'
 import { syncSharedArtOnChatReady } from './sharedArtSync'
+import { resetAutoPass } from './actions'
 import type { ProxyMessage, ServerLinkEnvelope } from '../net/types'
 
 let gateway: Gateway | null = null
@@ -364,5 +365,6 @@ export function reset() {
   clearActiveDraft()
   clearActiveConstruct()
   resetGameEventOrder()
+  resetAutoPass()
   setState(initialState)
 }

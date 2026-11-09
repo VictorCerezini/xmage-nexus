@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeGameView, makePlayer } from '../__fixtures__/gameViews'
 import type { GameView } from '../net/types'
 import { getState, setState } from './state'
-import { handleMessage, requestUndoPriority, voteRollback } from './store'
+import { handleMessage, maybeAutoPass, requestUndoPriority, setSetting, voteRollback } from './store'
 import { reset } from './gateway'
 import * as cmds from '../net/commands'
 
@@ -183,5 +183,93 @@ describe('KEY-13 go back to my last priority', () => {
     } as never)
     expect(getState().rollbackVote?.kind).toBe('turns')
     expect(getState().rollbackVote?.turns).toBe(1)
+  })
+})
+
+describe('KEY-13 smart stops and going back', () => {
+  const cast = { basicManaAbilities: [], basicPlayAbilities: [], basicCastAbilities: [{ id: 'c', value: 'Cast Shock' }], other: [] }
+
+  /** A window where I have priority. With nothing to do smart stops pass it; castable gives a spell to
+   * cast, so they show it. */
+  function myWindow(step: string, canUndo = true, castable = false): GameView {
+    const game = makeGameView({
+      turn: 4,
+      phase: step === 'UPKEEP' ? 'BEGINNING' : 'PRECOMBAT_MAIN',
+      step,
+      rollbackTurnsAllowed: true,
+      canUndoPriority: canUndo,
+      myPlayerId: 'p-Alice',
+      ...(castable ? { canPlayObjects: { objects: { shock: cast } } } : {}),
+      players: [
+        makePlayer({ playerId: 'p-Alice', name: 'Alice', controlled: true, hasPriority: true, isActive: true }),
+        makePlayer({ playerId: 'p-Bob', name: 'Bob', isHuman: false }),
+      ],
+    })
+    setState({ game, priorityRequest: game })
+    return game
+  }
+
+  const passes = () => vi.mocked(cmds.sendPlayerAction).mock.calls.filter((c) => c[0] === 'PASS_PRIORITY_AUTO').length
+  const settle = () => new Promise((r) => setTimeout(r, 0))
+
+  beforeEach(() => {
+    reset()
+    vi.clearAllMocks()
+    setSetting('smartStops', true)
+    handleMessage({ type: 'event', method: 'START_GAME', messageId: 1, objectId: GAME, data: { gameId: GAME } })
+    setState({ phaseStops: { yourTurn: {}, opponentTurn: {} } })
+  })
+
+  it('KEY-13: where going back works, the smart-stops pass is marked as automatic', () => {
+    maybeAutoPass(myWindow('UPKEEP'))
+    expect(cmds.sendPlayerAction).toHaveBeenCalledWith('PASS_PRIORITY_AUTO', GAME)
+    expect(cmds.sendPlayerBoolean).not.toHaveBeenCalled()
+  })
+
+  it('KEY-13: on a server without going back, smart stops send a plain pass', () => {
+    maybeAutoPass(myWindow('UPKEEP', false))
+    expect(passes()).toBe(0)
+    expect(cmds.sendPlayerBoolean).toHaveBeenCalledWith(false, GAME)
+  })
+
+  it('KEY-13: if the server refuses the marked pass, it passes plainly from then on', async () => {
+    vi.mocked(cmds.sendPlayerAction).mockResolvedValueOnce({ ok: false, error: 'unknown action' } as never)
+    maybeAutoPass(myWindow('UPKEEP'))
+    await settle()
+    expect(cmds.sendPlayerBoolean).toHaveBeenCalledWith(false, GAME)
+    maybeAutoPass(myWindow('DRAW'))
+    await settle()
+    expect(passes()).toBe(1)
+    expect(cmds.sendPlayerBoolean).toHaveBeenCalledTimes(2)
+  })
+
+  it('KEY-13: the window Ctrl+Z goes back to is shown, not passed again', async () => {
+    myWindow('PRECOMBAT_MAIN')
+    await requestUndoPriority(GAME)
+    // the restored window, with nothing to do: shown, even on later renders
+    const restored = myWindow('UPKEEP')
+    maybeAutoPass(restored)
+    maybeAutoPass(restored)
+    expect(passes()).toBe(0)
+    expect(cmds.sendPlayerBoolean).not.toHaveBeenCalled()
+    // the window after it is passed as usual
+    maybeAutoPass(myWindow('DRAW'))
+    expect(passes()).toBe(1)
+  })
+
+  it('KEY-13: the window on screen when pressing Ctrl+Z does not use up the hold', async () => {
+    const onScreen = myWindow('PRECOMBAT_MAIN', true, true)
+    await requestUndoPriority(GAME)
+    maybeAutoPass(onScreen)
+    maybeAutoPass(myWindow('UPKEEP'))
+    expect(passes()).toBe(0)
+  })
+
+  it('KEY-13: a refused undo does not hold the next window', async () => {
+    myWindow('PRECOMBAT_MAIN')
+    await requestUndoPriority(GAME)
+    chat("There's no earlier priority to go back to.", 2)
+    maybeAutoPass(myWindow('BEGIN_COMBAT'))
+    expect(passes()).toBe(1)
   })
 })

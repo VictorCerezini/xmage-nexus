@@ -136,7 +136,11 @@ priority further back, up to 10. It works with a prompt open, but not while typi
 not in rewind, and not for spectators. It sends only when the game view says there is a priority to
 go back to (`canUndoPriority`; older servers don't send it, and the menu item is then hidden). Only
 games that allow rollbacks have it. Against computer players it runs at once; other humans (model
-seats included) are asked first, in the rollback vote dialog.
+seats included) are asked first, in the rollback vote dialog. Smart stops send the windows they pass
+by themselves as automatic passes (`PASS_PRIORITY_AUTO`, only where the server has sent
+`canUndoPriority: true`; a plain pass elsewhere or if refused), so the server keeps no point for them
+and Ctrl+Z skips the windows the player never saw. The window it goes back to is always shown, never
+passed by smart stops.
 
 - Why: a misclick or a pass at the wrong time in a long turn could only be fixed by rolling back the
   whole turn. The engine side (what is put back, extra phases and turns, players who lost) is tested
