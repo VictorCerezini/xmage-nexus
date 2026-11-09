@@ -17,6 +17,11 @@ import {
   validateDraftSets,
   uniformDraftSet,
   limitedTourneyHasAiSeats,
+  clampUndoSteps,
+  undoStepsMemoryMb,
+  UNDO_STEPS_DEFAULT,
+  UNDO_STEPS_MAX,
+  UNDO_STEPS_MIN,
   type TableKind,
   type TableKindInputs,
 } from './tableKind'
@@ -256,6 +261,7 @@ describe('builders de payload', () => {
       skillLevel: 'CASUAL',
       rated: false,
       rollbackTurnsAllowed: true,
+      undoPrioritySteps: 10,
       timeLimit: 'MIN__25',
       bufferTime: 'NONE',
       minimumRating: 0,
@@ -304,6 +310,7 @@ describe('builders de payload', () => {
       skillLevel: 'CASUAL',
       rated: false,
       rollbackTurnsAllowed: true,
+      undoPrioritySteps: 10,
       timeLimit: 'NONE',
       bufferTime: 'NONE',
       minimumRating: 0,
@@ -333,6 +340,7 @@ describe('builders de payload', () => {
       skillLevel: 'CASUAL',
       rated: false,
       rollbackTurnsAllowed: true,
+      undoPrioritySteps: 10,
       timeLimit: 'NONE',
       bufferTime: 'NONE',
       minimumRating: 0,
@@ -354,6 +362,7 @@ describe('builders de payload', () => {
       rated: false,
       spectatorsAllowed: true,
       rollbackTurnsAllowed: true,
+      undoPrioritySteps: 10,
       timeLimit: 'NONE',
       bufferTime: 'NONE',
       freeMulligans: 0,
@@ -389,6 +398,7 @@ describe('builders de payload', () => {
       rated: false,
       spectatorsAllowed: true,
       rollbackTurnsAllowed: true,
+      undoPrioritySteps: 10,
       timeLimit: 'NONE',
       bufferTime: 'NONE',
       freeMulligans: 0,
@@ -415,6 +425,7 @@ describe('builders de payload', () => {
     expect(args).not.toHaveProperty('skipInitShuffling')
     expect(args.simDecks).toBeUndefined()
     expect(args.mulliganType).toBeUndefined()
+    expect(args.undoPrioritySteps).toBe(10)
   })
 })
 
@@ -591,6 +602,7 @@ describe('TRN-3: buildCreateTournamentArgs sends a round count only for Swiss', 
     skillLevel: 'CASUAL' as const,
     rated: false,
     rollbackTurnsAllowed: true,
+    undoPrioritySteps: 10,
     timeLimit: 'NONE',
     bufferTime: 'NONE',
     minimumRating: 0,
@@ -620,3 +632,47 @@ describe('TRN-3: buildCreateTournamentArgs sends a round count only for Swiss', 
   })
 })
 
+
+describe('undo steps (KEY-13)', () => {
+  const base = {
+    name: 'Duel', username: 'player1', gameType: 'Two Player Duel', deckType: 'Constructed - Modern',
+    wins: 1, playerTypesFinal: ['HUMAN', 'HUMAN'], seatSkills: [2, 2], password: '',
+    skillLevel: 'CASUAL' as const, rated: false, spectatorsAllowed: true,
+    rollbackTurnsAllowed: true, undoPrioritySteps: 10,
+    timeLimit: 'NONE', bufferTime: 'NONE', freeMulligans: 0, showRangeAttack: false,
+    attackOption: 'LEFT', range: 'ALL', minimumRating: 0, quitRatio: 100, edhPowerLevel: 100,
+    bannedUsersRaw: '', mulliganType: 'GAME_DEFAULT', customStartLifeEnabled: false,
+    customStartLife: 20, customStartHandSizeEnabled: false, customStartHandSize: 7,
+    planeChase: false, dev: false,
+  }
+
+  it('KEY-13: sends the chosen number of steps, kept between 1 and 50', () => {
+    expect(buildCreateMatchArgs({ ...base, undoPrioritySteps: 25 }).undoPrioritySteps).toBe(25)
+    expect(buildCreateMatchArgs({ ...base, undoPrioritySteps: 500 }).undoPrioritySteps).toBe(UNDO_STEPS_MAX)
+    expect(buildCreateMatchArgs({ ...base, undoPrioritySteps: 0 }).undoPrioritySteps).toBe(UNDO_STEPS_MIN)
+    expect(buildCreateMatchArgs({ ...base, undoPrioritySteps: Number.NaN }).undoPrioritySteps).toBe(UNDO_STEPS_DEFAULT)
+  })
+
+  it('KEY-13: sends no steps when rollbacks are off', () => {
+    expect(buildCreateMatchArgs({ ...base, rollbackTurnsAllowed: false })).not.toHaveProperty('undoPrioritySteps')
+  })
+
+  it('KEY-13: a tournament sends them too', () => {
+    const args = buildCreateTournamentArgs({
+      ...base, tournamentType: 'Constructed Elimination', draft: false, numberRounds: 0,
+      singleGame: false, undoPrioritySteps: 3,
+    })
+    expect(args.undoPrioritySteps).toBe(3)
+    expect(buildCreateTournamentArgs({
+      ...base, tournamentType: 'Constructed Elimination', draft: false, numberRounds: 0,
+      singleGame: false, rollbackTurnsAllowed: false,
+    })).not.toHaveProperty('undoPrioritySteps')
+  })
+
+  it('KEY-13: the memory hint grows with the steps (one more copy than steps, about 0.6 MB each)', () => {
+    expect(clampUndoSteps(7.6)).toBe(8)
+    expect(undoStepsMemoryMb(1)).toBe(1)
+    expect(undoStepsMemoryMb(10)).toBe(7)
+    expect(undoStepsMemoryMb(50)).toBe(31)
+  })
+})

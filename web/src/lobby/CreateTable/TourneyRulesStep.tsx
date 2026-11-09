@@ -4,6 +4,7 @@ import Icon from '../../ui/Icon'
 import { RatedField, SkillField, WinsField } from './RuleFields'
 import { BufferTimeField, TimeLimitField } from './TimingTab'
 import { BannedUsersField, PasswordField, RatingFields, RollbackField, SpectatorsField } from './SecurityTab'
+import { UNDO_STEPS_DEFAULT } from './tableKind'
 import { ConstructionTimeField, DraftTimingField, SingleGameField } from './DraftTab'
 import { GameTypeField } from './TypeFields'
 import type { CreateTableForm } from './types'
@@ -20,7 +21,8 @@ function RulesPanel({ id, title, children }: { id: string; title: string; childr
 /** The Rules step: the options the proxy applies to a tournament, in matches, draft rules and access panels; the rare ones folded into Advanced. */
 export default function TourneyRulesStep({ form }: { form: CreateTableForm }) {
   const { t } = useTranslation()
-  const changed = form.rollbackTurnsAllowed ? 0 : 1
+  const changed = (form.rollbackTurnsAllowed ? 0 : 1)
+    + (form.rollbackTurnsAllowed && form.undoPrioritySteps !== UNDO_STEPS_DEFAULT ? 1 : 0)
 
   return (
     <div className="create-tab-content trn-rules">

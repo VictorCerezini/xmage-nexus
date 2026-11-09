@@ -7,6 +7,7 @@ import { clonePhaseStops, serverPhaseStops } from '../../game/phaseStops'
 import { getState, setState, addLog } from '../state'
 import { sniffDungeonEntry, sniffSpeedLevel, sniffRoomDoor, enterTableChat, exitTableChat, armRollbackPending, disarmRollbackPending, releaseAutoPassHold, sniffElimination } from '../actions'
 import { ingestRollbackServerMessage } from '../rollbackVote'
+import { undoPreviewApplied, undoPreviewFailed } from '../undoPreview'
 import { t as tStatic } from '../../i18n'
 import { saveActiveGame, clearActiveGame, loadActiveGame } from '../persistence'
 import {
@@ -90,7 +91,7 @@ export function handleStartGame(data: unknown, s: Snapshot): void {
     setState({ log: getState().log.filter((e) => (e.channel ?? 'system') !== 'game') })
   }
   const switchingGame = (d?.gameId ?? null) !== s.gameId
-  setState({ phase: 'game', watchingTable: null, stagingTableId: null, stagingIsTournament: false, gameId: d?.gameId ?? null, gameChatId: null, gameEnd: null, sideboardScreen: null, pendingSideboardScreen: null, rollbackPendingFor: null, rollbackPendingAt: null, rollbackVote: null, elimination: null, ...(switchingGame ? { feedback: null, playableIds: [], playableWindow: null, combat: null } : null) })
+  setState({ phase: 'game', watchingTable: null, stagingTableId: null, stagingIsTournament: false, gameId: d?.gameId ?? null, gameChatId: null, gameEnd: null, sideboardScreen: null, pendingSideboardScreen: null, rollbackPendingFor: null, rollbackPendingAt: null, rollbackVote: null, undoPreview: null, elimination: null, ...(switchingGame ? { feedback: null, playableIds: [], playableWindow: null, combat: null } : null) })
   addLog('partida', `${tStatic('lobby','start_match_btn')}${d?.tableName ? ` (${d.tableName})` : ''}`)
   if (isNewGame) {
     void cmds.joinGame(d!.gameId!)
@@ -219,20 +220,22 @@ export function handleGameInform(data: unknown, objectId: string | null): void {
  * les llega por el chat de la partida (GameController reenvía el evento INFO a
  * chatManager.broadcast, no como callback), así que es señal secundaria: la
  * principal es armar el flag con la acción propia (ver armRollbackPending). */
-const ROLLBACK_ANNOUNCE_RE = /rolling back to start of turn|goes back to their last priority/i
+const ROLLBACK_ANNOUNCE_RE = /rolling back to start of turn|goes back (?:to their last priority|\d+ priorities)/i
 
 /** Negativas del servidor a un rollback pedido/aceptado: desarman el flag para
  * no dejarlo colgado (el ok del proxy solo confirma el envío). */
-const ROLLBACK_DENY_RE = /rollback request denied|undo request denied|not possible to rollback|only request a rollback|not available for rollback|no earlier priority to go back to|going back isn't allowed/i
+const ROLLBACK_DENY_RE = /rollback request denied|undo request (?:denied|withdrawn)|not possible to rollback|only request a rollback|not available for rollback|no earlier priority to go back to|going back isn't allowed/i
 
 export function sniffRollbackAnnounce(message: string, gameId: string | null | undefined): void {
   if (!gameId) return
   if (ROLLBACK_ANNOUNCE_RE.test(message)) {
     armRollbackPending(gameId)
+    undoPreviewApplied(gameId)
   } else if (ROLLBACK_DENY_RE.test(message)) {
     const s = getState()
     if (s.rollbackPendingFor === gameId) disarmRollbackPending()
     releaseAutoPassHold(gameId)
+    undoPreviewFailed(gameId)
   }
   ingestRollbackServerMessage(message, gameId)
 }
@@ -295,11 +298,12 @@ export function handleEndGameInfo(data: unknown, objectId?: string | null): void
       rollbackPendingFor: null,
       rollbackPendingAt: null,
       rollbackVote: null,
+      undoPreview: null,
       resumingGameId: null,
       elimination: null,
     })
   } else {
-    setState({ gameEnd: end, rollbackVote: null, feedback: null, playableIds: [], playableWindow: null, combat: null })
+    setState({ gameEnd: end, rollbackVote: null, undoPreview: null, feedback: null, playableIds: [], playableWindow: null, combat: null })
   }
 }
 

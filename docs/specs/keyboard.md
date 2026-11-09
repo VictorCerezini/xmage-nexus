@@ -127,22 +127,36 @@ again the picks the player hid.
   desktop draft parity (U9-1, `34c7cc2436`).
 - Guard: `src/game/RewindBar.test.tsx` · `src/game/DraftScreen.test.tsx`
 
-### KEY-13 · Ctrl+Z goes back to my last priority
-On the game screen Ctrl+Z (Cmd+Z on macOS) asks the server to put the game back as it was at the
-player's last priority, the same request as "Go back to my last priority" in the ⋯ menu. In the
-middle of casting or paying, it goes back to the start of that priority; pressing it again goes one
-priority further back, up to 10. It works with a prompt open, but not while typing in a text field
-(where Ctrl+Z undoes the typing), not with Shift or Alt held, not while a rollback vote is on screen,
-not in rewind, and not for spectators. It sends only when the game view says there is a priority to
-go back to (`canUndoPriority`; older servers don't send it, and the menu item is then hidden). Only
-games that allow rollbacks have it. Against computer players it runs at once; other humans (model
-seats included) are asked first, in the rollback vote dialog. Smart stops send the windows they pass
-by themselves as automatic passes (`PASS_PRIORITY_AUTO`, only where the server has sent
+### KEY-13 · Ctrl+Z looks back, then goes back to an earlier priority
+On the game screen Ctrl+Z (Cmd+Z on macOS), or "Go back to an earlier priority" in the ⋯ menu,
+shows the player the game as it was at their last priority, only to them (`UNDO_PREVIEW`): nothing
+changes in the game yet. Ctrl+Z again shows one priority further back, as far as the table keeps;
+Ctrl+Shift+Z one forward. Forward from the last one, Cancel or Esc go back to the game as it is. A
+bar on top says how many priorities back the board is and where (turn and step), with Back, Forward,
+Confirm rollback and Cancel; the prompts are hidden meanwhile. Confirm rollback sends
+`UNDO_LAST_PRIORITY` with that number (no number for one, as older servers expect). Against computer
+players it runs at once. Other humans (model seats included) are asked first in the rollback vote
+dialog, which says who asks and how many priorities back; while it is open everyone's board shows
+that point, grayed out, and nobody can act. Accepted, the game goes back there; denied, or withdrawn
+by the one who asked, it stays as it is. Looking back works only while the game waits on the player
+(their priority, a question to them, or the priority of a player they control; the server checks it
+too), also in the middle of casting or paying. Not while typing in a text field (where Ctrl+Z undoes
+the typing), not with Alt held, not while a rollback vote is on screen, not in rewind, and not for
+spectators. The game going on (a new priority request) ends looking back. It needs the game view to
+say there is a priority to go back to (`canUndoPriority`; older servers don't send it, and the menu
+item is then hidden); a server without `undoPriorityCount` goes back to the last priority at once,
+as before. Only games that allow rollbacks have it. How many priorities each player can go back is
+set when creating the table ("Undo steps" under Allow Rollbacks, 1 to 50, default 10): each step
+keeps a copy of the game on the server for each human player, about 0.2 MB in a normal two-player
+game and 0.6 MB on a busy board, and the field shows the estimate. Smart stops send the windows they
+pass by themselves as automatic passes (`PASS_PRIORITY_AUTO`, only where the server has sent
 `canUndoPriority: true`; a plain pass elsewhere or if refused), so the server keeps no point for them
 and Ctrl+Z skips the windows the player never saw. The window it goes back to is always shown, never
 passed by smart stops.
 
 - Why: a misclick or a pass at the wrong time in a long turn could only be fixed by rolling back the
-  whole turn. The engine side (what is put back, extra phases and turns, players who lost) is tested
-  in the engine's `UndoLastPriorityTest` and `UndoLastPriorityMultiplayerTest`.
-- Guard: `src/game/GameScreen.undo.test.tsx` · `src/state/undoPriority.test.ts`
+  whole turn. Looking first lets the player find the right point before anyone is asked, and the
+  others see where the game would resume before they agree. The engine side (what is put back, how
+  many points a table keeps, extra phases and turns, players who lost) is tested in the engine's
+  `UndoLastPriorityTest`, `UndoLastPriorityMultiplayerTest` and `UndoSeveralPrioritiesTest`.
+- Guard: `src/game/GameScreen.undo.test.tsx` · `src/state/undoPreview.test.ts` · `src/state/undoPriority.test.ts` · `src/lobby/CreateTableDialog.test.tsx` · `src/lobby/CreateTable/tableKind.test.ts`

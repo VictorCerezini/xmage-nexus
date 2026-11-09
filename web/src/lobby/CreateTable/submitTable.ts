@@ -39,7 +39,7 @@ export type SubmitTableForm = Pick<
   | 'numberRounds' | 'singleGame' | 'timeLimit' | 'bufferTime' | 'freeMulligans' | 'mulliganType'
   | 'customStartLifeEnabled' | 'customStartLife' | 'customStartHandSizeEnabled' | 'customStartHandSize'
   | 'planeChase' | 'attackOption' | 'range' | 'password' | 'bannedUsersRaw' | 'spectatorsAllowed'
-  | 'rollbackTurnsAllowed' | 'minimumRating' | 'quitRatio' | 'edhPowerLevel' | 'numPlayers'
+  | 'rollbackTurnsAllowed' | 'undoPrioritySteps' | 'minimumRating' | 'quitRatio' | 'edhPowerLevel' | 'numPlayers'
   | 'seatConfigs' | 'humanSeat' | 'myDeck' | 'simDeck' | 'playerTypesSel' | 'mySkill'
   | 'skipInitShuffling' | 'skipStartingPlayerChoice' | 'showRangeAttack' | 'isDraftLimited'
   | 'isTournament' | 'compatibilityError'
@@ -178,6 +178,7 @@ async function submitTournament(f: SubmitTableForm, io: SubmitTableIO): Promise<
     skillLevel: f.skillLevel,
     rated: f.rated,
     rollbackTurnsAllowed: f.rollbackTurnsAllowed,
+    undoPrioritySteps: f.undoPrioritySteps,
     timeLimit: f.timeLimit,
     bufferTime: f.bufferTime,
     minimumRating: f.minimumRating,
@@ -337,6 +338,7 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
     rated: f.rated,
     spectatorsAllowed: f.spectatorsAllowed,
     rollbackTurnsAllowed: f.rollbackTurnsAllowed,
+    undoPrioritySteps: f.undoPrioritySteps,
     timeLimit: f.timeLimit,
     bufferTime: f.bufferTime,
     freeMulligans: f.freeMulligans,

@@ -6,6 +6,8 @@ import DialogShell from '../ui/DialogShell'
 import Icon from '../ui/Icon'
 import Button from '../ui/Button'
 import { useTranslation } from '../i18n'
+import { withdrawUndoRequest } from '../state/actions'
+import { PhaseName } from './PhaseBar'
 import './RollbackVoteDialog.css'
 
 export const ROLLBACK_HIDE_AFTER_MS = 30_000
@@ -30,6 +32,8 @@ export default function RollbackVoteDialog() {
   const { t } = useTranslation()
   const vote = useStore((s) => s.rollbackVote)
   const currentTurn = useStore((s) => s.game?.turn ?? null)
+  // the game where the undo would go back to, on screen while the others are asked
+  const undoBoard = useStore((s) => (s.undoPreview?.mode === 'vote' && s.undoPreview.gameId === s.rollbackVote?.gameId ? s.undoPreview.board : null))
   const [busy, setBusy] = useState(false)
   const [canHide, setCanHide] = useState(false)
 
@@ -58,6 +62,17 @@ export default function RollbackVoteDialog() {
   const needsMyVote = voting && vote.myVote === 'pending'
   const accepted = vote.voters.filter((v) => v.status === 'accepted' || v.status === 'requested').length
 
+  const onWithdraw = async () => {
+    if (busy) return
+    soundManager.play('ui_click', 'ui')
+    setBusy(true)
+    try {
+      await withdrawUndoRequest(vote.gameId)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const onVote = async (accept: boolean) => {
     if (busy) return
     soundManager.play('ui_click', 'ui')
@@ -70,18 +85,38 @@ export default function RollbackVoteDialog() {
   }
 
   const prefix = isUndo ? 'undo_vote' : 'rollback_vote'
+  const steps = Math.max(1, vote.steps ?? 1)
+  // an undo of several priorities says how many: "... go back 3 priorities"
+  const several = isUndo && steps > 1
   const title = vote.requestedByMe
-    ? t('dialogs', `${prefix}_title_mine`)
-    : t('dialogs', `${prefix}_title`, { name: vote.requester || '?' })
+    ? t('dialogs', several ? 'undo_vote_title_mine_n' : `${prefix}_title_mine`, { count: steps })
+    : t('dialogs', several ? 'undo_vote_title_n' : `${prefix}_title`, { name: vote.requester || '?', count: steps })
+  // where it goes back to: the board on screen shows that point (the server sends it with the request)
+  const where = isUndo && undoBoard ? (
+    <span className="rollback-vote-where" data-testid="undo-vote-where">
+      {t('dialogs', 'undo_vote_where', { turn: undoBoard.turn })}
+      {undoBoard.step && <> <PhaseName step={undoBoard.step} />.</>}
+    </span>
+  ) : null
   const message = isUndo
-    ? vote.requestedByMe
-      ? t('dialogs', 'undo_vote_target_mine')
-      : t('dialogs', 'undo_vote_target', { name: vote.requester || '?' })
+    ? (
+      <>
+        {where}
+        {where && ' '}
+        {vote.requestedByMe
+          ? t('dialogs', where ? 'undo_vote_preview_mine' : 'undo_vote_target_mine')
+          : where
+            ? t('dialogs', 'undo_vote_preview')
+            : t('dialogs', 'undo_vote_target', { name: vote.requester || '?' })}
+      </>
+    )
     : t('dialogs', 'rollback_vote_target', { turn: targetTurn, from: vote.requestedAtTurn })
 
   let banner: { tone: 'wait' | 'ok' | 'err'; text: string }
   if (vote.outcome === 'applied') {
     banner = { tone: 'ok', text: t('dialogs', `${prefix}_applied`, { turn: vote.appliedTurn ?? targetTurn }) }
+  } else if (vote.outcome === 'denied' && vote.withdrawn) {
+    banner = { tone: 'err', text: t('dialogs', 'undo_vote_withdrawn', { name: vote.deniedBy ?? '?' }) }
   } else if (vote.outcome === 'denied') {
     banner = { tone: 'err', text: t('dialogs', `${prefix}_denied`, { name: vote.deniedBy ?? '?' }) }
   } else if (vote.outcome === 'failed') {
@@ -97,7 +132,7 @@ export default function RollbackVoteDialog() {
       labelledBy="rollback-vote-title"
       titleId="rollback-vote-title"
       testId="rollback-vote"
-      legacyBackdropClass="feedback-backdrop"
+      legacyBackdropClass={undoBoard ? 'feedback-backdrop rollback-vote-backdrop--preview' : 'feedback-backdrop'}
       legacyPanelClass="feedback-dialog rollback-vote-dialog chrome-surface"
       kickerIcon="undo"
       kickerLabel={t('dialogs', `${prefix}_kicker`)}
@@ -136,11 +171,18 @@ export default function RollbackVoteDialog() {
             </Button>
           </>
         ) : voting ? (
-          canHide && (
-            <Button variant="subtle" onClick={hideRollbackVote} data-testid="rollback-vote-hide">
-              {t('dialogs', 'rollback_vote_hide')}
-            </Button>
-          )
+          <>
+            {isUndo && vote.requestedByMe && (
+              <Button variant="subtle" className="cancel-btn" disabled={busy} onClick={() => void onWithdraw()} data-testid="undo-vote-withdraw">
+                <Icon name="x" size={13} /> {t('dialogs', 'undo_vote_withdraw')}
+              </Button>
+            )}
+            {canHide && (
+              <Button variant="subtle" onClick={hideRollbackVote} data-testid="rollback-vote-hide">
+                {t('dialogs', 'rollback_vote_hide')}
+              </Button>
+            )}
+          </>
         ) : (
           <Button variant="primary" onClick={dismissRollbackVote} data-testid="rollback-vote-close">
             {t('dialogs', 'rollback_vote_close')}

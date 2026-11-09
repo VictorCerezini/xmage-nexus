@@ -150,6 +150,8 @@ export interface CreateTableArgs {
   rated?: boolean
   spectatorsAllowed?: boolean
   rollbackTurnsAllowed?: boolean
+  /** how many of their priorities each player can go back (Ctrl+Z), 1..50; each keeps a copy of the game */
+  undoPrioritySteps?: number
   timeLimit?: string
   bufferTime?: string
   freeMulligans?: number

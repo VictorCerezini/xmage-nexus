@@ -58,6 +58,8 @@ import {
   healTournamentBranch,
   tournamentTypeForCategory,
   uniformDraftSet,
+  clampUndoSteps,
+  UNDO_STEPS_DEFAULT,
 } from './tableKind'
 import type { CreateTableForm } from './types'
 import { useDeckChoices } from './useDeckChoices'
@@ -286,6 +288,7 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
   const [bannedUsersRaw, setBannedUsersRaw] = useState('')
   const [spectatorsAllowed, setSpectatorsAllowed] = useState(true)
   const [rollbackTurnsAllowed, setRollbackTurnsAllowed] = useState(true)
+  const [undoPrioritySteps, setUndoPrioritySteps] = useState(UNDO_STEPS_DEFAULT)
   const [minimumRating, setMinimumRating] = useState(0)
   const [quitRatio, setQuitRatio] = useState(100)
   const [edhPowerLevel, setEdhPowerLevel] = useState(0)
@@ -653,7 +656,7 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     numberRounds, singleGame, timeLimit, bufferTime, freeMulligans, mulliganType,
     customStartLifeEnabled, customStartLife, customStartHandSizeEnabled, customStartHandSize,
     planeChase, attackOption, range, password, bannedUsersRaw, spectatorsAllowed,
-    rollbackTurnsAllowed, minimumRating, quitRatio, edhPowerLevel, numPlayers,
+    rollbackTurnsAllowed, undoPrioritySteps, minimumRating, quitRatio, edhPowerLevel, numPlayers,
     seatConfigs, humanSeat, myDeck, simDeck, playerTypesSel, mySkill,
     skipInitShuffling, skipStartingPlayerChoice, showRangeAttack, isDraftLimited,
     isTournament, compatibilityError,
@@ -753,6 +756,8 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     setSpectatorsAllowed,
     rollbackTurnsAllowed,
     setRollbackTurnsAllowed,
+    undoPrioritySteps,
+    setUndoPrioritySteps: (v: number) => setUndoPrioritySteps(clampUndoSteps(v)),
     minimumRating,
     setMinimumRating,
     quitRatio,

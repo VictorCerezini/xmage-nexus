@@ -3,6 +3,24 @@
   width: min(92vw, 460px);
 }
 
+/* an undo vote shows where the game would go back to: the board stays readable behind it
+   (grayed out by the game screen), and the dialog sits at the top */
+.dlg-backdrop.rollback-vote-backdrop--preview {
+  background: rgb(var(--ink-rgb) / 0.14);
+  backdrop-filter: none;
+  place-items: start center;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dlg-backdrop.rollback-vote-backdrop--preview {
+    backdrop-filter: none;
+  }
+}
+
+.rollback-vote-where {
+  font-weight: 600;
+}
+
 .rollback-vote-progress {
   font-size: var(--fs-sm);
   color: var(--fg-2);

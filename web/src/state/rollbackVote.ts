@@ -10,7 +10,7 @@ export interface RollbackVoter {
   me: boolean
 }
 
-/** 'turns': roll back to the start of a turn; 'undo': go back to the requester's last priority. */
+/** 'turns': roll back to the start of a turn; 'undo': go back some of the requester's priorities. */
 export type RollbackVoteKind = 'turns' | 'undo'
 
 export interface RollbackVote {
@@ -21,6 +21,10 @@ export interface RollbackVote {
   /** missing means a turn rollback */
   kind?: RollbackVoteKind
   turns: number
+  /** undo: how many of the requester's priorities back (missing: 1) */
+  steps?: number
+  /** the requester took the request back (outcome 'denied', deniedBy is them) */
+  withdrawn?: boolean
   requestedAtTurn: number
   voters: RollbackVoter[]
   myVote: 'pending' | 'accepted' | 'denied' | null
@@ -38,12 +42,21 @@ export const ROLLBACK_ACCEPT_CHAT = 'accepted the rollback request'
 export const ROLLBACK_PENDING_TTL_MS = 120_000
 
 const ANNOUNCE_RE = /rolling back to start of turn\s+(\d+)/i
-/** GameImpl.undoExecution: "Player request: X goes back to their last priority (turn N, step)" */
-const UNDO_ANNOUNCE_RE = /goes back to their last priority \(turn\s+(\d+)/i
-const DENIED_RE = /(?:rollback|undo) request denied by\s+(.+)$/i
+/** GameImpl.undoExecution: "Player request: X goes back to their last priority (turn N, step)",
+ *  or "X goes back 3 priorities (turn N, step)" */
+const UNDO_ANNOUNCE_RE = /goes back (?:to their last priority|\d+ priorities) \(turn\s+(\d+)/i
+/** GameController: "Undo request denied by X", or "withdrawn by X" when the requester takes it back */
+const DENIED_RE = /(?:rollback|undo) request (denied|withdrawn) by\s+(.+)$/i
 const FAILED_RE = /not possible to rollback|only request a rollback|not available for rollback|no earlier priority to go back to|going back isn't allowed/i
-/** The undo request the other players get (GameSessionPlayer.requestPermissionToUndoPriority). */
-const UNDO_REQUEST_RE = /go back to their last priority/i
+/** The undo request the other players get (GameSessionPlayer.requestPermissionToUndoPriority):
+ *  "Allow X to go back to their last priority (turn T, step)?" or "... go back 3 priorities (...)?" */
+const UNDO_REQUEST_RE = /go back (?:to their last priority|\d+ priorities)/i
+
+/** How many priorities back an undo request goes (1 for "their last priority"). */
+export function parseUndoSteps(message: string): number {
+  const m = /go back (\d+) priorities/i.exec(stripTags(message))
+  return m ? Math.max(1, Number(m[1])) : 1
+}
 
 export function stripTags(text: string): string {
   return text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
@@ -79,7 +92,7 @@ export function otherRollbackVoters(game: GameView | null): number {
   return buildVoters(game, me?.name ?? '').filter((v) => v.status !== 'requested').length
 }
 
-export function startOwnRollbackVote(gameId: string, turns: number, kind: RollbackVoteKind = 'turns'): void {
+export function startOwnRollbackVote(gameId: string, turns: number, kind: RollbackVoteKind = 'turns', steps?: number): void {
   const game = getState().game
   const me = game?.players?.find((p) => p.controlled)
   const requester = me?.name ?? ''
@@ -91,6 +104,7 @@ export function startOwnRollbackVote(gameId: string, turns: number, kind: Rollba
       requestedByMe: true,
       kind,
       turns,
+      ...(kind === 'undo' ? { steps: Math.max(1, steps ?? 1) } : null),
       requestedAtTurn: game?.turn ?? 0,
       voters,
       myVote: null,
@@ -103,14 +117,16 @@ export function startOwnRollbackVote(gameId: string, turns: number, kind: Rollba
 
 export function startIncomingRollbackVote(gameId: string, requester: string, message: string, requesterUserId?: string): void {
   const game = getState().game
+  const isUndo = UNDO_REQUEST_RE.test(stripTags(message))
   setState({
     rollbackVote: {
       gameId,
       requester,
       requesterUserId,
       requestedByMe: false,
-      kind: UNDO_REQUEST_RE.test(stripTags(message)) ? 'undo' : 'turns',
+      kind: isUndo ? 'undo' : 'turns',
       turns: parseRollbackTurns(message),
+      ...(isUndo ? { steps: parseUndoSteps(message) } : null),
       requestedAtTurn: game?.turn ?? 0,
       voters: buildVoters(game, requester),
       myVote: 'pending',
@@ -170,8 +186,15 @@ export function ingestRollbackServerMessage(message: string, gameId: string | nu
   }
   const denied = DENIED_RE.exec(text)
   if (denied) {
-    const name = denied[1].trim()
-    update(gameId, (v) => (v.outcome !== 'voting' ? v : { ...setVoter(v, name, 'denied'), outcome: 'denied', deniedBy: name, hidden: false }))
+    const withdrawn = denied[1].toLowerCase() === 'withdrawn'
+    const name = denied[2].trim()
+    update(gameId, (v) => (v.outcome !== 'voting' ? v : {
+      ...(withdrawn ? v : setVoter(v, name, 'denied')),
+      outcome: 'denied',
+      deniedBy: name,
+      hidden: false,
+      ...(withdrawn ? { withdrawn: true } : null),
+    }))
     return
   }
   if (FAILED_RE.test(text)) {

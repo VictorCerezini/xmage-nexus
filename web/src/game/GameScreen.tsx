@@ -14,7 +14,9 @@ import RewindBar from './RewindBar'
 import MobileSpectator from './MobileSpectator'
 import { useNarrowScreen } from './useNarrowScreen'
 import { useRewind, viewedSnapshot } from './rewind'
-import { clearFeedback, getState, isRollbackVoteBlocking, maybeAutoPass, requestUndoPriority, setStoreError, useGame, useSettings, useStore } from '../state/store'
+import { clearFeedback, getState, isRollbackVoteBlocking, maybeAutoPass, setStoreError, useGame, useSettings, useStore } from '../state/store'
+import { beginUndo, isUndoBrowsing, syncUndoPreview, undoBrowseBack, undoBrowseForward } from '../state/undoPreview'
+import UndoPreviewBar from './UndoPreviewBar'
 import FeedbackDialog from './FeedbackDialog'
 import UserRequestDialog from './UserRequestDialog'
 import RollbackDialog from './RollbackDialog'
@@ -126,18 +128,25 @@ export function mouseFocusedGameControl(target: EventTarget | null, root: HTMLEl
   return control
 }
 
-/** Ctrl+Z (Cmd+Z on Mac) goes back to my last priority. Not with Shift or Alt (redo-like combos),
- *  and not in a text field, where it keeps undoing the typing. Matched on the key, or on the
- *  physical Z key when the layout gives no Latin letter (e.g. Cyrillic). */
-export function isUndoPriorityShortcut(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'target'>): boolean {
-  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return false
+type UndoShortcutEvent = Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'target'>
+
+/** Ctrl+Z (Cmd+Z on Mac) looks one of my priorities further back, Ctrl+Shift+Z one forward (KEY-13).
+ *  Not with Alt, and not in a text field, where they keep undoing the typing. Matched on the key, or
+ *  on the physical Z key when the layout gives no Latin letter (e.g. Cyrillic). */
+export function undoPriorityShortcut(e: UndoShortcutEvent): 'back' | 'forward' | null {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return null
   const latin = /^[a-z]$/i.test(e.key)
-  if (latin ? e.key.toLowerCase() !== 'z' : e.code !== 'KeyZ') return false
+  if (latin ? e.key.toLowerCase() !== 'z' : e.code !== 'KeyZ') return null
   const el = e.target as HTMLElement | null
   if (el && typeof el.closest === 'function') {
-    if (el.isContentEditable || el.closest('input, textarea, select, [contenteditable]')) return false
+    if (el.isContentEditable || el.closest('input, textarea, select, [contenteditable]')) return null
   }
-  return true
+  return e.shiftKey ? 'forward' : 'back'
+}
+
+/** Ctrl+Z without Shift: back. */
+export function isUndoPriorityShortcut(e: UndoShortcutEvent): boolean {
+  return undoPriorityShortcut(e) === 'back'
 }
 
 export default function GameScreen() {
@@ -147,11 +156,16 @@ export default function GameScreen() {
   const narrowScreen = useNarrowScreen()
   const [fullBoardOnNarrow, setFullBoardOnNarrow] = useState(false)
   const rewindView = viewedSnapshot(rewind)
-  const game = rewindView?.game ?? liveGame
-  const settings = useSettings()
   const gameId = useStore((s) => s.gameId)
+  // looking back with Ctrl+Z, or the others are asked: the board shows the game back there
+  const undoPreview = useStore((s) => s.undoPreview)
+  const previewBoard = undoPreview && undoPreview.gameId === gameId ? undoPreview.board : null
+  const undoBrowsing = !!undoPreview && undoPreview.gameId === gameId && undoPreview.mode === 'browse'
+  const undoVoteBoard = !!previewBoard && undoPreview?.mode === 'vote'
+  const game = previewBoard ?? rewindView?.game ?? liveGame
+  const settings = useSettings()
   useGameTransitions(game, gameId)
-  const displayGame = useDisplayedGame(game, gameId, rewindView != null)
+  const displayGame = useDisplayedGame(game, gameId, rewindView != null || previewBoard != null)
   const feedback = useStore((s) => s.feedback)
   const playableIds = useStore((s) => s.playableIds)
   const combat = useStore((s) => s.combat)
@@ -392,21 +406,37 @@ export default function GameScreen() {
     return () => window.removeEventListener('keydown', handleSkipKeys)
   }, [feedback, sendSkip, rollbackBlocking])
 
-  // Ctrl+Z: back to my last priority. Works with a prompt open (a misclicked spell's targets),
-  // unlike Space; sends only when the server says there is a priority to go back to.
+  // Ctrl+Z: look at the game one of my priorities back, only for me; again for further back,
+  // Ctrl+Shift+Z forward, and "Confirm rollback" goes back there (UndoPreviewBar). Only while the
+  // game waits on me (my priority or a question to me, even a misclicked spell's targets), and
+  // only when the server says there is a priority to go back to.
   const canUndoPriority = !!liveGame?.canUndoPriority && !!liveGame.players?.some((p) => p.controlled)
   useEffect(() => {
     const handleUndoKey = (e: KeyboardEvent) => {
-      if (!isUndoPriorityShortcut(e)) return
+      const direction = undoPriorityShortcut(e)
+      if (!direction) return
       e.preventDefault()
-      if (e.repeat) return
+      if (e.repeat || !gameId) return
       if (rollbackBlocking) return
+      if (isUndoBrowsing(gameId)) {
+        if (direction === 'back') undoBrowseBack(gameId)
+        else undoBrowseForward(gameId)
+        return
+      }
+      if (getState().undoPreview) return
       if (gameRootRef.current?.dataset.rewind) return
-      if (gameId && canUndoPriority) void requestUndoPriority(gameId)
+      if (direction === 'back' && canUndoPriority) beginUndo(gameId)
     }
     window.addEventListener('keydown', handleUndoKey)
     return () => window.removeEventListener('keydown', handleUndoKey)
   }, [gameId, canUndoPriority, rollbackBlocking])
+
+  // the preview ends when the game goes on, or with the vote it was shown for
+  const rollbackVoteState = useStore((s) => s.rollbackVote)
+  const priorityRequest = useStore((s) => s.priorityRequest)
+  useEffect(() => {
+    syncUndoPreview()
+  }, [undoPreview, rollbackVoteState, priorityRequest, gameId])
 
   const opps = game?.players?.filter((p) => !p.controlled) ?? []
   const isSpectator = !me
@@ -594,9 +624,10 @@ export default function GameScreen() {
       <DividerSlotContext.Provider value={setDividerSlot}>
       <TableZoomLayerContext.Provider value={zoomLayer}>
         <div
-          className={`game board-surface${v2 ? ' game--v2' : ''}${rewindView ? ' game--rewind' : ''}`}
+          className={`game board-surface${v2 ? ' game--v2' : ''}${rewindView || previewBoard ? ' game--rewind' : ''}${undoBrowsing ? ' game--undo-preview' : ''}${undoVoteBoard ? ' game--undo-vote' : ''}`}
           ref={gameRootRef}
-          data-rewind={rewindView ? 'true' : undefined}
+          data-rewind={rewindView || previewBoard ? 'true' : undefined}
+          data-undo-preview={undoPreview && undoPreview.gameId === gameId ? undoPreview.mode : undefined}
           style={{ zoom: inverseZoom(settings.uiScale) }}
         >
           <div className="game-stage" ref={stageRef}>
@@ -695,6 +726,7 @@ export default function GameScreen() {
           <div className="game-zoom-layer" ref={setZoomLayer} />
           <TableZoom stageRef={stageRef} />
           <PriorityOrbLayer orbs={priorityOrbs} onDone={doneOrb} />
+          <UndoPreviewBar />
           <FeedbackDialog />
           <UserRequestDialog />
           <RollbackDialog />

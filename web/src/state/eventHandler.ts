@@ -30,6 +30,7 @@ import { notifyStagingRoster } from './stagingSounds'
 import { perfMark } from '../system/perfProbe'
 import { isRollbackPending } from './actions'
 import { applyRollbackOutcome } from './rollbackVote'
+import { ingestUndoPreview, noteLiveGameView } from './undoPreview'
 import { syncSharedArt } from './sharedArtSync'
 
 export function handleMessage(msg: ProxyMessage) {
@@ -44,7 +45,7 @@ export function handleMessage(msg: ProxyMessage) {
       break
     }
     case 'disconnected':
-      setState({ link: 'ok', linkAttempt: 0, phase: 'idle', connecting: false, game: null, gameId: null, gameChatId: null, tableChatId: null, tableChatTableId: null, tournamentChatId: null, tournamentChatTournamentId: null, playableIds: [], playableWindow: null, combat: null, feedback: null, lobby: null, roomChatId: null, sideboardScreen: null, pendingSideboardScreen: null, rollbackPendingFor: null, rollbackPendingAt: null, rollbackVote: null, resumingGameId: null, turnRecap: null, enteredThisTurn: {}, elimination: null })
+      setState({ link: 'ok', linkAttempt: 0, phase: 'idle', connecting: false, game: null, gameId: null, gameChatId: null, tableChatId: null, tableChatTableId: null, tournamentChatId: null, tournamentChatTournamentId: null, playableIds: [], playableWindow: null, combat: null, feedback: null, lobby: null, roomChatId: null, sideboardScreen: null, pendingSideboardScreen: null, rollbackPendingFor: null, rollbackPendingAt: null, rollbackVote: null, undoPreview: null, resumingGameId: null, turnRecap: null, enteredThisTurn: {}, elimination: null })
       break
     case 'info':
       addLog('servidor', msg.message)
@@ -194,6 +195,7 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
         addLog('partida', tStatic('game', 'log_board_restored', { turn: embeddedGame.turn }))
         applyRollbackOutcome(objectId ?? s.gameId, embeddedGame.turn)
       }
+      if (sameGame) noteLiveGameView(objectId, rollbackRestored)
       // La partida re-unida ya está adoptada: el guard de lobby vuelve a aplicar.
       if (objectId && getState().resumingGameId === objectId) setState({ resumingGameId: null })
     }
@@ -335,6 +337,10 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
     }
     case 'GAME_REDRAW_GUI': {
       handleRedrawGui()
+      break
+    }
+    case 'GAME_UNDO_PREVIEW': {
+      ingestUndoPreview(data, objectId ?? s.gameId)
       break
     }
     default:

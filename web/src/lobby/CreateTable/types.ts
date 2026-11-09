@@ -94,6 +94,9 @@ export interface CreateTableForm {
   setSpectatorsAllowed: (v: boolean) => void
   rollbackTurnsAllowed: boolean
   setRollbackTurnsAllowed: (v: boolean) => void
+  /** how many of their priorities each player can go back (Ctrl+Z), 1..50 */
+  undoPrioritySteps: number
+  setUndoPrioritySteps: (v: number) => void
   minimumRating: number
   setMinimumRating: (v: number) => void
   quitRatio: number

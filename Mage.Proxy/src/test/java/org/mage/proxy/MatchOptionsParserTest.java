@@ -95,4 +95,24 @@ class MatchOptionsParserTest {
         assertTrue(tOpts.getLimitedOptions() != null);
         assertTrue(!(tOpts.getLimitedOptions() instanceof mage.game.draft.DraftOptions));
     }
+
+    @Test
+    void undoStepsAreReadAndKeptBetweenOneAndFifty() {
+        mage.game.match.MatchOptions options = new mage.game.match.MatchOptions("Table", "Two Player Duel", false);
+        MatchOptionsParser.applyMatchOptions(new JsonObject(), options);
+        assertEquals(mage.game.GameOptions.UNDO_PRIORITY_STEPS_DEFAULT, options.getUndoPrioritySteps(), "not sent: the default");
+
+        JsonObject args = new JsonObject();
+        args.addProperty("undoPrioritySteps", 25);
+        MatchOptionsParser.applyMatchOptions(args, options);
+        assertEquals(25, options.getUndoPrioritySteps());
+
+        args.addProperty("undoPrioritySteps", 500);
+        MatchOptionsParser.applyMatchOptions(args, options);
+        assertEquals(50, options.getUndoPrioritySteps());
+
+        args.addProperty("undoPrioritySteps", 0);
+        MatchOptionsParser.applyMatchOptions(args, options);
+        assertEquals(1, options.getUndoPrioritySteps());
+    }
 }

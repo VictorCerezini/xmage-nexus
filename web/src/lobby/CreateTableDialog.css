@@ -324,6 +324,11 @@
   text-transform: uppercase;
 }
 
+/* "Undo steps", under "Allow Rollbacks": a short number field */
+.create-undo-steps input[type="number"] {
+  max-width: 120px;
+}
+
 /* Restrictions Box */
 .create-restrictions-box {
   display: flex;

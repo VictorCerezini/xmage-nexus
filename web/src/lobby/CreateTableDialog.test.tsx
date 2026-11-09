@@ -177,6 +177,57 @@ describe('CreateTableDialog', () => {
     expect((passwordInput as HTMLInputElement).value).toBe('secret123')
   })
 
+  it('KEY-13: the undo steps under Allow Rollbacks are sent with the table, kept between 1 and 50', async () => {
+    render(<CreateTableDialog onClose={onClose} />)
+    fireEvent.click(screen.getByText(/Restricciones|Restrictions/))
+
+    const steps = screen.getByTestId('create-undo-steps') as HTMLInputElement
+    expect(steps.value).toBe('10')
+    expect(steps.disabled).toBe(false)
+    // the memory hint: (10 + 1) copies of about 0.6 MB
+    expect(screen.getByText(/unos 7 MB/)).toBeDefined()
+
+    fireEvent.change(steps, { target: { value: '80' } })
+    fireEvent.blur(steps)
+    expect(steps.value).toBe('50')
+    fireEvent.change(steps, { target: { value: '' } })
+    fireEvent.blur(steps)
+    expect(steps.value).toBe('50')
+    fireEvent.change(steps, { target: { value: '25' } })
+    fireEvent.blur(steps)
+    expect(steps.value).toBe('25')
+    expect(screen.getByText(/unos 16 MB/)).toBeDefined()
+
+    for (let i = 0; i < 5; i++) {
+      const nextBtn = screen.queryByRole('button', { name: /Siguiente/ })
+      if (nextBtn) fireEvent.click(nextBtn)
+    }
+    fireEvent.click(screen.getByRole('button', { name: /Crear Mesa/ }))
+    await waitFor(() => {
+      expect(cmds.createTable).toHaveBeenCalledWith(expect.objectContaining({ rollbackTurnsAllowed: true, undoPrioritySteps: 25 }))
+    })
+  })
+
+  it('KEY-13: without rollbacks the undo steps field is off and nothing is sent for it', async () => {
+    render(<CreateTableDialog onClose={onClose} />)
+    fireEvent.click(screen.getByText(/Restricciones|Restrictions/))
+    fireEvent.click(screen.getAllByText(/Permitir Rebobinar|Allow Rollbacks/i)[0])
+
+    const steps = screen.getByTestId('create-undo-steps') as HTMLInputElement
+    expect(steps.disabled).toBe(true)
+    expect(screen.getByText(/Activa las vueltas atrás/)).toBeDefined()
+
+    for (let i = 0; i < 5; i++) {
+      const nextBtn = screen.queryByRole('button', { name: /Siguiente/ })
+      if (nextBtn) fireEvent.click(nextBtn)
+    }
+    fireEvent.click(screen.getByRole('button', { name: /Crear Mesa/ }))
+    await waitFor(() => {
+      expect(cmds.createTable).toHaveBeenCalledWith(expect.objectContaining({ rollbackTurnsAllowed: false }))
+    })
+    expect(vi.mocked(cmds.createTable).mock.calls.at(-1)?.[0]).not.toHaveProperty('undoPrioritySteps')
+  })
+
   it('LBY-3: keeps the table password working on beta.xmage.today (private tables on the public server)', async () => {
     setState({ conn: { serverHost: 'beta.xmage.today' } } as never)
     render(<CreateTableDialog onClose={onClose} />)

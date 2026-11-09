@@ -8,12 +8,12 @@ import {
   concedeGame,
   concedeMatch,
   openRollbackDialog,
-  requestUndoPriority,
   useGame,
   useSettings,
   setSetting,
   useStore,
 } from '../state/store'
+import { beginUndo, waitsOnMe as gameWaitsOn } from '../state/undoPreview'
 import { useFullscreen } from '../utils/fullscreen'
 import { useTranslation } from '../i18n'
 import { soundManager } from '../audio/soundManager'
@@ -33,6 +33,9 @@ export default function GameMenu() {
   const { t } = useTranslation()
   const game = useGame()
   const gameId = useStore((s) => s.gameId)
+  // going back is looked at first, only while the game waits on me (KEY-13)
+  const waitsOnMe = useStore(gameWaitsOn)
+  const undoPreviewOpen = useStore((s) => !!s.undoPreview)
   const settings = useSettings()
   const [open, setOpen] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -152,12 +155,14 @@ export default function GameMenu() {
               <MenuItem
                 className="undo-priority-btn"
                 data-testid="game-menu-undo-priority"
-                disabled={!game.canUndoPriority}
+                disabled={!game.canUndoPriority || !waitsOnMe || undoPreviewOpen}
                 onClick={() => {
                   close()
-                  void requestUndoPriority(gameId)
+                  beginUndo(gameId)
                 }}
-                title={game.canUndoPriority ? t('game', 'undo_priority_title') : t('game', 'undo_priority_none')}
+                title={!game.canUndoPriority
+                  ? t('game', 'undo_priority_none')
+                  : waitsOnMe ? t('game', 'undo_priority_title') : t('game', 'undo_priority_wait')}
               >
                 <Icon name="undo" size={13} /> {t('game', 'undo_priority')}
               </MenuItem>

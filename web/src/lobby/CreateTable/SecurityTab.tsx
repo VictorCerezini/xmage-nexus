@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from '../../i18n'
 import IconButton from '../../ui/IconButton'
 import Checkbox from '../../ui/Checkbox'
@@ -5,6 +6,7 @@ import Icon from '../../ui/Icon'
 import type { CreateTableForm } from './useCreateTableForm'
 import Field from '../../ui/Field'
 import Collapsible from './Collapsible'
+import { UNDO_STEPS_MAX, UNDO_STEPS_MIN, clampUndoSteps, undoStepsMemoryMb } from './tableKind'
 
 export function PasswordField({ form }: { form: CreateTableForm }) {
   const { t } = useTranslation()
@@ -105,14 +107,58 @@ export function SpectatorsField({ form }: { form: CreateTableForm }) {
 export function RollbackField({ form }: { form: CreateTableForm }) {
   const { t } = useTranslation()
   return (
-    <Checkbox
-      card
-      checked={form.rollbackTurnsAllowed}
-      onChange={form.setRollbackTurnsAllowed}
-      icon="undo"
-      label={t('lobby','create_field_rollback')}
-      description={t('lobby','create_desc_rollback')}
-    />
+    <>
+      <Checkbox
+        card
+        checked={form.rollbackTurnsAllowed}
+        onChange={form.setRollbackTurnsAllowed}
+        icon="undo"
+        label={t('lobby','create_field_rollback')}
+        description={t('lobby','create_desc_rollback')}
+      />
+      <UndoStepsField form={form} />
+    </>
+  )
+}
+
+/** How many of their priorities each player can go back (Ctrl+Z). Each step keeps a copy of the
+ *  game on the server, so the hint says about how much memory that takes. */
+export function UndoStepsField({ form }: { form: CreateTableForm }) {
+  const { t } = useTranslation()
+  // what is being typed: the number is kept between the limits once the field is left
+  const [draft, setDraft] = useState<string | null>(null)
+  const enabled = form.rollbackTurnsAllowed
+  return (
+    <Field
+      className="create-undo-steps"
+      label={t('lobby','create_field_undo_steps')}
+      hint={enabled
+        ? t('lobby','create_hint_undo_steps', { mb: undoStepsMemoryMb(form.undoPrioritySteps) })
+        : t('lobby','create_hint_undo_steps_off')}
+    >
+      <input
+        type="number"
+        inputMode="numeric"
+        min={UNDO_STEPS_MIN}
+        max={UNDO_STEPS_MAX}
+        step={1}
+        disabled={!enabled}
+        data-testid="create-undo-steps"
+        value={draft ?? String(form.undoPrioritySteps)}
+        onChange={(e) => {
+          setDraft(e.target.value)
+          const typed = parseInt(e.target.value, 10)
+          if (typed >= UNDO_STEPS_MIN && typed <= UNDO_STEPS_MAX) form.setUndoPrioritySteps(typed)
+        }}
+        onBlur={() => {
+          if (draft !== null) {
+            const typed = parseInt(draft, 10)
+            form.setUndoPrioritySteps(Number.isNaN(typed) ? form.undoPrioritySteps : clampUndoSteps(typed))
+          }
+          setDraft(null)
+        }}
+      />
+    </Field>
   )
 }
 

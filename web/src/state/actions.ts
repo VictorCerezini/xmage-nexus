@@ -328,23 +328,33 @@ export async function requestUndo(gameId: string) {
   return res
 }
 
-/** Go back to my last priority (Ctrl+Z). The other humans must agree, like a rollback, so the
- * vote dialog only shows up when there is someone to ask; against computer players it runs at once.
+/** Go back to my last priority, or `steps` of my priorities (confirmed after looking back with
+ * Ctrl+Z, see undoPreview.ts). The other humans must agree, like a rollback, so the vote dialog
+ * only shows up when there is someone to ask; against computer players it runs at once.
  * The flag that accepts the restored board is armed before sending: without a vote the server
  * restores right away, and that view must not be dropped as stale. */
-export async function requestUndoPriority(gameId: string) {
+export async function requestUndoPriority(gameId: string, steps = 1) {
   // like a rollback request, a new request replaces an open (hidden) one on the server too
   const asksOthers = otherRollbackVoters(getState().game) > 0
-  if (asksOthers) startOwnRollbackVote(gameId, 0, 'undo')
+  if (asksOthers) startOwnRollbackVote(gameId, 0, 'undo', steps)
   armRollbackPending(gameId)
   holdAutoPassAfterUndo(gameId)
-  const res = await cmds.sendPlayerAction('UNDO_LAST_PRIORITY', gameId)
+  const res = steps > 1
+    ? await cmds.sendPlayerAction('UNDO_LAST_PRIORITY', gameId, steps)
+    : await cmds.sendPlayerAction('UNDO_LAST_PRIORITY', gameId)
   if (!res.ok) {
     if (asksOthers) dismissRollbackVote()
     disarmRollbackPending()
     releaseAutoPassHold(gameId)
     setState({ error: res.error ?? 'Error requesting undo' })
   }
+  return res
+}
+
+/** Take back my undo request while the others haven't all answered (the server tells everyone). */
+export async function withdrawUndoRequest(gameId: string) {
+  const res = await cmds.sendPlayerAction(ROLLBACK_DENY_ACTION, gameId)
+  if (!res.ok) setState({ error: res.error ?? 'Error withdrawing the request' })
   return res
 }
 

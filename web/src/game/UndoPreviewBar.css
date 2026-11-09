@@ -1,0 +1,87 @@
+/* Looking back with Ctrl+Z (KEY-13): the bar over the board, and the board while looking back. */
+
+.undo-preview-bar {
+  position: absolute;
+  top: var(--sp-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  width: min(560px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--warn-line);
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px var(--shade-3);
+  color: var(--fg-1);
+  font-size: var(--fs-sm);
+  pointer-events: auto;
+}
+
+.undo-preview-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.undo-preview-status > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.undo-preview-badge {
+  flex: none;
+  padding: 1px var(--sp-2);
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--warn-strong);
+  font-weight: 700;
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+}
+
+.undo-preview-steps {
+  font-weight: 600;
+}
+
+.undo-preview-where {
+  color: var(--fg-2);
+}
+
+.undo-preview-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+
+.undo-preview-actions > * {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 520px) {
+  .undo-preview-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* while looking back, questions on screen wait: answering one would move the game on */
+.game--undo-preview .feedback-backdrop,
+.game--undo-preview .dlg-backdrop {
+  display: none;
+}
+
+/* while the others are asked, everyone sees where the game would go back to, grayed out */
+.game--undo-vote .game-stage {
+  filter: grayscale(0.85) brightness(0.8);
+  pointer-events: none;
+  transition: filter 0.2s;
+}

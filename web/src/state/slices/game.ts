@@ -5,6 +5,7 @@ import { DEFAULT_PHASE_STOPS, clonePhaseStops } from '../../game/phaseStops'
 import { loadActiveDeck } from '../persistence'
 import type { TurnRecap } from '../../game/turnRecap'
 import type { RollbackVote } from '../rollbackVote'
+import type { UndoPreview } from '../undoPreview'
 
 export interface CombatState {
   mode: 'attack' | 'block'
@@ -98,6 +99,8 @@ export interface GameSlice {
   rollbackPendingAt: number | null
   /** Rollback vote in progress or just resolved (blocking dialog). */
   rollbackVote: RollbackVote | null
+  /** The game some of my priorities back, shown before going back there (Ctrl+Z, KEY-13). */
+  undoPreview: UndoPreview | null
   viewer: CardViewerState | null
   playerMenu: PlayerMenuState | null
   inspectedCard: CardView | PermanentView | null
@@ -136,6 +139,7 @@ export const initialGame: GameSlice = {
   rollbackPendingFor: null,
   rollbackPendingAt: null,
   rollbackVote: null,
+  undoPreview: null,
   viewer: null,
   playerMenu: null,
   inspectedCard: null,

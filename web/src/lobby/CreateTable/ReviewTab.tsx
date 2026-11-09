@@ -67,6 +67,7 @@ export default function ReviewTab({ form }: { form: CreateTableForm }) {
       { label: t('lobby', 'create_field_banned_users'), value: form.bannedUsersRaw.trim() || none },
       { label: t('lobby', 'create_field_spectators'), value: yesNo(form.spectatorsAllowed) },
       { label: t('lobby', 'create_field_rollback'), value: yesNo(form.rollbackTurnsAllowed) },
+      { label: t('lobby', 'create_field_undo_steps'), value: form.rollbackTurnsAllowed ? String(form.undoPrioritySteps) : none },
     ],
   })
 
