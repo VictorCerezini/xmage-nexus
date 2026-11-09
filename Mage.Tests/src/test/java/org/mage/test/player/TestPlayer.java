@@ -119,6 +119,9 @@ public class TestPlayer implements Player {
     //   (example: card call TestPlayer's choice, but it uses another choices, see docs in TestComputerPlayer)
     private boolean strictChooseMode = false;
 
+    // keep the points to go back to on each priority, like a human player (see Game.undoLastPriority)
+    private boolean keepUndoPoints = false;
+
     private String[] groupsForTargetHandling = null; // predefined targets list from cast/activate command
 
     // Tracks the initial turns (turn 0s) both players are given at the start of the game.
@@ -159,6 +162,11 @@ public class TestPlayer implements Player {
         }
         this.isSkipAllNextChooseCommands = testPlayer.isSkipAllNextChooseCommands;
         this.strictChooseMode = testPlayer.strictChooseMode;
+        this.keepUndoPoints = testPlayer.keepUndoPoints;
+    }
+
+    public void setKeepUndoPoints(boolean keepUndoPoints) {
+        this.keepUndoPoints = keepUndoPoints;
     }
 
     public void addChoice(String choice) {
@@ -605,6 +613,9 @@ public class TestPlayer implements Player {
 
     @Override
     public boolean priority(Game game) {
+        if (keepUndoPoints) {
+            game.saveUndoPoint(getId());
+        }
         boolean oldControl = AIRealGameSimulation;
         if (AIPlayer) {
             // full AI control
@@ -772,6 +783,18 @@ public class TestPlayer implements Player {
                                 return true;
                             } else {
                                 Assert.fail("Rollback command misses parameter: " + command);
+                            }
+                        }
+                        if (groups[0].equals("UndoLastPriority")) {
+                            if (groups.length > 1 && groups[1].startsWith("rollbackBlock=")) {
+                                int rollbackBlockNumber = Integer.parseInt(groups[1].substring(14));
+                                actions.remove(action);
+                                Assert.assertTrue("No earlier priority to go back to: " + action.getActionName(),
+                                        game.undoLastPriority(this.getId()));
+                                addActionsAfterRollback(game, rollbackBlockNumber);
+                                return true;
+                            } else {
+                                Assert.fail("Undo command misses parameter: " + command);
                             }
                         }
                         if (groups[0].equals("Concede")) {

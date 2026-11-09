@@ -28,6 +28,10 @@ public abstract class Phase implements Serializable {
     protected UUID activePlayerId;
     protected Step currentStep;
     protected int count;
+    // where currentStep is, so a copy can go on from it (see resumeAfterUndo): the index in steps of the
+    // step being played, or of the step the extra steps being played come after
+    protected int currentStepIndex = -1;
+    protected boolean playingExtraStep = false;
 
     public abstract Phase copy();
 
@@ -44,6 +48,8 @@ public abstract class Phase implements Serializable {
             this.currentStep = phase.currentStep.copy();
         }
         this.count = phase.count;
+        this.currentStepIndex = phase.currentStepIndex;
+        this.playingExtraStep = phase.playingExtraStep;
         for (Step step : phase.steps) {
             this.steps.add(step.copy());
         }
@@ -77,44 +83,113 @@ public abstract class Phase implements Serializable {
         this.activePlayerId = activePlayerId;
 
         if (beginPhase(game, activePlayerId)) {
-
-            for (Step step : steps) {
-                if (game.isPaused() || game.checkIfGameIsOver()) {
-                    return false;
-                }
-                if (game.getTurn().isEndTurnRequested() && step.getType() != PhaseStep.CLEANUP) {
-                    continue;
-                }
-                currentStep = step;
-                TurnMod skipStepMod = game.getState().getTurnMods().useNextSkipStep(activePlayerId, getStep().getType());
-                if (skipStepMod == null) {
-                    playStep(game);
-                    if (game.executingRollback()) {
-                        return true;
-                    }
-                } else {
-                    Player player = game.getPlayer(skipStepMod.getPlayerId());
-                    if (player != null) {
-                        game.informPlayers(String.format("%s skips %s step%s",
-                                player.getLogName(),
-                                skipStepMod.getSkipStep().toString(),
-                                skipStepMod.getInfo()
-                        ));
-                    }
-                }
-                if (!game.isSimulation() && checkStopOnStepOption(game)) {
-                    return false;
-                }
-
+            Boolean result = playStepsFrom(game, 0);
+            if (result != null) {
+                return result;
             }
+            return finishPhase(game);
+        }
+        return false;
+    }
+
+    /**
+     * Play the steps from the given index to the end, as play() does
+     *
+     * @return null to go on and end the phase, or what play() must return right now
+     */
+    private Boolean playStepsFrom(Game game, int fromIndex) {
+        for (int i = fromIndex; i < steps.size(); i++) {
+            Step step = steps.get(i);
             if (game.isPaused() || game.checkIfGameIsOver()) {
                 return false;
             }
-            count++;
-            endPhase(game, activePlayerId);
+            if (game.getTurn().isEndTurnRequested() && step.getType() != PhaseStep.CLEANUP) {
+                continue;
+            }
+            currentStep = step;
+            currentStepIndex = i;
+            playingExtraStep = false;
+            TurnMod skipStepMod = game.getState().getTurnMods().useNextSkipStep(activePlayerId, getStep().getType());
+            if (skipStepMod == null) {
+                playStep(game);
+                if (game.executingRollback()) {
+                    return true;
+                }
+            } else {
+                Player player = game.getPlayer(skipStepMod.getPlayerId());
+                if (player != null) {
+                    game.informPlayers(String.format("%s skips %s step%s",
+                            player.getLogName(),
+                            skipStepMod.getSkipStep().toString(),
+                            skipStepMod.getInfo()
+                    ));
+                }
+            }
+            if (!game.isSimulation() && checkStopOnStepOption(game)) {
+                return false;
+            }
+        }
+        return null;
+    }
+
+    private boolean finishPhase(Game game) {
+        if (game.isPaused() || game.checkIfGameIsOver()) {
+            return false;
+        }
+        count++;
+        endPhase(game, activePlayerId);
+        return true;
+    }
+
+    /**
+     * Go on with this phase from the priority its current step was in when the game was copied,
+     * after a player went back to that priority (see Game.undoLastPriority). The phase must be the
+     * turn's current phase, restored from that copy.
+     *
+     * @return same as play()
+     */
+    public boolean resumeAfterUndo(Game game) {
+        if (game.isPaused() || game.checkIfGameIsOver()) {
+            return false;
+        }
+        if (currentStepIndex < 0 || currentStepIndex >= steps.size()
+                || currentStep == null || currentStep.getStepPart() != Step.StepPart.PRIORITY) {
+            throw new IllegalStateException("Can't go back to a priority outside a step's priority: "
+                    + type + ", step " + currentStepIndex + ", " + currentStep);
+        }
+        int index = currentStepIndex;
+        boolean extraStep = playingExtraStep;
+        if (!extraStep) {
+            // the copy of the current step is a separate object from the copy in the list, use the list's one
+            currentStep = steps.get(index);
+        }
+
+        currentStep.resumePriorityAfterUndo(game, activePlayerId);
+        if (game.executingRollback()) {
             return true;
         }
-        return false;
+        if (!game.isPaused() && !game.checkIfGameIsOver()) {
+            postPriority(game, activePlayerId);
+            if (game.executingRollback()) {
+                return true;
+            }
+        }
+        if (extraStep) {
+            // that extra step came after this step, other extra steps can follow it
+            playExtraSteps(game, steps.get(index).getType());
+            if (game.executingRollback()) {
+                return true;
+            }
+        }
+        if (!game.isSimulation() && checkStopOnStepOption(game)) {
+            return false;
+        }
+
+        Boolean result = playStepsFrom(game, index + 1);
+        if (result != null) {
+            return result;
+        }
+        return finishPhase(game);
     }
 
     private boolean checkStopOnStepOption(Game game) {
@@ -139,6 +214,8 @@ public abstract class Phase implements Serializable {
             step = it.next();
             currentStep = step;
         } while (step.getType() != stepType);
+        currentStepIndex = steps.indexOf(step);
+        playingExtraStep = false;
         resumeStep(game, wasPaused);
         while (it.hasNext()) {
             step = it.next();
@@ -146,6 +223,8 @@ public abstract class Phase implements Serializable {
                 return false;
             }
             currentStep = step;
+            currentStepIndex = steps.indexOf(step);
+            playingExtraStep = false;
             TurnMod skipStepMod = game.getState().getTurnMods().useNextSkipStep(activePlayerId, currentStep.getType());
             if (skipStepMod == null) {
                 playStep(game);
@@ -239,23 +318,31 @@ public abstract class Phase implements Serializable {
     }
 
     private void playExtraSteps(Game game, PhaseStep afterStep) {
-        while (true) {
-            TurnMod extraStepMod = game.getState().getTurnMods().useNextExtraStep(activePlayerId, afterStep);
-            if (extraStepMod == null) {
-                return;
+        try {
+            while (true) {
+                TurnMod extraStepMod = game.getState().getTurnMods().useNextExtraStep(activePlayerId, afterStep);
+                if (extraStepMod == null) {
+                    return;
+                }
+                currentStep = extraStepMod.getExtraStep();
+                playingExtraStep = true;
+                Player player = game.getPlayer(extraStepMod.getPlayerId());
+                if (player != null && player.canRespond()) {
+                    game.informPlayers(String.format("%s takes an extra %s step%s",
+                            player.getLogName(),
+                            extraStepMod.getExtraStep().toString(),
+                            extraStepMod.getInfo()
+                    ));
+                    playStep(game);
+                    if (game.executingRollback()) {
+                        return;
+                    }
+                } else {
+                    return;
+                }
             }
-            currentStep = extraStepMod.getExtraStep();
-            Player player = game.getPlayer(extraStepMod.getPlayerId());
-            if (player != null && player.canRespond()) {
-                game.informPlayers(String.format("%s takes an extra %s step%s",
-                        player.getLogName(),
-                        extraStepMod.getExtraStep().toString(),
-                        extraStepMod.getInfo()
-                ));
-                playStep(game);
-            } else {
-                return;
-            }
+        } finally {
+            playingExtraStep = false;
         }
     }
 

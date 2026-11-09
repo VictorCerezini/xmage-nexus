@@ -23,6 +23,7 @@ public enum PlayerAction {
     TRIGGER_AUTO_ORDER_RESET_ALL,
     ROLLBACK_TURNS,
     UNDO,
+    UNDO_LAST_PRIORITY, // go back to the player's last priority (Game.undoLastPriority)
     CONCEDE,
     MANA_AUTO_PAYMENT_ON,
     MANA_AUTO_PAYMENT_OFF,

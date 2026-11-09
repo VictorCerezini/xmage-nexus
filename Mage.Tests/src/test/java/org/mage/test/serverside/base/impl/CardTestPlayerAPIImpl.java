@@ -1989,6 +1989,24 @@ public abstract class CardTestPlayerAPIImpl extends MageTestPlayerBase implement
     }
 
     /**
+     * Go back to the player's last priority before this one (see Game.undoLastPriority). The player
+     * keeps a point to go back to on each of their priorities from the start of the game. Like for a
+     * rollback, rollbackAfterActionsStart() and rollbackAfterActionsEnd() define actions done after it.
+     * <p>
+     * It can be used between rollbackAfterActionsStart() and rollbackAfterActionsEnd() of an earlier one,
+     * to go back again right after: call rollbackAfterActionsStart() again after it, for the actions after
+     * the second one, and rollbackAfterActionsEnd() once at the end.
+     */
+    public void undoLastPriority(int turnNum, PhaseStep step, TestPlayer player) {
+        int block = rollbackBlock + 1;
+        player.setKeepUndoPoints(true);
+        // inside an earlier block, the command goes into that block
+        addPlayerAction(player, turnNum, step, "playerAction:UndoLastPriority" + "$rollbackBlock=" + block);
+        rollbackBlock = block;
+        rollbackPlayer = player;
+    }
+
+    /**
      * Adds a number of actions that will be added to the start of the
      * list of actions of the players but only after the rollback is executed
      * because otherwise the actions are executed to early and would lead to

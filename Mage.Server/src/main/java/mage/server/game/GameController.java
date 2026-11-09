@@ -92,6 +92,7 @@ public class GameController implements GameCallback {
     private UUID userRequestingRollback;
     private int turnsToRollback;
     private int requestsOpen;
+    private boolean undoRequested; // the open request is to go back to the last priority, not a turn rollback
 
     public GameController(ManagerFactory managerFactory, Game game, ConcurrentMap<UUID, UUID> userPlayerMap, UUID tableId, UUID choosingPlayerId, GameOptions gameOptions) {
         this.managerFactory = managerFactory;
@@ -563,6 +564,33 @@ public class GameController implements GameCallback {
             case UNDO:
                 game.undo(getPlayerId(userId));
                 break;
+            case UNDO_LAST_PRIORITY: // go back to the player's last priority, the other humans must agree
+            {
+                UUID playerId = getPlayerId(userId);
+                Player player = playerId == null ? null : game.getPlayer(playerId);
+                if (player == null) {
+                    break;
+                }
+                if (!game.getOptions().rollbackTurnsAllowed) {
+                    game.informPlayer(player, "Going back isn't allowed in this game.");
+                } else if (!game.canUndoLastPriority(playerId)) {
+                    game.informPlayer(player, "There's no earlier priority to go back to.");
+                } else {
+                    // like a rollback request, a new request replaces any open one
+                    turnsToRollback = -1;
+                    requestsOpen = requestPermissionToUndo(userId);
+                    if (requestsOpen == 0) {
+                        userRequestingRollback = null;
+                        undoRequested = false;
+                        requestsOpen = -1;
+                        game.undoLastPriority(playerId);
+                    } else {
+                        userRequestingRollback = userId;
+                        undoRequested = true;
+                    }
+                }
+                break;
+            }
             case ROLLBACK_TURNS: // basic request of a player to rollback
                 if (data instanceof Integer) {
                     turnsToRollback = (Integer) data;
@@ -571,6 +599,7 @@ public class GameController implements GameCallback {
                         if (game.getPriorityPlayerId().equals(playerId)) {
                             // rollback request on own priority - can stop current choose dialog
                             // TODO: make it async on any priority like concede
+                            undoRequested = false; // a new request replaces any open one
                             requestsOpen = requestPermissionToRollback(userId, turnsToRollback);
                             if (requestsOpen == 0) {
                                 game.rollbackTurns(turnsToRollback);
@@ -600,10 +629,18 @@ public class GameController implements GameCallback {
                 if (userRequestingRollback != null && requestsOpen > 0 && !userId.equals(userRequestingRollback)) {
                     requestsOpen--;
                     if (requestsOpen == 0) {
-                        game.rollbackTurns(turnsToRollback);
+                        if (undoRequested) {
+                            UUID requesterPlayerId = getPlayerId(userRequestingRollback);
+                            if (requesterPlayerId == null || !game.undoLastPriority(requesterPlayerId)) {
+                                game.informPlayers("Can't go back: there's no earlier priority to go back to.");
+                            }
+                        } else {
+                            game.rollbackTurns(turnsToRollback);
+                        }
                         turnsToRollback = -1;
                         userRequestingRollback = null;
                         requestsOpen = -1;
+                        undoRequested = false;
                     }
                 }
                 break;
@@ -614,10 +651,12 @@ public class GameController implements GameCallback {
                     Player player = game.getPlayer(playerId);
                     if (player != null) {
                         if (userRequestingRollback != null && requestsOpen > 0 && !userId.equals(userRequestingRollback)) {
+                            boolean wasUndo = undoRequested;
                             turnsToRollback = -1;
                             userRequestingRollback = null;
                             requestsOpen = -1;
-                            game.informPlayers("Rollback request denied by " + player.getLogName());
+                            undoRequested = false;
+                            game.informPlayers((wasUndo ? "Undo request denied by " : "Rollback request denied by ") + player.getLogName());
                         }
                     }
                 }
@@ -694,6 +733,29 @@ public class GameController implements GameCallback {
             default:
                 game.sendPlayerAction(playerAction, getPlayerId(userId), data);
         }
+    }
+
+    /**
+     * Asks every other human in the game (model seats included, they accept by themselves) to let
+     * the requester go back to their last priority. Computer players aren't asked.
+     *
+     * @return how many answers are needed
+     */
+    private int requestPermissionToUndo(UUID userIdRequester) {
+        int requests = 0;
+        for (Player player : game.getState().getPlayers().values()) {
+            Optional<User> requestedUser = getUserByPlayerId(player.getId());
+            if (player.isInGame() && player.isHuman()
+                    && requestedUser.isPresent()
+                    && !requestedUser.get().getId().equals(userIdRequester)) {
+                requests++;
+                GameSessionPlayer gameSession = gameSessions.get(player.getId());
+                if (gameSession != null) {
+                    gameSession.requestPermissionToUndoPriority(userIdRequester);
+                }
+            }
+        }
+        return requests;
     }
 
     private int requestPermissionToRollback(UUID userIdRequester, int numberTurns) {

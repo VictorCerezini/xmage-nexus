@@ -81,6 +81,8 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.*;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -142,6 +144,32 @@ public abstract class GameImpl implements Game {
     protected transient Map<Integer, GameState> gameStatesRollBack = new HashMap<>();
     protected transient boolean executingRollback;
     protected transient int turnToGoToForRollback;
+
+    // "go back to my last priority": a copy of the game each time a human player is asked for priority,
+    // the last ones per player (see undoLastPriority)
+    private static final int UNDO_POINTS_MAX = 10; // how many times in a row a player can go back
+
+    protected static final class UndoPoint {
+        final long seq; // order of all points of all players
+        final long priorityCall; // the player.priority call it was taken in
+        volatile long queriesWhenAsked; // player queries sent so far, to tell if the player is still at that question
+        final GameState state;
+
+        UndoPoint(long seq, long priorityCall, long queriesWhenAsked, GameState state) {
+            this.seq = seq;
+            this.priorityCall = priorityCall;
+            this.queriesWhenAsked = queriesWhenAsked;
+            this.state = state;
+        }
+    }
+
+    protected transient Map<UUID, Deque<UndoPoint>> undoPoints = new ConcurrentHashMap<>();
+    protected transient long undoPointSeq;
+    protected transient volatile long priorityCallNum; // counts the player.priority calls
+    protected transient volatile boolean priorityCallRunning;
+    protected transient UndoPoint undoTarget; // where the game goes back to, while executingRollback
+    protected transient UUID undoRequestedBy;
+    protected transient UUID undoStopPlayerId; // asked again after going back, whatever their skip settings
 
     protected Date startTime;
     protected Date endTime;
@@ -1252,8 +1280,13 @@ public abstract class GameImpl implements Game {
     private boolean playTurn(Player player) {
         boolean skipTurn = false;
         do {
+            boolean resumeAfterUndo = false;
             if (executingRollback) {
-                rollbackTurnsExecution(turnToGoToForRollback);
+                if (undoTarget != null) {
+                    resumeAfterUndo = undoExecution();
+                } else {
+                    rollbackTurnsExecution(turnToGoToForRollback);
+                }
                 player = getPlayer(state.getActivePlayerId());
             } else {
                 state.setActivePlayerId(player.getId());
@@ -1262,7 +1295,13 @@ public abstract class GameImpl implements Game {
             if (checkStopOnTurnOption()) {
                 return false;
             }
-            skipTurn = state.getTurn().play(this, player);
+            if (resumeAfterUndo) {
+                // the turn goes on from the priority the player went back to
+                skipTurn = false;
+                state.getTurn().resumeAfterUndo(this);
+            } else {
+                skipTurn = state.getTurn().play(this, player);
+            }
         } while (executingRollback);
 
         if (isPaused() || checkIfGameIsOver()) {
@@ -1908,7 +1947,15 @@ public abstract class GameImpl implements Game {
                                     return;
                                 }
                                 // resetPassed should be called if player performs any action
-                                if (player.priority(this)) {
+                                boolean acted;
+                                priorityCallNum++;
+                                priorityCallRunning = true;
+                                try {
+                                    acted = player.priority(this);
+                                } finally {
+                                    priorityCallRunning = false;
+                                }
+                                if (acted) {
                                     if (executingRollback()) {
                                         return;
                                     }
@@ -3226,6 +3273,7 @@ public abstract class GameImpl implements Game {
         playerQueryEventSource.select(player.getTurnControlledBy(), message);
         getState().clearLookedAt();
         getState().clearRevealed();
+        saveUndoPoint(playerId);
     }
 
     private String getControllingPlayerHint(UUID playerId) {
@@ -4238,25 +4286,10 @@ public abstract class GameImpl implements Game {
             gameStates.clear();
             // because restore uses the objects without copy each copy the state again
             gameStatesRollBack.put(getTurnNum(), state.copy());
+            // the points to go back to a priority are later than the turn's start
+            undoPoints.clear();
 
-            // state restore keeps who lost on purpose (see PlayerImpl.restore), so whoever lost after
-            // that turn started would have their board back but stay out of the game
-            for (Player playerObject : getPlayers().values()) {
-                Player playerBefore = restore.getPlayer(playerObject.getId());
-                if (playerBefore != null && playerBefore.isInGame()
-                        && (playerObject.hasLost() || playerObject.hasLeft())
-                        && !playerObject.hasGivenUp() && !playerObject.hasWon() && !playerObject.hasDrew()) {
-                    playerObject.returnToGame();
-                    leftPlayerCards.entrySet().removeIf(entry -> {
-                        if (!entry.getValue().isOwnedBy(playerObject.getId())) {
-                            return false;
-                        }
-                        gameCards.put(entry.getKey(), entry.getValue());
-                        return true;
-                    });
-                    informPlayers(playerObject.getLogName() + " returns to the game");
-                }
-            }
+            returnPlayersLostSince(restore);
 
             for (Player playerObject : getPlayers().values()) {
                 if (playerObject.isInGame()) {
@@ -4265,6 +4298,172 @@ public abstract class GameImpl implements Game {
             }
         }
         executingRollback = false;
+    }
+
+    /**
+     * State restore keeps who lost on purpose (see PlayerImpl.restore), so whoever lost after
+     * the restored copy was taken would have their board back but stay out of the game
+     */
+    private void returnPlayersLostSince(GameState restore) {
+        for (Player playerObject : getPlayers().values()) {
+            Player playerBefore = restore.getPlayer(playerObject.getId());
+            if (playerBefore != null && playerBefore.isInGame()
+                    && (playerObject.hasLost() || playerObject.hasLeft())
+                    && !playerObject.hasGivenUp() && !playerObject.hasWon() && !playerObject.hasDrew()) {
+                playerObject.returnToGame();
+                leftPlayerCards.entrySet().removeIf(entry -> {
+                    if (!entry.getValue().isOwnedBy(playerObject.getId())) {
+                        return false;
+                    }
+                    gameCards.put(entry.getKey(), entry.getValue());
+                    return true;
+                });
+                informPlayers(playerObject.getLogName() + " returns to the game");
+            }
+        }
+    }
+
+    @Override
+    public synchronized void saveUndoPoint(UUID playerId) {
+        if (simulation || !gameOptions.rollbackTurnsAllowed || executingRollback || !priorityCallRunning) {
+            return;
+        }
+        Player player = getPlayer(playerId);
+        if (player == null || !(player.isHuman() || player.isTestMode())) {
+            return;
+        }
+        // the game can only go on from a step's priority (see Turn.resumeAfterUndo)
+        Step step = getStep();
+        if (step == null || step.getStepPart() != Step.StepPart.PRIORITY || !playerId.equals(state.getPriorityPlayerId())) {
+            return;
+        }
+        Deque<UndoPoint> points = undoPoints.computeIfAbsent(playerId, k -> new ConcurrentLinkedDeque<>());
+        long queries = playerQueryEventSource.getQueriesSent();
+        UndoPoint last = points.peekLast();
+        if (last != null && last.priorityCall == priorityCallNum) {
+            // asked again in the same priority call, after nothing happened
+            last.queriesWhenAsked = queries;
+            return;
+        }
+        points.addLast(new UndoPoint(++undoPointSeq, priorityCallNum, queries, state.copy()));
+        // keep the point of the priority the player is at, plus the ones they can go back to
+        while (points.size() > UNDO_POINTS_MAX + 1) {
+            points.pollFirst();
+        }
+    }
+
+    /**
+     * The point a player goes back to: their last priority before the one they are being asked
+     * right now, if any. While they are in the middle of something in that priority (casting a
+     * spell, paying a cost), going back cancels it, so it's the start of that priority.
+     */
+    private UndoPoint findUndoTarget(UUID playerId) {
+        Deque<UndoPoint> points = undoPoints.get(playerId);
+        if (points == null) {
+            return null;
+        }
+        Iterator<UndoPoint> it = points.descendingIterator();
+        if (!it.hasNext()) {
+            return null;
+        }
+        UndoPoint latest = it.next();
+        boolean stillAtThatQuestion = priorityCallRunning
+                && latest.priorityCall == priorityCallNum
+                && latest.queriesWhenAsked == playerQueryEventSource.getQueriesSent();
+        if (!stillAtThatQuestion) {
+            return latest;
+        }
+        return it.hasNext() ? it.next() : null;
+    }
+
+    @Override
+    public boolean canUndoLastPriority(UUID playerId) {
+        return gameOptions.rollbackTurnsAllowed && !executingRollback && playerId != null
+                && findUndoTarget(playerId) != null;
+    }
+
+    @Override
+    public synchronized boolean undoLastPriority(UUID playerId) {
+        if (!gameOptions.rollbackTurnsAllowed || executingRollback || hasEnded()) {
+            return false;
+        }
+        UndoPoint target = findUndoTarget(playerId);
+        if (target == null) {
+            return false;
+        }
+        undoTarget = target;
+        undoRequestedBy = playerId;
+        executingRollback = true;
+        // same as a turn rollback: every human stops what they're doing and their passes are forgotten
+        for (Player playerObject : getPlayers().values()) {
+            if (playerObject.isHuman() && playerObject.canRespond()) {
+                playerObject.resetStoredBookmark(this);
+                playerObject.resetPlayerPassedActions();
+                playerObject.abort();
+            }
+        }
+        Player requester = getPlayer(playerId);
+        if (requester != null && !requester.isHuman()) {
+            requester.resetPlayerPassedActions(); // test players
+        }
+        fireUpdatePlayersEvent();
+        return true;
+    }
+
+    /**
+     * Puts back the game as it was at the point a player went back to (see undoLastPriority)
+     *
+     * @return true if the turn must go on from that point
+     */
+    private boolean undoExecution() {
+        UndoPoint target = undoTarget;
+        UUID requestedBy = undoRequestedBy;
+        undoTarget = null;
+        undoRequestedBy = null;
+        if (target == null) {
+            executingRollback = false;
+            return false;
+        }
+
+        GameState restore = target.state;
+        state.restoreForRollBack(restore);
+        playerList.setCurrent(state.getPlayerByOrderId());
+        // Reset temporary created bookmarks because no longer valid after going back
+        savedStates.clear();
+        gameStates.clear();
+        // that point and the ones after it are gone, the player gets a new one when asked again
+        for (Deque<UndoPoint> points : undoPoints.values()) {
+            points.removeIf(point -> point.seq >= target.seq);
+        }
+
+        Player requester = getPlayer(requestedBy);
+        Step step = getStep();
+        informPlayers(GameLog.getPlayerRequestColoredText(String.format(
+                "Player request: %s goes back to their last priority (turn %d, %s)",
+                requester == null ? "A player" : requester.getLogName(),
+                state.getTurnNum(),
+                step == null ? "?" : step.toString()
+        )));
+
+        returnPlayersLostSince(restore);
+
+        for (Player playerObject : getPlayers().values()) {
+            if (playerObject.isInGame()) {
+                playerObject.abortReset();
+            }
+        }
+        undoStopPlayerId = state.getPriorityPlayerId();
+        executingRollback = false;
+        return true;
+    }
+
+    @Override
+    public synchronized boolean useUndoStop(UUID playerId) {
+        if (playerId != null && playerId.equals(undoStopPlayerId)) {
+            undoStopPlayerId = null;
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -4277,6 +4476,7 @@ public abstract class GameImpl implements Game {
             } else {
                 executingRollback = true;
                 turnToGoToForRollback = turnToGoTo;
+                undoStopPlayerId = null;
                 for (Player playerObject : getPlayers().values()) {
                     if (playerObject.isHuman() && playerObject.canRespond()) {
                         playerObject.resetStoredBookmark(this);

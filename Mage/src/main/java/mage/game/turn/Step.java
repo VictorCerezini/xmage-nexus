@@ -74,6 +74,16 @@ public abstract class Step implements Serializable, Copyable<Step> {
         }
     }
 
+    /**
+     * Go on with this step's priority after a player went back to a priority they had in it
+     * (see Game.undoLastPriority). The step's event already fired before that priority, so it
+     * doesn't fire again, and the player who had priority there gets it back.
+     */
+    public void resumePriorityAfterUndo(Game game, UUID activePlayerId) {
+        stepPart = StepPart.PRIORITY;
+        game.playPriority(activePlayerId, true);
+    }
+
     public void endStep(Game game, UUID activePlayerId) {
         stepPart = StepPart.POST;
         game.fireEvent(new GameEvent(postStepEvent, null, null, activePlayerId));

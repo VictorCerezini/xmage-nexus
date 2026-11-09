@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import mage.abilities.Ability;
 import mage.abilities.ActivatedAbility;
 import mage.abilities.TriggeredAbility;
@@ -20,8 +21,22 @@ import mage.util.MultiAmountMessage;
  */
 public class PlayerQueryEventSource implements EventSource<PlayerQueryEvent>, Serializable {
 
+    // questions sent to players so far (personal messages don't count), see GameImpl.findUndoTarget
+    private final AtomicLong queriesSent = new AtomicLong();
+
     protected final EventDispatcher<PlayerQueryEvent> dispatcher = new EventDispatcher<PlayerQueryEvent>() {
+        @Override
+        public void fireEvent(PlayerQueryEvent event) {
+            if (event.getQueryType() != PlayerQueryEvent.QueryType.PERSONAL_MESSAGE) {
+                queriesSent.incrementAndGet();
+            }
+            super.fireEvent(event);
+        }
     };
+
+    public long getQueriesSent() {
+        return queriesSent.get();
+    }
 
     @Override
     public void addListener(Listener<PlayerQueryEvent> listener) {

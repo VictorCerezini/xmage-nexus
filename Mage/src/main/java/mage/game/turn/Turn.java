@@ -31,6 +31,10 @@ public class Turn implements Serializable {
     private final List<Phase> phases = new ArrayList<>();
     private boolean declareAttackersStepStarted = false;
     private boolean endTurn; // indicates that an end turn effect has resolved.
+    // where currentPhase is, so a copy can go on from it (see resumeAfterUndo): the index in phases of the
+    // phase being played, or of the phase the extra phases being played come after
+    private int currentPhaseIndex = -1;
+    private boolean playingExtraPhase = false;
 
     public Turn() {
         endTurn = false;
@@ -51,7 +55,8 @@ public class Turn implements Serializable {
         }
         this.declareAttackersStepStarted = turn.declareAttackersStepStarted;
         this.endTurn = turn.endTurn;
-
+        this.currentPhaseIndex = turn.currentPhaseIndex;
+        this.playingExtraPhase = turn.playingExtraPhase;
     }
 
     public Phase getPhase() {
@@ -109,14 +114,25 @@ public class Turn implements Serializable {
         game.getPlayer(activePlayer.getId()).beginTurn(game);
         GameEvent event = new GameEvent(GameEvent.EventType.BEGIN_TURN, null, null, activePlayer.getId());
         game.fireEvent(event);
-        for (Phase phase : phases) {
+        playPhasesFrom(game, activePlayer, 0);
+        return false;
+    }
+
+    /**
+     * Play the phases from the given index to the end, as play() does
+     */
+    private void playPhasesFrom(Game game, Player activePlayer, int fromIndex) {
+        for (int i = fromIndex; i < phases.size(); i++) {
+            Phase phase = phases.get(i);
             if (game.isPaused() || game.checkIfGameIsOver()) {
-                return false;
+                return;
             }
             if (isEndTurnRequested() && phase.getType() != TurnPhase.END) {
                 continue;
             }
             currentPhase = phase;
+            currentPhaseIndex = i;
+            playingExtraPhase = false;
 
             TurnMod skipPhaseMod = game.getState().getTurnMods().useNextSkipPhase(activePlayer.getId(), currentPhase.getType());
             if (skipPhaseMod != null) {
@@ -133,22 +149,75 @@ public class Turn implements Serializable {
                 continue;
             }
             if (game.executingRollback()) {
-                return false;
+                return;
             }
-
-            //20091005 - 500.4/703.4n
-            game.emptyManaPools(null);
-            game.saveState(false);
-
-            //20091005 - 500.8
-            while (true) {
-                // TODO: make sure it work fine (without freeze) on game errors inside extra phases
-                if (!playExtraPhases(game, phase.getType())) {
-                    break;
-                }
+            if (!finishPhaseAndPlayExtraPhases(game, phase)) {
+                return;
             }
         }
-        return false;
+    }
+
+    /**
+     * What follows a phase played to its end: the mana pools empty and the extra phases after it are played
+     *
+     * @return false if a rollback stopped the turn
+     */
+    private boolean finishPhaseAndPlayExtraPhases(Game game, Phase phase) {
+        //20091005 - 500.4/703.4n
+        game.emptyManaPools(null);
+        game.saveState(false);
+
+        //20091005 - 500.8
+        while (true) {
+            // TODO: make sure it work fine (without freeze) on game errors inside extra phases
+            if (!playExtraPhases(game, phase.getType())) {
+                break;
+            }
+        }
+        return !game.executingRollback();
+    }
+
+    /**
+     * Go on with this turn from the priority it was in when the game was copied, after a player
+     * went back to that priority (see Game.undoLastPriority). The turn must be the game's turn,
+     * restored from that copy. Whatever happened at the start of the turn and before that priority
+     * isn't played again.
+     */
+    public void resumeAfterUndo(Game game) {
+        Player activePlayer = game.getPlayer(activePlayerId);
+        if (activePlayer == null || game.isPaused() || game.checkIfGameIsOver()) {
+            return;
+        }
+        if (currentPhase == null || currentPhaseIndex < 0 || currentPhaseIndex >= phases.size()) {
+            throw new IllegalStateException("Can't go back to a priority outside a phase: phase "
+                    + currentPhaseIndex + ", " + currentPhase);
+        }
+        int index = currentPhaseIndex;
+        if (!playingExtraPhase) {
+            // the copy of the current phase is a separate object from the copy in the list, use the list's one
+            currentPhase = phases.get(index);
+            if (currentPhase.resumeAfterUndo(game)) {
+                if (game.executingRollback()) {
+                    return;
+                }
+                if (!finishPhaseAndPlayExtraPhases(game, currentPhase)) {
+                    return;
+                }
+            }
+        } else {
+            // an extra phase: finish it and play the extra phases that follow it, as playExtraPhases does
+            Phase extraPhase = currentPhase;
+            extraPhase.resumeAfterUndo(game);
+            if (game.executingRollback()) {
+                return;
+            }
+            playingExtraPhase = false;
+            playExtraPhases(game, extraPhase.getType());
+            if (game.executingRollback()) {
+                return;
+            }
+        }
+        playPhasesFrom(game, activePlayer, index + 1);
     }
 
     public void resumePlay(Game game, boolean wasPaused) {
@@ -176,6 +245,8 @@ public class Turn implements Serializable {
                 return;
             }
             currentPhase = nextPhase;
+            currentPhaseIndex = phases.indexOf(nextPhase);
+            playingExtraPhase = false;
             game.fireEvent(new PhaseChangedEvent(activePlayerId, null));
             if (nextPhase.resumePlay(game, needStepType, wasPaused)) {
                 //20091005 - 500.4/703.4n
@@ -200,6 +271,8 @@ public class Turn implements Serializable {
                 ));
             } else {
                 currentPhase = nextPhase;
+                currentPhaseIndex = phases.indexOf(nextPhase);
+                playingExtraPhase = false;
                 game.fireEvent(new PhaseChangedEvent(activePlayerId, null));
                 if (nextPhase.play(game, activePlayerId)) {
                     //20091005 - 500.4/703.4n
@@ -260,7 +333,18 @@ public class Turn implements Serializable {
      * @return false to finish
      */
     private boolean playExtraPhases(Game game, TurnPhase afterPhase) {
+        try {
+            return playExtraPhasesLoop(game, afterPhase);
+        } finally {
+            playingExtraPhase = false;
+        }
+    }
+
+    private boolean playExtraPhasesLoop(Game game, TurnPhase afterPhase) {
         while (true) {
+            if (game.executingRollback()) {
+                return false;
+            }
             TurnMod extraPhaseMod = game.getState().getTurnMods().useNextExtraPhase(activePlayerId, afterPhase);
             if (extraPhaseMod == null) {
                 // no more extra phases
@@ -295,6 +379,7 @@ public class Turn implements Serializable {
                 phase.keepOnlyStep(skipAllButExtraStep);
             }
             currentPhase = phase;
+            playingExtraPhase = true;
             game.fireEvent(new PhaseChangedEvent(activePlayerId, extraPhaseMod));
             Player activePlayer = game.getPlayer(activePlayerId);
             if (activePlayer != null) {

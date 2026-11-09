@@ -1263,9 +1263,15 @@ public class HumanPlayer extends PlayerImpl {
         // TODO: use controlling player in all choose dialogs (and canRespond too, what's with take control of player AI?!)
         UserData controllingUserData = this.getControllingPlayersUserData(game);
         if (canRespond()) {
+            // the player just went back to this priority: ask them, whatever their skip settings
+            boolean undoStop = game.useUndoStop(playerId);
+            if (undoStop) {
+                setJustActivatedType(null);
+            }
+
             // TODO: check that all skips and stops used from real controlling player
             //  like holdingPriority (is it a bug here?)
-            if (getJustActivatedType() != null && !holdingPriority) {
+            if (!undoStop && getJustActivatedType() != null && !holdingPriority) {
                 if (controllingUserData.isPassPriorityCast()
                         && getJustActivatedType() == AbilityType.SPELL) {
                     setJustActivatedType(null);
@@ -1281,8 +1287,8 @@ public class HumanPlayer extends PlayerImpl {
             }
 
             // STOP conditions (temporary stop without skip reset)
-            boolean quickStop = false;
-            if (isGameUnderControl()) { // TODO: remove to enable quick stop for controlling player
+            boolean quickStop = undoStop;
+            if (!quickStop && isGameUnderControl()) { // TODO: remove to enable quick stop for controlling player
                 // if was attacked - always stop BEFORE blocker step (to cast extra spells)
                 if (game.getTurnStepType() == PhaseStep.DECLARE_ATTACKERS
                         && game.getCombat().getPlayerDefenders(game).contains(playerId)) {

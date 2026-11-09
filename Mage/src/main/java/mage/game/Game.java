@@ -694,6 +694,32 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
     boolean executingRollback();
 
     /**
+     * Keep a copy of the game to go back to, while the player is asked for priority (only for human
+     * players, and test players in unit tests). See undoLastPriority.
+     */
+    void saveUndoPoint(UUID playerId);
+
+    /**
+     * @return true if the player has an earlier priority to go back to
+     */
+    boolean canUndoLastPriority(UUID playerId);
+
+    /**
+     * Go back to the player's last priority: the game is put back as it was then and goes on from
+     * there, with that player holding priority. Like a turn rollback, it needs rollbacks allowed.
+     *
+     * @return false if there's nothing to go back to
+     */
+    boolean undoLastPriority(UUID playerId);
+
+    /**
+     * After going back to a priority, the player gets it even if their skip settings would pass it.
+     *
+     * @return true once, for the player who went back
+     */
+    boolean useUndoStop(UUID playerId);
+
+    /**
      * Add counters to permanent before ETB. Use it before put real permanent to battlefield.
      */
     void setEnterWithCounters(UUID sourceId, Counters counters);

@@ -169,6 +169,26 @@ public class GameSessionPlayer extends GameSessionWatcher {
         }
     }
 
+    /**
+     * Same buttons as a turn rollback request, so clients and model seats that answer those answer this too
+     */
+    public void requestPermissionToUndoPriority(UUID requestingUserId) {
+        if (!killed) {
+            Optional<User> requestingUser = userManager.getUser(requestingUserId);
+            Optional<User> requestedUser = userManager.getUser(userId);
+            if (requestedUser.isPresent() && requestingUser.isPresent()) {
+                UserRequestMessage userRequestMessage = new UserRequestMessage(
+                        "Request by " + requestingUser.get().getName(),
+                        "Allow " + requestingUser.get().getName() + " to go back to their last priority?");
+                userRequestMessage.setRelatedUser(requestingUserId, requestingUser.get().getName());
+                userRequestMessage.setGameId(game.getId());
+                userRequestMessage.setButton1("Accept", PlayerAction.ADD_PERMISSION_TO_ROLLBACK_TURN);
+                userRequestMessage.setButton2("Deny", PlayerAction.DENY_PERMISSION_TO_ROLLBACK_TURN);
+                requestedUser.get().fireCallback(new ClientCallback(ClientCallbackMethod.USER_REQUEST_DIALOG, game.getId(), userRequestMessage));
+            }
+        }
+    }
+
     public void requestPermissionToSeeHandCards(UUID watcherId) {
         if (!killed) {
             Optional<User> watcher = userManager.getUser(watcherId);
