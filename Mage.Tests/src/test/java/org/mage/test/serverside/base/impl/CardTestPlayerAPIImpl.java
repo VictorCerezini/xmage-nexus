@@ -2007,6 +2007,15 @@ public abstract class CardTestPlayerAPIImpl extends MageTestPlayerBase implement
     }
 
     /**
+     * The player's client passes this priority by itself, like the web client's smart stops do
+     * (PlayerAction.PASS_PRIORITY_AUTO): going back skips it.
+     */
+    public void autoPass(int turnNum, PhaseStep step, TestPlayer player) {
+        player.setKeepUndoPoints(true);
+        addPlayerAction(player, turnNum, step, "playerAction:AutoPass");
+    }
+
+    /**
      * Adds a number of actions that will be added to the start of the
      * list of actions of the players but only after the rollback is executed
      * because otherwise the actions are executed to early and would lead to

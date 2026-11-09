@@ -167,6 +167,7 @@ public abstract class GameImpl implements Game {
     protected transient long undoPointSeq;
     protected transient volatile long priorityCallNum; // counts the player.priority calls
     protected transient volatile boolean priorityCallRunning;
+    protected transient Map<UUID, Long> undoPointForgottenCall = new ConcurrentHashMap<>(); // see forgetUndoPoint
     protected transient UndoPoint undoTarget; // where the game goes back to, while executingRollback
     protected transient UUID undoRequestedBy;
     protected transient UUID undoStopPlayerId; // asked again after going back, whatever their skip settings
@@ -4337,6 +4338,11 @@ public abstract class GameImpl implements Game {
         if (step == null || step.getStepPart() != Step.StepPart.PRIORITY || !playerId.equals(state.getPriorityPlayerId())) {
             return;
         }
+        Long forgottenCall = undoPointForgottenCall.get(playerId);
+        if (forgottenCall != null && forgottenCall == priorityCallNum) {
+            // the client already passed this priority by itself
+            return;
+        }
         Deque<UndoPoint> points = undoPoints.computeIfAbsent(playerId, k -> new ConcurrentLinkedDeque<>());
         long queries = playerQueryEventSource.getQueriesSent();
         UndoPoint last = points.peekLast();
@@ -4350,6 +4356,20 @@ public abstract class GameImpl implements Game {
         while (points.size() > UNDO_POINTS_MAX + 1) {
             points.pollFirst();
         }
+    }
+
+    @Override
+    public synchronized void forgetUndoPoint(UUID playerId) {
+        if (playerId == null || !priorityCallRunning) {
+            return;
+        }
+        Deque<UndoPoint> points = undoPoints.get(playerId);
+        UndoPoint last = points == null ? null : points.peekLast();
+        if (last != null && last.priorityCall == priorityCallNum) {
+            points.pollLast();
+        }
+        // and if the point isn't kept yet, it won't be
+        undoPointForgottenCall.put(playerId, priorityCallNum);
     }
 
     /**

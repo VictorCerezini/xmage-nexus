@@ -2786,6 +2786,10 @@ public abstract class PlayerImpl implements Player, Serializable {
             case PASS_PRIORITY_CANCEL_ALL_ACTIONS:
                 resetPlayerPassedActions();
                 break;
+            case PASS_PRIORITY_AUTO: // a plain pass, sent by the client on its own (smart stops)
+                game.forgetUndoPoint(getId());
+                this.skip();
+                break;
             case PERMISSION_REQUESTS_ALLOWED_OFF:
                 userData.setAllowRequestShowHandCards(false);
                 break;

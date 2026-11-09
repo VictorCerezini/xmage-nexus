@@ -215,4 +215,75 @@ public class UndoLastPriorityTest extends CardTestPlayerBase {
         setStrictChooseMode(true);
         execute();
     }
+
+    @Test
+    public void testAutoPassedPriorityIsSkipped() {
+        addCard(Zone.BATTLEFIELD, playerA, "Mountain", 1);
+        addCard(Zone.HAND, playerA, "Lightning Bolt", 1);
+
+        // the client passed the draw step by itself: going back from the main phase skips it
+        autoPass(3, PhaseStep.DRAW, playerA);
+        undoLastPriority(3, PhaseStep.PRECOMBAT_MAIN, playerA);
+        rollbackAfterActionsStart();
+        castSpell(3, PhaseStep.UPKEEP, playerA, "Lightning Bolt", playerB);
+        rollbackAfterActionsEnd();
+
+        setStopAt(3, PhaseStep.END_TURN);
+        setStrictChooseMode(true);
+        execute();
+
+        assertLife(playerB, 17);
+        assertGraveyardCount(playerA, "Lightning Bolt", 1);
+    }
+
+    @Test
+    public void testAutoPassBeforeThePointIsKept() {
+        addCard(Zone.BATTLEFIELD, playerA, "Mountain", 1);
+        addCard(Zone.HAND, playerA, "Lightning Bolt", 1);
+        playerA.setKeepUndoPoints(true);
+
+        // the client's pass can come before the point is kept (the question goes out first)
+        runCode("auto pass first", 3, PhaseStep.DRAW, playerA, (info, player, game) -> {
+            game.forgetUndoPoint(playerA.getId());
+            game.saveUndoPoint(playerA.getId());
+        });
+        // next priority in the draw step: back to the upkeep, not to the auto-passed priority
+        undoLastPriority(3, PhaseStep.DRAW, playerA);
+        rollbackAfterActionsStart();
+        castSpell(3, PhaseStep.UPKEEP, playerA, "Lightning Bolt", playerB);
+        rollbackAfterActionsEnd();
+
+        setStopAt(3, PhaseStep.END_TURN);
+        setStrictChooseMode(true);
+        execute();
+
+        assertLife(playerB, 17);
+    }
+
+    @Test
+    public void testGoBackTwiceOverAutoPassedPriorities() {
+        addCard(Zone.BATTLEFIELD, playerA, "Mountain", 1);
+        addCard(Zone.HAND, playerA, "Lightning Bolt", 1);
+
+        // stops: upkeep, main phase and second main phase; the client passed the rest by itself
+        autoPass(3, PhaseStep.DRAW, playerA);
+        autoPass(3, PhaseStep.BEGIN_COMBAT, playerA);
+        autoPass(3, PhaseStep.DECLARE_ATTACKERS, playerA);
+        autoPass(3, PhaseStep.END_COMBAT, playerA);
+        // from the second main phase, back to the main phase
+        undoLastPriority(3, PhaseStep.POSTCOMBAT_MAIN, playerA);
+        rollbackAfterActionsStart();
+        // and right away, back to the upkeep
+        undoLastPriority(3, PhaseStep.PRECOMBAT_MAIN, playerA);
+        rollbackAfterActionsStart();
+        castSpell(3, PhaseStep.UPKEEP, playerA, "Lightning Bolt", playerB);
+        rollbackAfterActionsEnd();
+
+        setStopAt(3, PhaseStep.END_TURN);
+        setStrictChooseMode(true);
+        execute();
+
+        assertLife(playerB, 17);
+        assertGraveyardCount(playerA, "Lightning Bolt", 1);
+    }
 }

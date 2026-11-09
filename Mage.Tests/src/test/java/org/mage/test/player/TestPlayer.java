@@ -797,6 +797,13 @@ public class TestPlayer implements Player {
                                 Assert.fail("Undo command misses parameter: " + command);
                             }
                         }
+                        if (groups[0].equals("AutoPass")) {
+                            // the client passes this priority by itself, like the web client's smart stops
+                            actions.remove(action);
+                            sendPlayerAction(mage.constants.PlayerAction.PASS_PRIORITY_AUTO, game, null);
+                            computerPlayer.pass(game);
+                            return false;
+                        }
                         if (groups[0].equals("Concede")) {
                             game.concede(this.getId());
                             ((GameImpl) game).checkConcede();

@@ -16,6 +16,7 @@ public enum PlayerAction {
     PASS_PRIORITY_UNTIL_STACK_RESOLVED,
     PASS_PRIORITY_UNTIL_END_STEP_BEFORE_MY_NEXT_TURN,
     PASS_PRIORITY_CANCEL_ALL_ACTIONS,
+    PASS_PRIORITY_AUTO, // the client passed this priority by itself (smart stops): going back skips it (Game.forgetUndoPoint)
     TRIGGER_AUTO_ORDER_ABILITY_FIRST,
     TRIGGER_AUTO_ORDER_NAME_FIRST,
     TRIGGER_AUTO_ORDER_ABILITY_LAST,

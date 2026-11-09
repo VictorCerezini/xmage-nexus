@@ -700,6 +700,13 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
     void saveUndoPoint(UUID playerId);
 
     /**
+     * The player's client passes the priority they are asked right now by itself, without showing it
+     * (smart stops): it's not a point to go back to, so going back skips it. It can come before the
+     * point is kept, since the question goes out first.
+     */
+    void forgetUndoPoint(UUID playerId);
+
+    /**
      * @return true if the player has an earlier priority to go back to
      */
     boolean canUndoLastPriority(UUID playerId);
