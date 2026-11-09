@@ -137,8 +137,11 @@ Confirm rollback and Cancel; the prompts are hidden meanwhile. Confirm rollback 
 `UNDO_LAST_PRIORITY` with that number (no number for one, as older servers expect). Against computer
 players it runs at once. Other humans (model seats included) are asked first in the rollback vote
 dialog, which says who asks and how many priorities back; while it is open everyone's board shows
-that point, grayed out, and nobody can act. Accepted, the game goes back there; denied, or withdrawn
-by the one who asked, it stays as it is. Looking back works only while the game waits on the player
+that point, grayed out, and nobody can act. The vote dialog can be dragged aside (anywhere but its
+buttons) to see the board under it, which in multiplayer it can cover; it stays inside the screen
+(also when the window gets smaller), follows the pointer at any interface scale, and each new vote
+opens in the usual place again.
+Accepted, the game goes back there; denied, or withdrawn by the one who asked, it stays as it is. Looking back works only while the game waits on the player
 (their priority, a question to them, or the priority of a player they control; the server checks it
 too), also in the middle of casting or paying. Not while typing in a text field (where Ctrl+Z undoes
 the typing), not with Alt held, not while a rollback vote is on screen, not in rewind, and not for
@@ -159,4 +162,4 @@ passed by smart stops.
   others see where the game would resume before they agree. The engine side (what is put back, how
   many points a table keeps, extra phases and turns, players who lost) is tested in the engine's
   `UndoLastPriorityTest`, `UndoLastPriorityMultiplayerTest` and `UndoSeveralPrioritiesTest`.
-- Guard: `src/game/GameScreen.undo.test.tsx` · `src/state/undoPreview.test.ts` · `src/state/undoPriority.test.ts` · `src/lobby/CreateTableDialog.test.tsx` · `src/lobby/CreateTable/tableKind.test.ts`
+- Guard: `src/game/GameScreen.undo.test.tsx` · `src/game/RollbackVoteDialog.test.tsx` · `src/state/undoPreview.test.ts` · `src/state/undoPriority.test.ts` · `src/lobby/CreateTableDialog.test.tsx` · `src/lobby/CreateTable/tableKind.test.ts`

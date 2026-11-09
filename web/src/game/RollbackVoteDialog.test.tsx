@@ -136,3 +136,118 @@ describe('RollbackVoteDialog', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/4/)
   })
 })
+
+describe('KEY-13 the vote dialog can be dragged aside', () => {
+  beforeEach(() => {
+    reset()
+    vi.clearAllMocks()
+    setState({
+      gameId: 'g-1',
+      gameChatId: 'c-1',
+      game: makeGameView({ turn: 3, players: [makePlayer({ playerId: 'p-bob', name: 'Bob', controlled: true })] }),
+    })
+  })
+
+  afterEach(() => cleanup())
+
+  function pointer(type: string, x: number, y: number) {
+    return new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y })
+  }
+
+  // jsdom has no layout: the panel is drawn 460×300 at (282, 20) on its 1024×768 screen;
+  // at an interface scale of 2 that is 230 of the panel's own pixels wide
+  function placePanel(scale = 1) {
+    const panel = screen.getByTestId('rollback-vote')
+    Object.defineProperty(panel, 'offsetWidth', { configurable: true, value: 460 / scale })
+    panel.getBoundingClientRect = () => ({ left: 282, top: 20, width: 460, height: 300, right: 742, bottom: 320, x: 282, y: 20, toJSON: () => ({}) }) as DOMRect
+    return panel
+  }
+
+  const title = () => document.getElementById('rollback-vote-title') as HTMLElement
+
+  it('KEY-13: dragging the dialog moves it, never off the screen, and stops on release', () => {
+    expect(window.innerWidth).toBe(1024)
+    expect(window.innerHeight).toBe(768)
+    setState({ rollbackVote: vote({ kind: 'undo', steps: 3 }) })
+    render(<RollbackVoteDialog />)
+    const panel = placePanel()
+    expect(panel.style.left).toBe('')
+
+    fireEvent(title(), pointer('pointerdown', 500, 40))
+    expect(panel.className).toContain('is-moving')
+    fireEvent(panel, pointer('pointermove', 400, 140))
+    expect([panel.style.left, panel.style.top]).toEqual(['-100px', '100px'])
+
+    // far past the corner: it stops 8px from the edges (left 8, top 768 - 300 - 8)
+    fireEvent(panel, pointer('pointermove', -2000, 5000))
+    expect([panel.style.left, panel.style.top]).toEqual(['-274px', '440px'])
+
+    fireEvent(panel, pointer('pointerup', -2000, 5000))
+    expect(panel.className).not.toContain('is-moving')
+    fireEvent(panel, pointer('pointermove', 600, 40))
+    expect([panel.style.left, panel.style.top]).toEqual(['-274px', '440px'])
+  })
+
+  it('KEY-13: pressing a button does not drag the dialog, and the button still works', async () => {
+    setState({ rollbackVote: vote({ kind: 'undo', steps: 3 }) })
+    render(<RollbackVoteDialog />)
+    const panel = placePanel()
+    const accept = screen.getByTestId('rollback-vote-accept')
+
+    fireEvent(accept, pointer('pointerdown', 500, 300))
+    fireEvent(panel, pointer('pointermove', 100, 100))
+    expect(panel.style.left).toBe('')
+    expect(panel.className).not.toContain('is-moving')
+
+    await act(async () => {
+      fireEvent.click(accept)
+    })
+    expect(cmds.sendPlayerAction).toHaveBeenCalledWith('ADD_PERMISSION_TO_ROLLBACK_TURN', 'g-1', 'u-alice')
+  })
+
+  it('KEY-13: it follows the pointer at any interface scale', () => {
+    setState({ rollbackVote: vote() })
+    render(<RollbackVoteDialog />)
+    const panel = placePanel(2)
+
+    // 100 × 50 screen pixels at scale 2 are 50 × 25 of the panel's own pixels
+    fireEvent(title(), pointer('pointerdown', 500, 40))
+    fireEvent(panel, pointer('pointermove', 600, 90))
+    expect([panel.style.left, panel.style.top]).toEqual(['50px', '25px'])
+  })
+
+  it('KEY-13: a smaller window pulls a moved dialog back inside the screen', () => {
+    setState({ rollbackVote: vote({ kind: 'undo', steps: 3 }) })
+    render(<RollbackVoteDialog />)
+    const panel = placePanel()
+    fireEvent(title(), pointer('pointerdown', 500, 40))
+    fireEvent(panel, pointer('pointermove', 400, 140))
+    fireEvent(panel, pointer('pointerup', 400, 140))
+    expect([panel.style.left, panel.style.top]).toEqual(['-100px', '100px'])
+
+    // now drawn at (182, 120); the window shrinks to 500 wide: at most 500 - 460 - 8 = 32 from the left
+    panel.getBoundingClientRect = () => ({ left: 182, top: 120, width: 460, height: 300, right: 642, bottom: 420, x: 182, y: 120, toJSON: () => ({}) }) as DOMRect
+    const width = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 500 })
+    try {
+      act(() => { window.dispatchEvent(new Event('resize')) })
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    }
+    expect([panel.style.left, panel.style.top]).toEqual(['-250px', '100px'])
+  })
+
+  it('KEY-13: a new vote opens in the usual place again', () => {
+    setState({ rollbackVote: vote({ kind: 'undo', steps: 2, startedAt: 1000 }) })
+    render(<RollbackVoteDialog />)
+    const panel = placePanel()
+    fireEvent(title(), pointer('pointerdown', 500, 40))
+    fireEvent(panel, pointer('pointermove', 400, 140))
+    fireEvent(panel, pointer('pointerup', 400, 140))
+    expect(panel.style.left).toBe('-100px')
+
+    act(() => setState({ rollbackVote: vote({ kind: 'undo', steps: 4, startedAt: 2000 }) }))
+    const next = screen.getByTestId('rollback-vote')
+    expect([next.style.left, next.style.top]).toEqual(['', ''])
+  })
+})

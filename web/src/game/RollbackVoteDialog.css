@@ -3,6 +3,21 @@
   width: min(92vw, 460px);
 }
 
+/* it can be dragged aside to see the board under it; its buttons keep their clicks */
+.rollback-vote-dialog {
+  cursor: grab;
+  user-select: none;
+}
+
+.rollback-vote-dialog .dlg-head,
+.rollback-vote-dialog .dlg-title {
+  touch-action: none;
+}
+
+.rollback-vote-dialog.is-moving {
+  cursor: grabbing;
+}
+
 /* an undo vote shows where the game would go back to: the board stays readable behind it
    (grayed out by the game screen), and the dialog sits at the top */
 .dlg-backdrop.rollback-vote-backdrop--preview {
