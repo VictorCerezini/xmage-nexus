@@ -196,6 +196,11 @@ public class HumanPlayer extends PlayerImpl {
      *
      * @return on true result game can use response value, on false result - it's outdated response
      */
+    @Override
+    public boolean isWaitingForAnswer() {
+        return Boolean.TRUE.equals(responseOpenedForAnswer);
+    }
+
     protected boolean waitResponseOpen() {
         // client send commands in async mode and can come too early
         // so if next command come too fast then wait here until game ready

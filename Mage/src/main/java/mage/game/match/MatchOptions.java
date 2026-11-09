@@ -6,6 +6,7 @@ import mage.constants.MatchTimeLimit;
 import mage.constants.MultiplayerAttackOption;
 import mage.constants.RangeOfInfluence;
 import mage.constants.SkillLevel;
+import mage.game.GameOptions;
 import mage.game.mulligan.MulliganType;
 import mage.game.result.ResultProtos;
 import mage.players.PlayerType;
@@ -40,6 +41,7 @@ public class MatchOptions implements Serializable {
     protected String password;
     protected SkillLevel skillLevel = SkillLevel.CASUAL;
     protected boolean rollbackTurnsAllowed;
+    protected int undoPrioritySteps = GameOptions.UNDO_PRIORITY_STEPS_DEFAULT; // how many priorities a player can go back
     protected boolean spectatorsAllowed;
     protected boolean planeChase;
     protected int quitRatio;
@@ -202,6 +204,18 @@ public class MatchOptions implements Serializable {
 
     public void setRollbackTurnsAllowed(boolean rollbackTurnsAllowed) {
         this.rollbackTurnsAllowed = rollbackTurnsAllowed;
+    }
+
+    public int getUndoPrioritySteps() {
+        return undoPrioritySteps;
+    }
+
+    /**
+     * How many priorities in a row a player can go back (Game.undoPriorities). Each one keeps a copy
+     * of the game for each human player, so the server's memory sets the limit.
+     */
+    public void setUndoPrioritySteps(int undoPrioritySteps) {
+        this.undoPrioritySteps = GameOptions.clampUndoPrioritySteps(undoPrioritySteps);
     }
 
     public boolean isSpectatorsAllowed() {

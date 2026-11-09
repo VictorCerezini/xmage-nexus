@@ -1998,10 +1998,18 @@ public abstract class CardTestPlayerAPIImpl extends MageTestPlayerBase implement
      * the second one, and rollbackAfterActionsEnd() once at the end.
      */
     public void undoLastPriority(int turnNum, PhaseStep step, TestPlayer player) {
+        undoPriorities(turnNum, step, player, 1);
+    }
+
+    /**
+     * Go back the given number of the player's priorities at once (see Game.undoPriorities), like
+     * undoLastPriority() for 1.
+     */
+    public void undoPriorities(int turnNum, PhaseStep step, TestPlayer player, int steps) {
         int block = rollbackBlock + 1;
         player.setKeepUndoPoints(true);
         // inside an earlier block, the command goes into that block
-        addPlayerAction(player, turnNum, step, "playerAction:UndoLastPriority" + "$rollbackBlock=" + block);
+        addPlayerAction(player, turnNum, step, "playerAction:UndoLastPriority" + "$rollbackBlock=" + block + "$steps=" + steps);
         rollbackBlock = block;
         rollbackPlayer = player;
     }

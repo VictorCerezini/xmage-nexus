@@ -58,6 +58,19 @@ public class GameOptions implements Serializable, Copyable<GameOptions> {
      */
     public boolean rollbackTurnsAllowed = true;
 
+    public static final int UNDO_PRIORITY_STEPS_DEFAULT = 10;
+    public static final int UNDO_PRIORITY_STEPS_MAX = 50;
+
+    /**
+     * How many priorities in a row a player can go back (Game.undoPriorities), if rollbacks are
+     * allowed. Each one keeps a copy of the game for each human player.
+     */
+    public int undoPrioritySteps = UNDO_PRIORITY_STEPS_DEFAULT;
+
+    public static int clampUndoPrioritySteps(int steps) {
+        return Math.max(1, Math.min(UNDO_PRIORITY_STEPS_MAX, steps));
+    }
+
     /**
      * Names of users banned from participating in the game
      */
@@ -92,6 +105,7 @@ public class GameOptions implements Serializable, Copyable<GameOptions> {
         this.skipInitShuffling = options.skipInitShuffling;
         this.skipStartingPlayerChoice = options.skipStartingPlayerChoice;
         this.rollbackTurnsAllowed = options.rollbackTurnsAllowed;
+        this.undoPrioritySteps = options.undoPrioritySteps;
         this.bannedUsers.addAll(options.bannedUsers);
         this.planeChase = options.planeChase;
         this.perPlayerEmblemCards = new HashSet<>(options.perPlayerEmblemCards);

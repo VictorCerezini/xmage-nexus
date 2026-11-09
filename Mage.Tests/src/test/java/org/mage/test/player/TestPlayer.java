@@ -788,9 +788,11 @@ public class TestPlayer implements Player {
                         if (groups[0].equals("UndoLastPriority")) {
                             if (groups.length > 1 && groups[1].startsWith("rollbackBlock=")) {
                                 int rollbackBlockNumber = Integer.parseInt(groups[1].substring(14));
+                                int steps = groups.length > 2 && groups[2].startsWith("steps=")
+                                        ? Integer.parseInt(groups[2].substring(6)) : 1;
                                 actions.remove(action);
-                                Assert.assertTrue("No earlier priority to go back to: " + action.getActionName(),
-                                        game.undoLastPriority(this.getId()));
+                                Assert.assertTrue("Not that many earlier priorities to go back to: " + action.getActionName(),
+                                        game.undoPriorities(this.getId(), steps));
                                 addActionsAfterRollback(game, rollbackBlockNumber);
                                 return true;
                             } else {

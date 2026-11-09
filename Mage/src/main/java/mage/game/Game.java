@@ -712,12 +712,32 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
     boolean canUndoLastPriority(UUID playerId);
 
     /**
+     * @return how many priorities the player can go back right now (0: none)
+     */
+    int countUndoPriorities(UUID playerId);
+
+    /**
+     * The game as it was the given number of priorities back (1: the last one), to show it without
+     * going back. Read only: it's the copy the game goes back to.
+     *
+     * @return null if there aren't that many
+     */
+    GameState getUndoPriorityState(UUID playerId, int steps);
+
+    /**
      * Go back to the player's last priority: the game is put back as it was then and goes on from
      * there, with that player holding priority. Like a turn rollback, it needs rollbacks allowed.
      *
      * @return false if there's nothing to go back to
      */
     boolean undoLastPriority(UUID playerId);
+
+    /**
+     * Go back the given number of the player's priorities at once (1: like undoLastPriority).
+     *
+     * @return false if there aren't that many to go back to
+     */
+    boolean undoPriorities(UUID playerId, int steps);
 
     /**
      * After going back to a priority, the player gets it even if their skip settings would pass it.

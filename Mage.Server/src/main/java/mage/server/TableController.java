@@ -690,6 +690,7 @@ public class TableController {
             table.initGame();
             GameOptions gameOptions = new GameOptions();
             gameOptions.rollbackTurnsAllowed = match.getOptions().isRollbackTurnsAllowed();
+            gameOptions.undoPrioritySteps = GameOptions.clampUndoPrioritySteps(match.getOptions().getUndoPrioritySteps());
             gameOptions.bannedUsers = match.getOptions().getBannedUsers();
             gameOptions.planeChase = match.getOptions().isPlaneChase();
             gameOptions.perPlayerEmblemCards = match.getOptions().getPerPlayerEmblemCards();

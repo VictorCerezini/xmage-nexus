@@ -309,6 +309,14 @@ public interface Player extends MageItem, Copyable<Player> {
      */
     boolean canRespond();
 
+    /**
+     * The game is waiting for this player's answer right now (a human asked for priority or a
+     * choice), so it isn't changing the game meanwhile. False for players that answer on their own.
+     */
+    default boolean isWaitingForAnswer() {
+        return false;
+    }
+
     ManaPool getManaPool();
 
     /**

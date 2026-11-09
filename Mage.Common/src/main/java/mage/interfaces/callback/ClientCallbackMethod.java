@@ -53,6 +53,7 @@ public enum ClientCallbackMethod {
     GAME_INFORM_PERSONAL(ClientCallbackType.MESSAGE, "gameInformPersonal"),
     GAME_ERROR(ClientCallbackType.MESSAGE, "gameError"),
     GAME_UPDATE(ClientCallbackType.UPDATE, "gameUpdate"),
+    GAME_UNDO_PREVIEW(ClientCallbackType.MESSAGE, "gameUndoPreview"), // the game some priorities back, not the game (GameUndoPreviewView)
     GAME_TARGET(ClientCallbackType.DIALOG, "gameTarget"),
     GAME_CHOOSE_ABILITY(ClientCallbackType.DIALOG, "gameChooseAbility"),
     GAME_CHOOSE_PILE(ClientCallbackType.DIALOG, "gameChoosePile"),

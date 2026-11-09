@@ -72,6 +72,8 @@ public class GameView implements Serializable {
     private final boolean rollbackTurnsAllowed;
     // the player this view is for has an earlier priority to go back to (see Game.undoLastPriority)
     private final boolean canUndoPriority;
+    // how many priorities that player can go back right now (see Game.undoPriorities)
+    private final int undoPriorityCount;
 
     // Server-side game event log sequence counter — flows from Game to clients for cross-referencing
     private int gameSeq;
@@ -237,7 +239,8 @@ public class GameView implements Serializable {
             this.special = false;
         }
         this.rollbackTurnsAllowed = game.getOptions().rollbackTurnsAllowed;
-        this.canUndoPriority = createdForPlayerId != null && game.canUndoLastPriority(createdForPlayerId);
+        this.undoPriorityCount = createdForPlayerId == null ? 0 : game.countUndoPriorities(createdForPlayerId);
+        this.canUndoPriority = undoPriorityCount > 0;
         this.gameSeq = game.getGameSeq();
         this.totalErrorsCount = game.getTotalErrorsCount();
         this.totalEffectsCount = game.getTotalEffectsCount();
@@ -559,6 +562,10 @@ public class GameView implements Serializable {
 
     public boolean isCanUndoPriority() {
         return canUndoPriority;
+    }
+
+    public int getUndoPriorityCount() {
+        return undoPriorityCount;
     }
 
     public String toJson() {

@@ -92,7 +92,8 @@ public class GameController implements GameCallback {
     private UUID userRequestingRollback;
     private int turnsToRollback;
     private int requestsOpen;
-    private boolean undoRequested; // the open request is to go back to the last priority, not a turn rollback
+    private boolean undoRequested; // the open request is to go back some priorities, not a turn rollback
+    private int undoStepsRequested; // how many priorities back the open undo request goes
 
     public GameController(ManagerFactory managerFactory, Game game, ConcurrentMap<UUID, UUID> userPlayerMap, UUID tableId, UUID choosingPlayerId, GameOptions gameOptions) {
         this.managerFactory = managerFactory;
@@ -564,29 +565,54 @@ public class GameController implements GameCallback {
             case UNDO:
                 game.undo(getPlayerId(userId));
                 break;
-            case UNDO_LAST_PRIORITY: // go back to the player's last priority, the other humans must agree
+            case UNDO_PREVIEW: // show the player the game some of their priorities back, nothing changes
+                sendUndoPreview(userId, data instanceof Integer ? (Integer) data : 1);
+                break;
+            case UNDO_LAST_PRIORITY: // go back some of the player's priorities (data, 1 if none), the other humans must agree
             {
                 UUID playerId = getPlayerId(userId);
                 Player player = playerId == null ? null : game.getPlayer(playerId);
                 if (player == null) {
                     break;
                 }
+                int available = game.countUndoPriorities(playerId);
                 if (!game.getOptions().rollbackTurnsAllowed) {
                     game.informPlayer(player, "Going back isn't allowed in this game.");
-                } else if (!game.canUndoLastPriority(playerId)) {
+                } else if (available == 0) {
                     game.informPlayer(player, "There's no earlier priority to go back to.");
                 } else {
+                    int steps = Math.max(1, Math.min(available, data instanceof Integer ? (Integer) data : 1));
                     // like a rollback request, a new request replaces any open one
+                    if (undoRequested) {
+                        endUndoPreviews();
+                    }
                     turnsToRollback = -1;
-                    requestsOpen = requestPermissionToUndo(userId);
-                    if (requestsOpen == 0) {
+                    List<GameSessionPlayer> voters = undoVoters(userId);
+                    if (voters.isEmpty()) {
                         userRequestingRollback = null;
                         undoRequested = false;
+                        undoStepsRequested = 0;
                         requestsOpen = -1;
-                        game.undoLastPriority(playerId);
+                        game.undoPriorities(playerId, steps);
                     } else {
+                        // set before asking, so an answer that comes back at once is counted
                         userRequestingRollback = userId;
                         undoRequested = true;
+                        undoStepsRequested = steps;
+                        requestsOpen = voters.size();
+                        String where = undoTargetText(playerId, steps);
+                        // while the game waits on the requester, everyone sees where the game would go back to
+                        boolean showPreview = player.isWaitingForAnswer();
+                        GameSessionPlayer requesterSession = gameSessions.get(playerId);
+                        if (showPreview && requesterSession != null) {
+                            requesterSession.undoPreview(buildUndoPreview(playerId, playerId, steps, available, true, player.getName()));
+                        }
+                        for (GameSessionPlayer voter : voters) {
+                            if (showPreview) {
+                                voter.undoPreview(buildUndoPreview(playerId, voter.getPlayerId(), steps, available, true, player.getName()));
+                            }
+                            voter.requestPermissionToUndoPriority(userId, steps, where);
+                        }
                     }
                 }
                 break;
@@ -599,7 +625,11 @@ public class GameController implements GameCallback {
                         if (game.getPriorityPlayerId().equals(playerId)) {
                             // rollback request on own priority - can stop current choose dialog
                             // TODO: make it async on any priority like concede
-                            undoRequested = false; // a new request replaces any open one
+                            if (undoRequested) { // a new request replaces any open one
+                                endUndoPreviews();
+                            }
+                            undoRequested = false;
+                            undoStepsRequested = 0;
                             requestsOpen = requestPermissionToRollback(userId, turnsToRollback);
                             if (requestsOpen == 0) {
                                 game.rollbackTurns(turnsToRollback);
@@ -629,18 +659,24 @@ public class GameController implements GameCallback {
                 if (userRequestingRollback != null && requestsOpen > 0 && !userId.equals(userRequestingRollback)) {
                     requestsOpen--;
                     if (requestsOpen == 0) {
-                        if (undoRequested) {
-                            UUID requesterPlayerId = getPlayerId(userRequestingRollback);
-                            if (requesterPlayerId == null || !game.undoLastPriority(requesterPlayerId)) {
-                                game.informPlayers("Can't go back: there's no earlier priority to go back to.");
-                            }
-                        } else {
-                            game.rollbackTurns(turnsToRollback);
-                        }
+                        boolean wasUndo = undoRequested;
+                        UUID requesterPlayerId = getPlayerId(userRequestingRollback);
+                        int steps = undoStepsRequested;
+                        int turns = turnsToRollback;
                         turnsToRollback = -1;
                         userRequestingRollback = null;
                         requestsOpen = -1;
                         undoRequested = false;
+                        undoStepsRequested = 0;
+                        if (wasUndo) {
+                            // the previews end by themselves: the players get the game as it was with the log line saying so
+                            if (requesterPlayerId == null || !game.undoPriorities(requesterPlayerId, steps)) {
+                                endUndoPreviews();
+                                game.informPlayers("Can't go back: there's no earlier priority to go back to.");
+                            }
+                        } else {
+                            game.rollbackTurns(turns);
+                        }
                     }
                 }
                 break;
@@ -649,14 +685,21 @@ public class GameController implements GameCallback {
                 UUID playerId = getPlayerId(userId);
                 if (playerId != null) {
                     Player player = game.getPlayer(playerId);
-                    if (player != null) {
-                        if (userRequestingRollback != null && requestsOpen > 0 && !userId.equals(userRequestingRollback)) {
+                    if (player != null && userRequestingRollback != null && requestsOpen > 0) {
+                        boolean withdrawn = userId.equals(userRequestingRollback);
+                        // the requester can take back an undo request (nobody answers it, or they changed their mind)
+                        if (!withdrawn || undoRequested) {
                             boolean wasUndo = undoRequested;
                             turnsToRollback = -1;
                             userRequestingRollback = null;
                             requestsOpen = -1;
                             undoRequested = false;
-                            game.informPlayers((wasUndo ? "Undo request denied by " : "Rollback request denied by ") + player.getLogName());
+                            undoStepsRequested = 0;
+                            if (wasUndo) {
+                                endUndoPreviews();
+                            }
+                            game.informPlayers((wasUndo ? "Undo request " : "Rollback request ")
+                                    + (withdrawn ? "withdrawn by " : "denied by ") + player.getLogName());
                         }
                     }
                 }
@@ -736,26 +779,81 @@ public class GameController implements GameCallback {
     }
 
     /**
-     * Asks every other human in the game (model seats included, they accept by themselves) to let
-     * the requester go back to their last priority. Computer players aren't asked.
-     *
-     * @return how many answers are needed
+     * Every other human in the game, who must let the requester go back some of their priorities
+     * (model seats included, they accept by themselves). Computer players aren't asked.
      */
-    private int requestPermissionToUndo(UUID userIdRequester) {
-        int requests = 0;
+    private List<GameSessionPlayer> undoVoters(UUID userIdRequester) {
+        List<GameSessionPlayer> voters = new ArrayList<>();
         for (Player player : game.getState().getPlayers().values()) {
             Optional<User> requestedUser = getUserByPlayerId(player.getId());
             if (player.isInGame() && player.isHuman()
                     && requestedUser.isPresent()
                     && !requestedUser.get().getId().equals(userIdRequester)) {
-                requests++;
                 GameSessionPlayer gameSession = gameSessions.get(player.getId());
                 if (gameSession != null) {
-                    gameSession.requestPermissionToUndoPriority(userIdRequester);
+                    voters.add(gameSession);
                 }
             }
         }
-        return requests;
+        return voters;
+    }
+
+    /**
+     * Shows a player the game some of their priorities back, only to them. Only while the game waits
+     * on them: the game thread is parked then, so the old state can be read safely. If it can't be
+     * shown they get no game, so they're back to the game as it is.
+     */
+    private void sendUndoPreview(UUID userId, int steps) {
+        UUID playerId = getPlayerId(userId);
+        Player player = playerId == null ? null : game.getPlayer(playerId);
+        GameSessionPlayer session = playerId == null ? null : gameSessions.get(playerId);
+        if (player == null || session == null) {
+            return;
+        }
+        int available = game.countUndoPriorities(playerId);
+        if (available == 0 || !player.isWaitingForAnswer() || (undoRequested && userId.equals(userRequestingRollback))) {
+            session.undoPreview(new GameUndoPreviewView(null, 0, available, false, player.getName()));
+            return;
+        }
+        int shown = Math.max(1, Math.min(available, steps));
+        session.undoPreview(buildUndoPreview(playerId, playerId, shown, available, false, player.getName()));
+    }
+
+    /**
+     * The game as requesterId saw it the given number of their priorities back, as viewerId sees it
+     * (their own hand). Without a game if it can't be built: the clients then show the game as it is.
+     */
+    private GameUndoPreviewView buildUndoPreview(UUID requesterId, UUID viewerId, int steps, int available, boolean vote, String requesterName) {
+        GameView view = null;
+        try {
+            GameState state = game.getUndoPriorityState(requesterId, steps);
+            if (state != null) {
+                view = new GameView(state, game, viewerId, null);
+            }
+        } catch (Exception e) {
+            logger.warn("Can't show the game " + steps + " priorities back: " + e, e);
+        }
+        return new GameUndoPreviewView(view, view == null ? 0 : steps, available, vote, requesterName);
+    }
+
+    /**
+     * "turn 4, Precombat Main": where going back the given number of priorities goes
+     */
+    private String undoTargetText(UUID playerId, int steps) {
+        GameState state = game.getUndoPriorityState(playerId, steps);
+        if (state == null) {
+            return "";
+        }
+        return "turn " + state.getTurnNum() + ", " + (state.getTurnStepType() == null ? "?" : state.getTurnStepType().toString());
+    }
+
+    /**
+     * Every player is back to the game as it is (the undo request was denied, taken back or replaced).
+     */
+    private void endUndoPreviews() {
+        for (GameSessionPlayer session : gameSessions.values()) {
+            session.undoPreview(new GameUndoPreviewView(null, 0, 0, false, ""));
+        }
     }
 
     private int requestPermissionToRollback(UUID userIdRequester, int numberTurns) {
