@@ -20,7 +20,7 @@ import { resetPromptSound } from '../audio/promptSound'
 import type { AppState } from './state'
 import {
   ROLLBACK_ACCEPT_ACTION, ROLLBACK_DENY_ACTION, ROLLBACK_PENDING_TTL_MS, rollbackAcceptChatText,
-  startOwnRollbackVote, markMyVote, isRollbackVoting, dismissRollbackVote,
+  startOwnRollbackVote, markMyVote, isRollbackVoting, dismissRollbackVote, otherRollbackVoters,
 } from './rollbackVote'
 
 export function clearError() {
@@ -323,6 +323,24 @@ export async function voteRollback(gameId: string, accept: boolean, requesterUse
 export async function requestUndo(gameId: string) {
   const res = await cmds.sendPlayerAction('UNDO', gameId)
   if (!res.ok) {
+    setState({ error: res.error ?? 'Error requesting undo' })
+  }
+  return res
+}
+
+/** Go back to my last priority (Ctrl+Z). The other humans must agree, like a rollback, so the
+ * vote dialog only shows up when there is someone to ask; against computer players it runs at once.
+ * The flag that accepts the restored board is armed before sending: without a vote the server
+ * restores right away, and that view must not be dropped as stale. */
+export async function requestUndoPriority(gameId: string) {
+  // like a rollback request, a new request replaces an open (hidden) one on the server too
+  const asksOthers = otherRollbackVoters(getState().game) > 0
+  if (asksOthers) startOwnRollbackVote(gameId, 0, 'undo')
+  armRollbackPending(gameId)
+  const res = await cmds.sendPlayerAction('UNDO_LAST_PRIORITY', gameId)
+  if (!res.ok) {
+    if (asksOthers) dismissRollbackVote()
+    disarmRollbackPending()
     setState({ error: res.error ?? 'Error requesting undo' })
   }
   return res

@@ -8,6 +8,7 @@ import {
   concedeGame,
   concedeMatch,
   openRollbackDialog,
+  requestUndoPriority,
   useGame,
   useSettings,
   setSetting,
@@ -144,6 +145,21 @@ export default function GameMenu() {
                 title={t('game', 'rollback_title')}
               >
                 <Icon name="undo" size={13} /> {t('game', 'rollback')}
+              </MenuItem>
+            )}
+            {/* older servers don't send canUndoPriority: no item there */}
+            {game?.rollbackTurnsAllowed && !!me && !!gameId && game.canUndoPriority !== undefined && (
+              <MenuItem
+                className="undo-priority-btn"
+                data-testid="game-menu-undo-priority"
+                disabled={!game.canUndoPriority}
+                onClick={() => {
+                  close()
+                  void requestUndoPriority(gameId)
+                }}
+                title={game.canUndoPriority ? t('game', 'undo_priority_title') : t('game', 'undo_priority_none')}
+              >
+                <Icon name="undo" size={13} /> {t('game', 'undo_priority')}
               </MenuItem>
             )}
             {!!me && !!gameId && (

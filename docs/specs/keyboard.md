@@ -2,7 +2,7 @@
 
 Prefix: `KEY`
 
-The game shortcuts live in `web/src/game/GameScreen.tsx` (Space and the skip keys, both window
+The game shortcuts live in `web/src/game/GameScreen.tsx` (Space, the skip keys and Ctrl+Z, all window
 `keydown` listeners) with the skip table in `web/src/game/skips.ts`; the rest belong to the
 screen or component they act on (`App.tsx` zoom, `RewindBar`, `DraftScreen`, the card preview and
 inspector, the option grids). Keys inside dialogs (Escape, the Tab trap, the Alt peek) are
@@ -126,3 +126,19 @@ again the picks the player hid.
 - Why: rewind shipped with its slider, arrows and Esc (`a7143aebc1`); F9 for hidden picks is
   desktop draft parity (U9-1, `34c7cc2436`).
 - Guard: `src/game/RewindBar.test.tsx` · `src/game/DraftScreen.test.tsx`
+
+### KEY-13 · Ctrl+Z goes back to my last priority
+On the game screen Ctrl+Z (Cmd+Z on macOS) asks the server to put the game back as it was at the
+player's last priority, the same request as "Go back to my last priority" in the ⋯ menu. In the
+middle of casting or paying, it goes back to the start of that priority; pressing it again goes one
+priority further back, up to 10. It works with a prompt open, but not while typing in a text field
+(where Ctrl+Z undoes the typing), not with Shift or Alt held, not while a rollback vote is on screen,
+not in rewind, and not for spectators. It sends only when the game view says there is a priority to
+go back to (`canUndoPriority`; older servers don't send it, and the menu item is then hidden). Only
+games that allow rollbacks have it. Against computer players it runs at once; other humans (model
+seats included) are asked first, in the rollback vote dialog.
+
+- Why: a misclick or a pass at the wrong time in a long turn could only be fixed by rolling back the
+  whole turn. The engine side (what is put back, extra phases and turns, players who lost) is tested
+  in the engine's `UndoLastPriorityTest` and `UndoLastPriorityMultiplayerTest`.
+- Guard: `src/game/GameScreen.undo.test.tsx` · `src/state/undoPriority.test.ts`

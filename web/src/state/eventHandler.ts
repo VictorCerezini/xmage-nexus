@@ -2,7 +2,7 @@ import { captureRewind } from '../game/rewind'
 import type { ProxyMessage } from '../net/types'
 import { parseFeedback } from '../game/feedback'
 import { getState, setState, addLog } from './state'
-import { translateError } from '../i18n'
+import { t as tStatic, translateError } from '../i18n'
 import { attributeStackControllers } from '../game/stackAttribution'
 import {
   gameViewFrom, isOlderThanCurrentGame, gameEventOrder, noteGameEvent,
@@ -191,7 +191,7 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
       // (who starts, mulligans, targets) instead, and a commander first shows up in those
       if (isGameEvent) syncSharedArt(objectId ?? s.gameId, embeddedGame)
       if (rollbackRestored) {
-        addLog('partida', `Rollback aplicado: la mesa vuelve al turno ${embeddedGame.turn}`)
+        addLog('partida', tStatic('game', 'log_board_restored', { turn: embeddedGame.turn }))
         applyRollbackOutcome(objectId ?? s.gameId, embeddedGame.turn)
       }
       // La partida re-unida ya está adoptada: el guard de lobby vuelve a aplicar.

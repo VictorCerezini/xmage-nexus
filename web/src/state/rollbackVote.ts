@@ -10,11 +10,16 @@ export interface RollbackVoter {
   me: boolean
 }
 
+/** 'turns': roll back to the start of a turn; 'undo': go back to the requester's last priority. */
+export type RollbackVoteKind = 'turns' | 'undo'
+
 export interface RollbackVote {
   gameId: string
   requester: string
   requesterUserId?: string
   requestedByMe: boolean
+  /** missing means a turn rollback */
+  kind?: RollbackVoteKind
   turns: number
   requestedAtTurn: number
   voters: RollbackVoter[]
@@ -33,8 +38,12 @@ export const ROLLBACK_ACCEPT_CHAT = 'accepted the rollback request'
 export const ROLLBACK_PENDING_TTL_MS = 120_000
 
 const ANNOUNCE_RE = /rolling back to start of turn\s+(\d+)/i
-const DENIED_RE = /rollback request denied by\s+(.+)$/i
-const FAILED_RE = /not possible to rollback|only request a rollback|not available for rollback/i
+/** GameImpl.undoExecution: "Player request: X goes back to their last priority (turn N, step)" */
+const UNDO_ANNOUNCE_RE = /goes back to their last priority \(turn\s+(\d+)/i
+const DENIED_RE = /(?:rollback|undo) request denied by\s+(.+)$/i
+const FAILED_RE = /not possible to rollback|only request a rollback|not available for rollback|no earlier priority to go back to|going back isn't allowed/i
+/** The undo request the other players get (GameSessionPlayer.requestPermissionToUndoPriority). */
+const UNDO_REQUEST_RE = /go back to their last priority/i
 
 export function stripTags(text: string): string {
   return text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
@@ -64,7 +73,13 @@ function buildVoters(game: GameView | null, requester: string): RollbackVoter[] 
   return voters
 }
 
-export function startOwnRollbackVote(gameId: string, turns: number): void {
+/** How many other players must agree before a rollback or undo runs (the server asks every other human). */
+export function otherRollbackVoters(game: GameView | null): number {
+  const me = game?.players?.find((p) => p.controlled)
+  return buildVoters(game, me?.name ?? '').filter((v) => v.status !== 'requested').length
+}
+
+export function startOwnRollbackVote(gameId: string, turns: number, kind: RollbackVoteKind = 'turns'): void {
   const game = getState().game
   const me = game?.players?.find((p) => p.controlled)
   const requester = me?.name ?? ''
@@ -74,6 +89,7 @@ export function startOwnRollbackVote(gameId: string, turns: number): void {
       gameId,
       requester,
       requestedByMe: true,
+      kind,
       turns,
       requestedAtTurn: game?.turn ?? 0,
       voters,
@@ -93,6 +109,7 @@ export function startIncomingRollbackVote(gameId: string, requester: string, mes
       requester,
       requesterUserId,
       requestedByMe: false,
+      kind: UNDO_REQUEST_RE.test(stripTags(message)) ? 'undo' : 'turns',
       turns: parseRollbackTurns(message),
       requestedAtTurn: game?.turn ?? 0,
       voters: buildVoters(game, requester),
@@ -146,7 +163,7 @@ export function applyRollbackOutcome(gameId: string | null | undefined, turn: nu
 
 export function ingestRollbackServerMessage(message: string, gameId: string | null | undefined): void {
   const text = stripTags(message)
-  const announce = ANNOUNCE_RE.exec(text)
+  const announce = ANNOUNCE_RE.exec(text) ?? UNDO_ANNOUNCE_RE.exec(text)
   if (announce) {
     applyRollbackOutcome(gameId, Number(announce[1]))
     return

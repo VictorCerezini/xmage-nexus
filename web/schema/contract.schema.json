@@ -53,6 +53,7 @@
         "turn": { "type": "number" },
         "special": { "type": "boolean" },
         "rollbackTurnsAllowed": { "type": "boolean" },
+        "canUndoPriority": { "type": "boolean" },
         "totalErrorsCount": { "type": "number" },
         "totalEffectsCount": { "type": "number" },
         "gameCycle": { "type": "number" }

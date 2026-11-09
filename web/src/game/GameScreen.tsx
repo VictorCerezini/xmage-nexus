@@ -14,7 +14,7 @@ import RewindBar from './RewindBar'
 import MobileSpectator from './MobileSpectator'
 import { useNarrowScreen } from './useNarrowScreen'
 import { useRewind, viewedSnapshot } from './rewind'
-import { clearFeedback, getState, isRollbackVoteBlocking, maybeAutoPass, setStoreError, useGame, useSettings, useStore } from '../state/store'
+import { clearFeedback, getState, isRollbackVoteBlocking, maybeAutoPass, requestUndoPriority, setStoreError, useGame, useSettings, useStore } from '../state/store'
 import FeedbackDialog from './FeedbackDialog'
 import UserRequestDialog from './UserRequestDialog'
 import RollbackDialog from './RollbackDialog'
@@ -124,6 +124,20 @@ export function mouseFocusedGameControl(target: EventTarget | null, root: HTMLEl
   if (!control || !root.contains(control)) return null
   if (control.closest(MOUSE_RELEASE_EXCLUDED)) return null
   return control
+}
+
+/** Ctrl+Z (Cmd+Z on Mac) goes back to my last priority. Not with Shift or Alt (redo-like combos),
+ *  and not in a text field, where it keeps undoing the typing. Matched on the key, or on the
+ *  physical Z key when the layout gives no Latin letter (e.g. Cyrillic). */
+export function isUndoPriorityShortcut(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'target'>): boolean {
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return false
+  const latin = /^[a-z]$/i.test(e.key)
+  if (latin ? e.key.toLowerCase() !== 'z' : e.code !== 'KeyZ') return false
+  const el = e.target as HTMLElement | null
+  if (el && typeof el.closest === 'function') {
+    if (el.isContentEditable || el.closest('input, textarea, select, [contenteditable]')) return false
+  }
+  return true
 }
 
 export default function GameScreen() {
@@ -377,6 +391,22 @@ export default function GameScreen() {
     window.addEventListener('keydown', handleSkipKeys)
     return () => window.removeEventListener('keydown', handleSkipKeys)
   }, [feedback, sendSkip, rollbackBlocking])
+
+  // Ctrl+Z: back to my last priority. Works with a prompt open (a misclicked spell's targets),
+  // unlike Space; sends only when the server says there is a priority to go back to.
+  const canUndoPriority = !!liveGame?.canUndoPriority && !!liveGame.players?.some((p) => p.controlled)
+  useEffect(() => {
+    const handleUndoKey = (e: KeyboardEvent) => {
+      if (!isUndoPriorityShortcut(e)) return
+      e.preventDefault()
+      if (e.repeat) return
+      if (rollbackBlocking) return
+      if (gameRootRef.current?.dataset.rewind) return
+      if (gameId && canUndoPriority) void requestUndoPriority(gameId)
+    }
+    window.addEventListener('keydown', handleUndoKey)
+    return () => window.removeEventListener('keydown', handleUndoKey)
+  }, [gameId, canUndoPriority, rollbackBlocking])
 
   const opps = game?.players?.filter((p) => !p.controlled) ?? []
   const isSpectator = !me

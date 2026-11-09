@@ -26,6 +26,7 @@ export interface GameView {
   turn: number
   special: boolean
   rollbackTurnsAllowed: boolean
+  canUndoPriority?: boolean
   totalErrorsCount: number
   totalEffectsCount: number
   gameCycle: number

@@ -5,6 +5,7 @@ import { getState, setState } from './state'
 import { handleMessage, requestRollback } from './store'
 import { reset } from './gateway'
 import * as cmds from '../net/commands'
+import { t } from '../i18n'
 
 vi.mock('../net/commands', () => ({
   setGateway: vi.fn(),
@@ -65,7 +66,7 @@ describe('rollback del servidor', () => {
     expect(s.playableWindow).toBeNull()
     expect(s.combat).toBeNull()
     expect(s.rollbackPendingFor).toBeNull()
-    expect(s.log[s.log.length - 1]?.text).toMatch(/Rollback aplicado/)
+    expect(s.log[s.log.length - 1]?.text).toBe(t('game', 'log_board_restored', { turn: 3 }))
   })
 
   it('el anuncio también llega por GAME_INFORM', () => {
@@ -101,7 +102,7 @@ describe('rollback del servidor', () => {
     const t3 = makeGameView({ turn: 3, phase: 'PRECOMBAT_MAIN', step: 'UPKEEP' })
     handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 3, objectId: 'g-9', data: t3 })
     expect(getState().game?.turn).toBe(3)
-    expect(getState().log[getState().log.length - 1]?.text).toMatch(/Rollback aplicado/)
+    expect(getState().log[getState().log.length - 1]?.text).toBe(t('game', 'log_board_restored', { turn: 3 }))
   })
 
   it('la denegación del servidor desarma la espera y la vista vieja se sigue descartando', async () => {

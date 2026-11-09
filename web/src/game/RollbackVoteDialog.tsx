@@ -51,8 +51,10 @@ export default function RollbackVoteDialog() {
 
   if (!vote || vote.hidden) return null
 
+  const isUndo = vote.kind === 'undo'
   const targetTurn = Math.max(1, vote.requestedAtTurn - vote.turns)
-  const drifted = voting && currentTurn != null && currentTurn > vote.requestedAtTurn
+  // an undo goes back from wherever the game is when it runs, so there is no turn to drift from
+  const drifted = !isUndo && voting && currentTurn != null && currentTurn > vote.requestedAtTurn
   const needsMyVote = voting && vote.myVote === 'pending'
   const accepted = vote.voters.filter((v) => v.status === 'accepted' || v.status === 'requested').length
 
@@ -67,17 +69,23 @@ export default function RollbackVoteDialog() {
     }
   }
 
+  const prefix = isUndo ? 'undo_vote' : 'rollback_vote'
   const title = vote.requestedByMe
-    ? t('dialogs', 'rollback_vote_title_mine')
-    : t('dialogs', 'rollback_vote_title', { name: vote.requester || '?' })
+    ? t('dialogs', `${prefix}_title_mine`)
+    : t('dialogs', `${prefix}_title`, { name: vote.requester || '?' })
+  const message = isUndo
+    ? vote.requestedByMe
+      ? t('dialogs', 'undo_vote_target_mine')
+      : t('dialogs', 'undo_vote_target', { name: vote.requester || '?' })
+    : t('dialogs', 'rollback_vote_target', { turn: targetTurn, from: vote.requestedAtTurn })
 
   let banner: { tone: 'wait' | 'ok' | 'err'; text: string }
   if (vote.outcome === 'applied') {
-    banner = { tone: 'ok', text: t('dialogs', 'rollback_vote_applied', { turn: vote.appliedTurn ?? targetTurn }) }
+    banner = { tone: 'ok', text: t('dialogs', `${prefix}_applied`, { turn: vote.appliedTurn ?? targetTurn }) }
   } else if (vote.outcome === 'denied') {
-    banner = { tone: 'err', text: t('dialogs', 'rollback_vote_denied', { name: vote.deniedBy ?? '?' }) }
+    banner = { tone: 'err', text: t('dialogs', `${prefix}_denied`, { name: vote.deniedBy ?? '?' }) }
   } else if (vote.outcome === 'failed') {
-    banner = { tone: 'err', text: t('dialogs', 'rollback_vote_failed', { reason: vote.failReason ?? '' }) }
+    banner = { tone: 'err', text: t('dialogs', `${prefix}_failed`, { reason: vote.failReason ?? '' }) }
   } else if (needsMyVote) {
     banner = { tone: 'wait', text: t('dialogs', 'rollback_vote_your_turn') }
   } else {
@@ -92,9 +100,9 @@ export default function RollbackVoteDialog() {
       legacyBackdropClass="feedback-backdrop"
       legacyPanelClass="feedback-dialog rollback-vote-dialog chrome-surface"
       kickerIcon="undo"
-      kickerLabel={t('dialogs', 'rollback_vote_kicker')}
+      kickerLabel={t('dialogs', `${prefix}_kicker`)}
       title={title}
-      message={t('dialogs', 'rollback_vote_target', { turn: targetTurn, from: vote.requestedAtTurn })}
+      message={message}
       sectionProps={{ 'data-space-shortcut-off': 'true' } as Record<string, string>}
     >
       <div className="rollback-vote-progress" aria-live="polite">
