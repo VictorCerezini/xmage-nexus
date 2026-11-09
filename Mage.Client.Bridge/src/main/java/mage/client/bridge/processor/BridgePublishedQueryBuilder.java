@@ -634,9 +634,29 @@ public final class BridgePublishedQueryBuilder {
             }
         }
 
+        // the server's special payment: convoke, improvise, delve, assist or offering (GameView.getSpecial), which
+        // the server only offers when the spell has one and something can pay with it
+        boolean special = gameView != null && gameView.getSpecial();
+        if (special) {
+            var choiceEntry = new HashMap<String, Object>();
+            choiceEntry.put("index", manaChoiceList.size());
+            choiceEntry.put("id", "special");
+            choiceEntry.put("choice_type", "special_payment");
+            choiceEntry.put("name", "Special payment");
+            choiceEntry.put("ability", "Pay part of the cost the way the spell allows besides mana: convoke (tap a "
+                + "creature you control), improvise (tap an artifact), delve (exile cards from your graveyard), "
+                + "assist or offering. Next you pick the way, then what to use. Each use pays a part; this prompt "
+                + "comes back for the rest. Tap the mana sources you want first: once a special payment is used, "
+                + "the rules allow no more mana abilities for this spell.");
+            manaChoiceList.add(choiceEntry);
+            manaIndexToChoice.add("special");
+        }
+
         if (!manaChoiceList.isEmpty()) {
             result.response_type = "select";
-            result.respond_with = "choice=pN to tap, or choice=no to cancel";
+            result.respond_with = special
+                ? "choice=pN to tap, choice=special for convoke and the like (after the mana sources), or choice=no to cancel"
+                : "choice=pN to tap, or choice=no to cancel";
             result.choices = manaChoiceList;
             return manaIndexToChoice;
         }

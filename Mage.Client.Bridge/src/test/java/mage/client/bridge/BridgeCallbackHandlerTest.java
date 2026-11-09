@@ -60,6 +60,7 @@ import mage.view.StackAbilityView;
 import mage.view.TableClientMessage;
 import mage.view.UserRequestMessage;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.apache.log4j.Logger;
 import sun.misc.Unsafe;
 
@@ -5069,6 +5070,416 @@ class BridgeCallbackHandlerTest {
     }
 
     @Test
+    @Timeout(30)
+    void aConvokeSpellIsLeftToTheModelWhenOnlyItsCreaturesCanPayTheRest() throws Exception {
+        // Model game, 2026-11-09: Everything Comes to Dust ({5} once its {W}{W} was paid) with lands and a Treasure
+        // short of the cost and two untapped creatures. The payment prompt never offered convoke, and once no mana
+        // source was left the bridge cancelled the spell for the missing {2}.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, UUID.randomUUID(), "p55", "Creeping Bloodsucker", UUID.randomUUID(), "p232", "Vampire Token");
+        PendingAction action = specialManaPrompt(gameId, player, playerId, 70,
+            "Pay {2}" + paidFor(UUID.randomUUID(), "Everything Comes to Dust"));
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", ((GameClientMessage) action.data()).getGameView());
+        setField(handler, "pendingAction", action);
+
+        ActionResult result = handler.passPriority(null, null);
+
+        assertThat(cancels.get()).as("the spell is not cancelled").isZero();
+        assertThat(sent).isEmpty();
+        assertThat(result.action_type).isEqualTo("GAME_PLAY_MANA");
+        assertThat(result.respond_with).contains("choice=special");
+        assertThat(result.choices).hasSize(1);
+        assertThat(result.choices.get(0).get("id")).isEqualTo("special");
+        assertThat(result.choices.get(0).get("choice_type")).isEqualTo("special_payment");
+        assertThat((String) result.choices.get(0).get("ability")).contains("convoke");
+    }
+
+    @Test
+    @Timeout(30)
+    void choosingTheSpecialPaymentAsksTheServerForItAndTheModelPicksTheWay() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, UUID.randomUUID(), "p55", "Creeping Bloodsucker");
+        PendingAction action = specialManaPrompt(gameId, player, playerId, 70,
+            "Pay {2}" + paidFor(UUID.randomUUID(), "Everything Comes to Dust"));
+        PendingAction ways = specialWayPrompt(gameId, 71, player, numberedChoices(CONVOKE_RULE, DELVE_RULE));
+        client.setSession(specialPaymentSession(sent, cancels,
+            () -> enqueueCallback(handler, ClientCallbackMethod.GAME_CHOOSE_ABILITY, gameId, ways.data())));
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", ((GameClientMessage) action.data()).getGameView());
+        setField(handler, "pendingAction", action);
+
+        var result = handler.chooseAction(null, "special", null, null, null, null, null, null, null, null, null);
+
+        assertThat(result.success).isTrue();
+        assertThat(sent).containsExactly("special");
+        assertThat(cancels.get()).isZero();
+        assertThat(result.action_type).as("the model picks the way to pay").isEqualTo("GAME_CHOOSE_ABILITY");
+        assertThat(result.choices).extracting(choice -> String.valueOf(choice.get("description")))
+            .anySatisfy(description -> assertThat(description).startsWith("Convoke"));
+    }
+
+    @Test
+    @Timeout(30)
+    void aManaPlanNamingCreaturesTapsThemForConvoke() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID bloodsuckerId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+        registerShortId(handler, bloodsuckerId, "p55");
+        registerShortId(handler, tokenId, "p232");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(1));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p55"), new BridgeManaPlanEntry("tap", "p232")), true);
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, bloodsuckerId, "p55", "Creeping Bloodsucker", tokenId, "p232", "Vampire Token");
+        String dust = paidFor(UUID.randomUUID(), "Everything Comes to Dust");
+        Map<UUID, String> firstWays = numberedChoices(DELVE_RULE, CONVOKE_RULE);
+        Map<UUID, String> secondWays = numberedChoices(DELVE_RULE, CONVOKE_RULE);
+
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 80, "Pay {2}" + dust));
+        payAutomatically(handler, specialWayPrompt(gameId, 81, player, firstWays));
+        payAutomatically(handler, convokeTargetPrompt(gameId, 82, player, Set.of(bloodsuckerId, tokenId)));
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 83, "Pay {1}" + dust));
+        payAutomatically(handler, specialWayPrompt(gameId, 84, player, secondWays));
+        payAutomatically(handler, convokeTargetPrompt(gameId, 85, player, Set.of(bloodsuckerId, tokenId)));
+
+        assertThat(sent).containsExactly(
+            "special", new ArrayList<>(firstWays.keySet()).get(1), bloodsuckerId,
+            "special", new ArrayList<>(secondWays.keySet()).get(1), tokenId);
+        assertThat(cancels.get()).isZero();
+        assertThat(interactions.specialPaymentTarget()).isNull();
+    }
+
+    @Test
+    @Timeout(30)
+    void aTargetPromptThatIsNotTheConvokePaymentIsTheModelsChoice() throws Exception {
+        // The server taps the only creature for convoke itself, without a prompt; a trigger's target prompt that
+        // comes later must not be answered with the creature the mana plan named.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID bloodsuckerId = UUID.randomUUID();
+        UUID otherCreatureId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+        registerShortId(handler, bloodsuckerId, "p55");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(1));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p55")), true);
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, bloodsuckerId, "p55", "Creeping Bloodsucker");
+        Map<UUID, String> ways = numberedChoices(CONVOKE_RULE);
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 90,
+            "Pay {1}" + paidFor(UUID.randomUUID(), "Everything Comes to Dust")));
+        payAutomatically(handler, specialWayPrompt(gameId, 91, player, ways));
+
+        GameView view = gameView(92, List.of(player), new CardsView());
+        PendingAction trigger = new PendingAction(gameId, ClientCallbackMethod.GAME_TARGET,
+            new GameClientMessage(view, Collections.<String, Serializable>emptyMap(), "Select target creature",
+                new CardsView(), Set.of(bloodsuckerId, otherCreatureId), true),
+            "Select target creature", 92);
+        setField(handler, "pendingAction", trigger);
+
+        assertThat(invokeDecisionBoundaryStatus(handler, trigger, "test")).isEqualTo("READY");
+        assertThat(sent).containsExactly("special", ways.keySet().iterator().next());
+        assertThat(interactions.specialPaymentTarget()).isNull();
+    }
+
+    @Test
+    @Timeout(30)
+    void aSpecialPaymentThatDoesNotFitThePlansCreatureIsTheModelsChoice() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID bloodsuckerId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+        registerShortId(handler, bloodsuckerId, "p55");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(1));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p55")), true);
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, bloodsuckerId, "p55", "Creeping Bloodsucker");
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 95,
+            "Pay {1}" + paidFor(UUID.randomUUID(), "Treasure Cruise")));
+        PendingAction ways = specialWayPrompt(gameId, 96, player, numberedChoices(DELVE_RULE));
+        setField(handler, "pendingAction", ways);
+
+        assertThat(invokeDecisionBoundaryStatus(handler, ways, "test")).isEqualTo("READY");
+        assertThat(sent).containsExactly("special");
+        assertThat(cancels.get()).isZero();
+        assertThat(interactions.specialPaymentTarget()).isNull();
+    }
+
+    @Test
+    @Timeout(30)
+    void theServerTappingTheOnlyCreatureItselfEndsTheConvokeStep() throws Exception {
+        // With one creature that can pay, the server taps it without a target prompt; the next prompt is the
+        // payment again, so the creature the plan named must no longer steer any prompt.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID bloodsuckerId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+        registerShortId(handler, bloodsuckerId, "p55");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(1));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p55")), true);
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, bloodsuckerId, "p55", "Creeping Bloodsucker");
+        String dust = paidFor(UUID.randomUUID(), "Everything Comes to Dust");
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 100, "Pay {2}" + dust));
+        payAutomatically(handler, specialWayPrompt(gameId, 101, player, numberedChoices(CONVOKE_RULE)));
+        PendingAction rest = specialManaPrompt(gameId, player, playerId, 102, "Pay {1}" + dust);
+        setField(handler, "pendingAction", rest);
+
+        assertThat(invokeDecisionBoundaryStatus(handler, rest, "test"))
+            .as("the plan is used up and only a special payment is left, so the model pays the rest").isEqualTo("READY");
+        assertThat(interactions.specialPaymentTarget()).isNull();
+        assertThat(cancels.get()).isZero();
+    }
+
+    @Test
+    @Timeout(30)
+    void aConvokeTheServerFinishesItselfDoesNotAnswerALaterAbilityPrompt() throws Exception {
+        // mana_plan "p55" with one creature: the server taps it without a target prompt and the spell is paid, so a
+        // trigger's ability prompt that names convoke is the model's, not answered with that creature
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID bloodsuckerId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+        registerShortId(handler, bloodsuckerId, "p55");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(1));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p55")), true);
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, bloodsuckerId, "p55", "Creeping Bloodsucker");
+        String dust = paidFor(UUID.randomUUID(), "Everything Comes to Dust");
+        Map<UUID, String> ways = numberedChoices(CONVOKE_RULE);
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 110, "Pay {1}" + dust));
+        payAutomatically(handler, specialWayPrompt(gameId, 111, player, ways));
+        PendingAction trigger = specialWayPrompt(gameId, 112, player, numberedChoices(
+            "Whenever you cast a spell with convoke, draw a card.",
+            "Whenever a creature you control becomes tapped, you gain 1 life."));
+        setField(handler, "pendingAction", trigger);
+
+        assertThat(invokeDecisionBoundaryStatus(handler, trigger, "test")).isEqualTo("READY");
+        assertThat(sent).containsExactly("special", ways.keySet().iterator().next());
+        assertThat(interactions.specialPaymentTarget()).isNull();
+        assertThat(cancels.get()).isZero();
+    }
+
+    @Test
+    @Timeout(30)
+    void aPromptBetweenTheWayAndWhatToTapEndsTheSpecialPayment() throws Exception {
+        // after the bridge picks the way, only the very next prompt may ask what to tap; any other prompt means the
+        // server tapped the only creature itself, so a convoke prompt after it is the model's
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID bloodsuckerId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+        registerShortId(handler, bloodsuckerId, "p55");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(1));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p55")), true);
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, bloodsuckerId, "p55", "Creeping Bloodsucker");
+        String dust = paidFor(UUID.randomUUID(), "Everything Comes to Dust");
+        Map<UUID, String> ways = numberedChoices(CONVOKE_RULE);
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 110, "Pay {1}" + dust));
+        payAutomatically(handler, specialWayPrompt(gameId, 111, player, ways));
+        String question = "Use effect of Soul Warden?";
+        PendingAction ask = new PendingAction(gameId, ClientCallbackMethod.GAME_ASK, new GameClientMessage(
+            gameView(112, List.of(player), new CardsView()), Collections.<String, Serializable>emptyMap(), question), question, 112);
+        setField(handler, "pendingAction", ask);
+        invokeDecisionBoundaryStatus(handler, ask, "test");
+
+        assertThat(interactions.specialPaymentTarget()).isNull();
+        PendingAction tap = convokeTargetPrompt(gameId, 113, player, Set.of(bloodsuckerId, UUID.randomUUID()));
+        setField(handler, "pendingAction", tap);
+        assertThat(invokeDecisionBoundaryStatus(handler, tap, "test")).isEqualTo("READY");
+        assertThat(sent).containsExactly("special", ways.keySet().iterator().next());
+    }
+
+    @Test
+    @Timeout(30)
+    void aPlanNamingTheCreatureBeforeTheLandTapsTheLandFirst() throws Exception {
+        // the server allows no mana abilities once convoke is used for a spell, so "p55,p22" taps the Plains first
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID bloodsuckerId = UUID.randomUUID();
+        UUID plainsId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+        registerShortId(handler, bloodsuckerId, "p55");
+        registerShortId(handler, plainsId, "p22");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(1));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p55"), new BridgeManaPlanEntry("tap", "p22")), true);
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, bloodsuckerId, "p55", "Creeping Bloodsucker");
+        putPermanents(player, plainsId, "p22", "Plains");
+        String dust = paidFor(UUID.randomUUID(), "Everything Comes to Dust");
+        Map<UUID, String> ways = numberedChoices(CONVOKE_RULE);
+        payAutomatically(handler, specialManaPromptWithLand(gameId, player, playerId, 120, "Pay {2}" + dust, plainsId));
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 121, "Pay {1}" + dust));
+        payAutomatically(handler, specialWayPrompt(gameId, 122, player, ways));
+
+        assertThat(sent).containsExactly(plainsId, "special", ways.keySet().iterator().next());
+        assertThat(cancels.get()).isZero();
+    }
+
+    @Test
+    @Timeout(30)
+    void aSpellCancelledAfterItsSpecialPaymentSaysToTapManaSourcesFirst() throws Exception {
+        // live check, 2026-11-09: the model chose convoke while its Plains were untapped; the server then listed no
+        // mana source, and the cancel note told the model it had no mana left
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID plainsId = UUID.randomUUID();
+        UUID dustId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, UUID.randomUUID(), "p55", "Creeping Bloodsucker");
+        putPermanents(player, plainsId, "p22", "Plains");
+        String dust = paidFor(dustId, "Everything Comes to Dust");
+        PendingAction pay = specialManaPromptWithLand(gameId, player, playerId, 130, "Pay {3}" + dust, plainsId);
+        PendingAction ways = specialWayPrompt(gameId, 131, player, numberedChoices(CONVOKE_RULE));
+        // the server tapped the only creature and lists no mana source after the special payment
+        PendingAction rest = manaPrompt(gameId, player, playerId, 132, "Pay {2}" + dust, Map.of());
+        GameClientMessage back = new GameClientMessage(
+            gameView(133, List.of(player), new CardsView()), Collections.<String, Serializable>emptyMap(), "Play spells and abilities");
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                switch (method.getName()) {
+                    case "sendPlayerString" -> {
+                        enqueueCallback(handler, ClientCallbackMethod.GAME_CHOOSE_ABILITY, gameId, ways.data());
+                        return true;
+                    }
+                    case "sendPlayerUUID" -> {
+                        enqueueCallback(handler, ClientCallbackMethod.GAME_PLAY_MANA, gameId, rest.data());
+                        return true;
+                    }
+                    case "sendPlayerBoolean" -> {
+                        if (Boolean.FALSE.equals(args[1])) {
+                            cancels.incrementAndGet();
+                        }
+                        enqueueCallback(handler, ClientCallbackMethod.GAME_SELECT, gameId, back);
+                        return true;
+                    }
+                    default -> {
+                        return defaultReturnValue(method.getReturnType());
+                    }
+                }
+            }
+        ));
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", ((GameClientMessage) pay.data()).getGameView());
+        setField(handler, "pendingAction", pay);
+
+        var wayPrompt = handler.chooseAction(null, "special", null, null, null, null, null, null, null, null, null);
+        assertThat(wayPrompt.action_type).isEqualTo("GAME_CHOOSE_ABILITY");
+        var result = handler.chooseAction(0, null, null, null, null, null, null, null, null, null, null);
+
+        assertThat(cancels.get()).isEqualTo(1);
+        assertThat(result.error_code).isEqualTo("spell_cancelled");
+        assertThat(result.error).contains("Everything Comes to Dust was not cast")
+            .contains("tap the mana sources first").doesNotContain("no untapped mana source");
+    }
+
+    @Test
+    @Timeout(30)
+    void aPlanThatRunsOutAfterConvokeSaysToTapManaSourcesFirst() throws Exception {
+        // mana_plan "p55" for {2}: the creature pays {1} by convoke, then no mana ability may pay the rest
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID bloodsuckerId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger cancels = new AtomicInteger();
+        client.setSession(specialPaymentSession(sent, cancels, null));
+        registerShortId(handler, bloodsuckerId, "p55");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(1));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p55")), true);
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putCreatures(player, bloodsuckerId, "p55", "Creeping Bloodsucker");
+        String dust = paidFor(UUID.randomUUID(), "Everything Comes to Dust");
+        payAutomatically(handler, specialManaPrompt(gameId, player, playerId, 140, "Pay {2}" + dust));
+        payAutomatically(handler, specialWayPrompt(gameId, 141, player, numberedChoices(CONVOKE_RULE)));
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 142, "Pay {1}" + dust, Map.of()));
+
+        assertThat(cancels.get()).isEqualTo(1);
+        Map<String, Object> news = new LinkedHashMap<>();
+        ((BridgeGameLogState) getProcessorStateField(handler, "gameLogState")).attachUnseenChat(news, false, false);
+        assertThat(String.valueOf(news.get("recent_chat"))).contains("Everything Comes to Dust was not cast")
+            .contains("tap the mana sources first");
+    }
+
+    /** A special payment prompt where an untapped Plains can pay {W}. */
+    private static PendingAction specialManaPromptWithLand(UUID gameId, PlayerView player, UUID playerId, int seq,
+            String prompt, UUID plainsId) throws Exception {
+        PendingAction action = manaPrompt(gameId, player, playerId, seq, prompt, Map.of(plainsId, manaStats("{T}: Add {W}.")));
+        setField(((GameClientMessage) action.data()).getGameView(), "special", true);
+        return action;
+    }
+
+    @Test
     void aTwoFacedLandTheServerListsTwiceIsCountedOnce() throws Exception {
         // Codex game, v0.7.9: Queen Marchesa ({1}{R}{W}{B}) with Mountain, Plains, Blightstep Pathway and Boros
         // Signet. The server lists the Pathway under its own id and under its main card's, so the bridge counted
@@ -5309,6 +5720,78 @@ class BridgeCallbackHandlerTest {
     private static String paidFor(UUID objectId, String name) {
         return "<div style='font-size:11pt'><font color='#B0C4DE' object_id='" + objectId + "'>" + name
             + "</font> [" + objectId.toString().substring(0, 3) + "]</div>";
+    }
+
+    /** Puts untapped creatures on the player's battlefield, in order: id, short id and name for each. */
+    private static void putCreatures(PlayerView player, Object... idShortIdName) throws Exception {
+        putPermanents(player, idShortIdName);
+        @SuppressWarnings("unchecked")
+        Map<UUID, Object> battlefield = (Map<UUID, Object>) getField(player, "battlefield");
+        for (int i = 0; i < idShortIdName.length; i += 3) {
+            setField(battlefield.get((UUID) idShortIdName[i]), "cardTypes", List.of(CardType.CREATURE));
+        }
+    }
+
+    // the server lists special payments by their rules text
+    private static final String CONVOKE_RULE = "Convoke (Your creatures can help cast this spell. Each creature you "
+        + "tap while casting this spell pays for {1} or one mana of that creature's color.)";
+    private static final String DELVE_RULE =
+        "Delve (Each card you exile from your graveyard while casting this spell pays for {1}.)";
+
+    /** A payment prompt for a spell with convoke or the like, so the server offers its special payment. */
+    private static PendingAction specialManaPrompt(UUID gameId, PlayerView player, UUID playerId, int seq,
+            String prompt) throws Exception {
+        PendingAction action = manaPrompt(gameId, player, playerId, seq, prompt, Map.of());
+        setField(((GameClientMessage) action.data()).getGameView(), "special", true);
+        return action;
+    }
+
+    /** The server's question which special payment to use; it names the player as the message. */
+    private static PendingAction specialWayPrompt(UUID gameId, int seq, PlayerView player, Map<UUID, String> ways)
+            throws Exception {
+        return new PendingAction(gameId, ClientCallbackMethod.GAME_CHOOSE_ABILITY,
+            new AbilityPickerView(gameView(seq, List.of(player), new CardsView()), ways, "TestPlayer"), "TestPlayer", seq);
+    }
+
+    private static PendingAction convokeTargetPrompt(UUID gameId, int seq, PlayerView player, Set<UUID> creatures)
+            throws Exception {
+        String prompt = "Select creature to tap for convoke";
+        GameView view = gameView(seq, List.of(player), new CardsView());
+        return new PendingAction(gameId, ClientCallbackMethod.GAME_TARGET,
+            new GameClientMessage(view, Collections.<String, Serializable>emptyMap(), prompt, new CardsView(), creatures,
+                true), prompt, seq);
+    }
+
+    /** Records the ids and strings sent, in order, and counts cancels; afterString runs after a string is sent. */
+    private static Session specialPaymentSession(List<Object> sent, AtomicInteger cancels, Runnable afterString) {
+        return (Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                switch (method.getName()) {
+                    case "sendPlayerUUID" -> {
+                        sent.add(args[1]);
+                        return true;
+                    }
+                    case "sendPlayerString" -> {
+                        sent.add(args[1]);
+                        if (afterString != null) {
+                            afterString.run();
+                        }
+                        return true;
+                    }
+                    case "sendPlayerBoolean" -> {
+                        if (Boolean.FALSE.equals(args[1])) {
+                            cancels.incrementAndGet();
+                        }
+                        return true;
+                    }
+                    default -> {
+                        return defaultReturnValue(method.getReturnType());
+                    }
+                }
+            }
+        );
     }
 
     private static PendingAction manaPrompt(UUID gameId, PlayerView player, UUID playerId, int seq, String prompt,

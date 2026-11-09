@@ -50,7 +50,8 @@ public class ChooseActionTool {
     public static Result execute(
             BridgeCallbackHandler handler,
             @Param(description = "ID (\"p3\"), index (\"0\"), or yes/no. "
-                + "yes=mulligan/confirm, no=keep/pass.") String choice,
+                + "yes=mulligan/confirm, no=keep/pass. "
+                + "When paying, \"special\" = convoke, improvise, delve and the like; tap mana sources before it.") String choice,
             @Param(description = "Amount value (for amount actions)") Integer amount,
             @Param(description = "Multiple amount values (for multi_amount)") int[] amounts,
             @Param(description = "Pile number: 1 or 2") Integer pile,
@@ -61,6 +62,7 @@ public class ChooseActionTool {
                 + "A source with its own cost (a Signet's {1}) is paid by the next entry, "
                 + "or a later one if the next one's mana is still needed. "
                 + "Pool colors (RED, BLUE, etc.) only SPEND existing pool mana, not produce. "
+                + "For a spell with convoke or improvise, a creature or artifact listed here is tapped for it, after the mana sources. "
                 + "Auto-tap fills remaining pips.") String mana_plan,
             @Param(description = "Auto-tap mana (default true). "
                 + "Set false with mana_plan to require complete plan.") Boolean auto_tap,

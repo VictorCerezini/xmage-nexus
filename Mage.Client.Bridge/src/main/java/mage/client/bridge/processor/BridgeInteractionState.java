@@ -15,6 +15,9 @@ public final class BridgeInteractionState {
     private List<BridgeManaPlanEntry> manaPlan = null;
     private Integer manaPlanAbilityIndex = null;
     private boolean manaPlanAutoTapFallback = true;
+    private UUID specialPaymentTarget = null; // see setSpecialPaymentTarget
+    private boolean specialPaymentWayChosen = false;
+    private UUID specialPaymentUsedFor = null; // see markSpecialPaymentUsed
     private BridgeManaTap lastManaTap = null;
     private int lastTurnNumber = -1;
     private int maxCallsWithoutProgress = DEFAULT_MAX_CALLS_WITHOUT_PROGRESS;
@@ -100,6 +103,7 @@ public final class BridgeInteractionState {
         resetPoolManaTracking();
         clearManaPlan();
         lastManaTap = null;
+        specialPaymentUsedFor = null;
     }
 
     public boolean failedManaCast(UUID objectId) {
@@ -130,6 +134,43 @@ public final class BridgeInteractionState {
         manaPlan = null;
         manaPlanAbilityIndex = null;
         manaPlanAutoTapFallback = true;
+        specialPaymentTarget = null;
+        specialPaymentWayChosen = false;
+    }
+
+    /**
+     * A mana plan entry names a creature or artifact, which pays through the server's special payment (convoke,
+     * improvise): the bridge asked for it and answers its next prompts, which way to pay and what to tap, with this
+     * permanent.
+     */
+    public void setSpecialPaymentTarget(UUID permanentId) {
+        specialPaymentTarget = permanentId;
+        specialPaymentWayChosen = false;
+    }
+
+    public UUID specialPaymentTarget() {
+        return specialPaymentTarget;
+    }
+
+    /** The bridge answered the way prompt for the special payment; only the prompt for what to tap is left. */
+    public void markSpecialPaymentWayChosen() {
+        specialPaymentWayChosen = true;
+    }
+
+    public boolean specialPaymentWayChosen() {
+        return specialPaymentWayChosen;
+    }
+
+    /**
+     * A special payment (convoke, improvise...) was asked for while paying for this object. After it the server
+     * allows no more mana abilities for that payment, so untapped lands cannot pay the rest.
+     */
+    public void markSpecialPaymentUsed(UUID payingForId) {
+        specialPaymentUsedFor = payingForId;
+    }
+
+    public boolean specialPaymentUsed(UUID payingForId) {
+        return payingForId != null && payingForId.equals(specialPaymentUsedFor);
     }
 
     public Integer manaPlanAbilityIndex() {
@@ -158,9 +199,10 @@ public final class BridgeInteractionState {
         this.lastManaTap = lastManaTap;
     }
 
-    /** The payment is over (paid or cancelled), so its last tap must not shape a later one. */
+    /** The payment is over (paid or cancelled), so its last tap and special payment must not shape a later one. */
     public void clearLastManaTap() {
         lastManaTap = null;
+        specialPaymentUsedFor = null;
     }
 
     public void resetPoolManaTracking() {
@@ -183,6 +225,7 @@ public final class BridgeInteractionState {
         resetPoolManaTracking();
         clearManaPlan();
         lastManaTap = null;
+        specialPaymentUsedFor = null;
         lastTurnNumber = -1;
         callsWithoutProgress = 0;
         lastCallGameSeq = null;

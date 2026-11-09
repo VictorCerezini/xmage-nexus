@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -312,7 +313,8 @@ public final class BridgeDecisionFlowService {
                 result.warning = "Both id and index provided; used id=" + id + ", ignored index=" + resolvedIndex;
                 resolvedIndex = null;
             }
-            if ("all".equals(id)) {
+            if ("all".equals(id) || "special".equalsIgnoreCase(id)) {
+                // "all" attacks with everything; "special" is the payment prompt's special payment (convoke...)
                 for (int i = 0; i < choiceBackings.size(); i++) {
                     if ("special".equals(choiceBackings.get(i))) {
                         resolvedIndex = i;
@@ -321,7 +323,7 @@ public final class BridgeDecisionFlowService {
                 }
                 if (resolvedIndex == null) {
                     return chooseActionDone(buildChooseActionError(result, "invalid_choice",
-                        "\"all\" is not available in current choices", true, action, true));
+                        "\"" + id + "\" is not available in current choices", true, action, true));
                 }
             } else {
                 UUID resolvedUuid = processorServices.shortIds().tryResolve(id);
@@ -464,6 +466,12 @@ public final class BridgeDecisionFlowService {
                                 }
                                 sendManaTypeOrDie(gameId, manaPlayerId, manaType, "chooseAction:GAME_PLAY_MANA_pool");
                                 result.action_taken = "used_pool_" + manaType;
+                                usedManaIndex = true;
+                            } else if ("special".equals(manaChoice)) {
+                                // the server asks next which special payment (convoke...), then what to use
+                                processorState.interactionState().markSpecialPaymentUsed(extractPayingForId(action.message()));
+                                sendStringOrDie(gameId, "special", "chooseAction:GAME_PLAY_MANA_special");
+                                result.action_taken = "special_payment";
                                 usedManaIndex = true;
                             } else {
                                 return chooseActionDone(buildChooseActionError(result, "internal_error",
@@ -1064,6 +1072,13 @@ public final class BridgeDecisionFlowService {
     }
 
     private NonDecisionActionStatus maybeAutoHandleNonDecisionAction(PendingAction action, String source) {
+        if (action.method() != ClientCallbackMethod.GAME_TARGET
+                && action.method() != ClientCallbackMethod.GAME_CHOOSE_ABILITY
+                && processorState.decisionState().pendingAction() == action) {
+            // a special payment the mana plan asked for is answered by its next prompts, which way and what to tap;
+            // the server picks the only creature itself, so any other prompt means it is over
+            processorState.interactionState().setSpecialPaymentTarget(null);
+        }
         if (action.method() == ClientCallbackMethod.GAME_PLAY_MANA
                 || action.method() == ClientCallbackMethod.GAME_PLAY_XMANA) {
             return maybeAutoHandlePendingManaAction(action, source);
@@ -1082,6 +1097,28 @@ public final class BridgeDecisionFlowService {
         GameClientMessage targetMsg = (GameClientMessage) action.data();
         Set<UUID> targets = findValidTargets(targetMsg);
         boolean required = targetMsg.isFlag();
+
+        // what to tap for the special payment a mana plan entry asked for (convoke, improvise)
+        UUID specialTarget = processorState.interactionState().specialPaymentTarget();
+        if (specialTarget != null) {
+            processorState.interactionState().setSpecialPaymentTarget(null);
+            String prompt = targetMsg.getMessage() == null ? "" : targetMsg.getMessage().toLowerCase(Locale.ROOT);
+            boolean forThePayment = prompt.contains("convoke") || prompt.contains("improvise");
+            if (forThePayment && targets != null && targets.contains(specialTarget)) {
+                if (clearPendingActionIfCurrent(action)) {
+                    logger.info("[" + username + "] " + source + ": mana plan tapping "
+                        + specialTarget.toString().substring(0, 8) + " for the special payment");
+                    updateLastGameView(targetMsg.getGameView(), source + ":special_payment_target");
+                    sendUuidOrDie(action.gameId(), specialTarget, "auto GAME_TARGET special payment");
+                    return NonDecisionActionStatus.AUTO_HANDLED;
+                }
+                return processorState.decisionState().pendingAction() != action
+                    ? NonDecisionActionStatus.CHANGED
+                    : NonDecisionActionStatus.NOT_HANDLED;
+            }
+            logger.warn("[" + username + "] " + source + ": mana plan's " + specialTarget.toString().substring(0, 8)
+                + " cannot be used for this special payment, the model chooses");
+        }
 
         if (!required && (targets == null || targets.isEmpty())) {
             if (clearPendingActionIfCurrent(action)) {
@@ -1156,6 +1193,33 @@ public final class BridgeDecisionFlowService {
                 : NonDecisionActionStatus.NOT_HANDLED;
         }
 
+        // which special payment a mana plan entry asked for: convoke for a creature, improvise for an artifact
+        UUID specialTarget = processorState.interactionState().specialPaymentTarget();
+        if (specialTarget != null && processorState.interactionState().specialPaymentWayChosen()) {
+            // the way was picked already and the server tapped the only creature itself, so this is another prompt
+            // (a trigger's, say), even when its text names convoke
+            processorState.interactionState().setSpecialPaymentTarget(null);
+            specialTarget = null;
+        }
+        if (specialTarget != null) {
+            UUID way = specialPaymentFor(specialTarget, choices, picker.getGameView());
+            if (way == null) {
+                processorState.interactionState().setSpecialPaymentTarget(null);
+                logger.warn("[" + username + "] " + source + ": no special payment fits the mana plan's "
+                    + specialTarget.toString().substring(0, 8) + " among " + choices.values() + ", the model chooses");
+                return NonDecisionActionStatus.NOT_HANDLED;
+            }
+            if (clearPendingActionIfCurrent(action)) {
+                logger.info("[" + username + "] " + source + ": mana plan special payment -> " + choices.get(way));
+                processorState.interactionState().markSpecialPaymentWayChosen();
+                sendUuidOrDie(action.gameId(), way, "auto GAME_CHOOSE_ABILITY special payment");
+                return NonDecisionActionStatus.AUTO_HANDLED;
+            }
+            return processorState.decisionState().pendingAction() != action
+                ? NonDecisionActionStatus.CHANGED
+                : NonDecisionActionStatus.NOT_HANDLED;
+        }
+
         // A mana plan picks among a mana source's mana abilities. The same prompt type also asks for a spell's
         // or trigger's modes, or which way to cast a card; those are the model's choice.
         if (processorState.interactionState().manaPlan() != null
@@ -1210,6 +1274,34 @@ public final class BridgeDecisionFlowService {
         }
 
         return NonDecisionActionStatus.NOT_HANDLED;
+    }
+
+    /**
+     * The special payment (the server lists them by rules text) that a mana plan's permanent pays with: convoke
+     * for a creature, improvise for an artifact (either one when the permanent is not in view); null when none fits.
+     */
+    private UUID specialPaymentFor(UUID permanentId, Map<UUID, String> choices, GameView pickerView) {
+        CardView permanent = pickerView != null
+            ? processorServices.viewLocator().findCardViewById(permanentId, pickerView) : null;
+        GameView lastView = processorState.gameState().lastGameView();
+        if (permanent == null && lastView != null) {
+            permanent = processorServices.viewLocator().findCardViewById(permanentId, lastView);
+        }
+        List<String> keywords = new ArrayList<>();
+        if (permanent == null || permanent.isCreature()) {
+            keywords.add("convoke");
+        }
+        if (permanent == null || permanent.isArtifact()) {
+            keywords.add("improvise");
+        }
+        for (String keyword : keywords) {
+            for (Map.Entry<UUID, String> choice : choices.entrySet()) {
+                if (choice.getValue() != null && choice.getValue().toLowerCase(Locale.ROOT).contains(keyword)) {
+                    return choice.getKey();
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -1654,6 +1746,9 @@ public final class BridgeDecisionFlowService {
 
         List<BridgeManaPlanEntry> plan = processorState.interactionState().manaPlan();
         if (plan != null && !plan.isEmpty()) {
+            if (gameView != null && gameView.getSpecial()) {
+                useThePlansManaSourcesFirst(plan, gameView.getCanPlayObjects());
+            }
             if (stillOwed != null) {
                 payOwnCostWithAPlanSourceNotNeeded(plan, cost, stillOwed, sources, messageText);
             }
@@ -1681,6 +1776,17 @@ public final class BridgeDecisionFlowService {
                         sendUuidOrDie(gameId, targetId, "manaAuto:plan_tap");
                         return true;
                     }
+                }
+                if (gameView != null && gameView.getSpecial() && !targetId.equals(payingForId)) {
+                    // not a mana source, but the spell has a special payment (a creature for convoke, an artifact for
+                    // improvise): the bridge asks for it and answers its next prompts, which way and what to tap
+                    processorState.interactionState().consumeManaPlanAbilityIndex();
+                    processorState.interactionState().resetPoolManaTracking();
+                    processorState.interactionState().setSpecialPaymentTarget(targetId);
+                    processorState.interactionState().markSpecialPaymentUsed(payingForId);
+                    logger.info("[" + username + "] Mana plan: \"" + messageText + "\" -> special payment with " + entry.value());
+                    sendStringOrDie(gameId, "special", "manaAuto:plan_special");
+                    return true;
                 }
                 logger.warn("[" + username + "] Mana plan: tap target " + entry.value() + " not available, cancelling spell");
                 return cancelSpellFromBadManaPlan(gameId, payingForId, messageText, gameView,
@@ -1773,9 +1879,42 @@ public final class BridgeDecisionFlowService {
             return false;
         }
 
+        if (gameView != null && gameView.getSpecial()) {
+            // no mana source is left, but the spell's special payment (convoke, improvise, delve...) can still pay
+            logger.info("[" + username + "] Mana: \"" + messageText
+                + "\" -> no mana source left, a special payment can still pay, asking the model");
+            return false;
+        }
+
         logger.info("[" + username + "] Mana: \"" + messageText + "\" -> no mana source available, cancelling spell");
-        return cancelSpell(gameId, payingForId, messageText, gameView,
-            "no untapped mana source was left to pay " + unpaidCostText(messageText), "manaAuto:no_source_cancel");
+        String reason = processorState.interactionState().specialPaymentUsed(payingForId)
+            ? "after its special payment (convoke, improvise...) the rules allow no more mana abilities for it, so "
+                + unpaidCostText(messageText) + " could not be paid; tap the mana sources first and use the special payment last"
+            : "no untapped mana source was left to pay " + unpaidCostText(messageText);
+        return cancelSpell(gameId, payingForId, messageText, gameView, reason, "manaAuto:no_source_cancel");
+    }
+
+    /**
+     * Once a special payment (convoke, improvise) is used, the server allows no more mana abilities for that spell,
+     * so the plan's mana sources are tapped before the creatures and artifacts it names for the special payment.
+     * Mana sources keep their order, and so do the others.
+     */
+    private void useThePlansManaSourcesFirst(List<BridgeManaPlanEntry> plan, PlayableObjectsList playable) {
+        if (playable == null) {
+            return;
+        }
+        List<BridgeManaPlanEntry> asGiven = List.copyOf(plan);
+        plan.sort(Comparator.comparing((BridgeManaPlanEntry entry) -> {
+            if (!"tap".equals(entry.type())) {
+                return false;
+            }
+            UUID id = processorServices.shortIds().tryResolve(entry.value());
+            return id != null && !playable.getObjects().containsKey(id);
+        }));
+        if (!asGiven.equals(plan)) {
+            logger.info("[" + username + "] Mana plan: mana sources first, the special payment last: "
+                + plan.stream().map(BridgeManaPlanEntry::value).toList());
+        }
     }
 
     /** The plain mana sources ({T} and nothing else), in board order, and whether there are other ways to pay. */
