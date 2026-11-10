@@ -3,6 +3,7 @@ import { makeCard, makeGameView, makePermanent, makePlayer } from '../__fixtures
 import type { CardView, GameView } from '../net/types'
 import { cardArtPreference, resetCardArtPreferences, setCardArtPreference } from './artPreferences'
 import { cardKey, resetCardImageCache } from './cardImages'
+import { learnModalFaces } from './modalFaces'
 import {
   SHARED_ART_PREFIX,
   decodeSharedArt,
@@ -146,10 +147,52 @@ describe('which art another player\'s copy shows', () => {
     expect(cardKey(myTrostani)).toBe('PRM/50000')
   })
 
-  it('CRD-6: with no pick from the owner the viewer\'s own preference still applies', () => {
+  it("CRD-11: with no art shared by the owner, their copy shows their deck's printing, never the viewer's own pick", () => {
     setCardArtPreference('Trostani, Selesnya\'s Voice', 'PRM', '50000')
     noteGameView(GAME, view())
-    expect(cardKey(bobsTrostani)).toBe('PRM/50000')
+    // Bob's deck has GPT 128 (the server sends it): the viewer's pick is for the viewer's own copy
+    expect(artFor(bobsTrostani)).toBeNull()
+    expect(cardKey(bobsTrostani)).toBe('GPT/128')
+    expect(cardKey(myTrostani)).toBe('PRM/50000')
+    // the same on the stack, in a graveyard and in exile: Bob's cards are Bob's
+    const stack = { s1: makeCard({ id: 's1', name: 'Trostani, Selesnya\'s Voice', controllerId: 'p-Bob', expansionSetCode: 'GPT', cardNumber: '128' }) }
+    noteGameView(GAME, view({ extra: { stack } }))
+    expect(cardKey(stack.s1)).toBe('GPT/128')
+    const v = view()
+    v.players = (v.players ?? []).map((p) =>
+      p.name === 'Bob'
+        ? { ...p, graveyard: { g1: makeCard({ id: 'g1', name: 'Trostani, Selesnya\'s Voice', expansionSetCode: 'GPT', cardNumber: '128' }) }, exile: { e1: makeCard({ id: 'e1', name: 'Trostani, Selesnya\'s Voice', expansionSetCode: 'GPT', cardNumber: '128' }) } }
+        : p,
+    )
+    noteGameView(GAME, v)
+    expect(cardKey({ id: 'g1', name: 'Trostani, Selesnya\'s Voice', expansionSetCode: 'GPT', cardNumber: '128' } as CardView)).toBe('GPT/128')
+    expect(cardKey({ id: 'e1', name: 'Trostani, Selesnya\'s Voice', expansionSetCode: 'GPT', cardNumber: '128' } as CardView)).toBe('GPT/128')
+  })
+
+  it('CRD-12: an art picked for a spell // land card covers its land face on the battlefield, for me and for the others', () => {
+    learnModalFaces("Emeria's Call", 'Emeria, Shattered Skyclave')
+    setCardArtPreference("Emeria's Call", 'PZNR', '12')
+    // played as the land: the server names the land face only
+    const land = makePermanent({ id: 'm1', name: 'Emeria, Shattered Skyclave', controllerId: 'p-Alice', expansionSetCode: 'ZNR', cardNumber: '12', cardTypes: ['Land'] })
+    const asAlice = withBattlefields('Alice', { m1: land }, {})
+    expect(noteGameView(GAME, asAlice)).toContainEqual(["Emeria's Call", 'PZNR', '12'])
+    expect(cardKey(land)).toBe('PZNR/12#back')
+
+    // Bob's screen: Alice's line names the front face, and her land shows that printing's land face
+    resetCardArtPreferences()
+    const asBob = withBattlefields('Bob', { m1: land }, {})
+    noteGameView('g-bob', asBob)
+    expect(cardKey(land)).toBe('ZNR/12#back')
+    const [line] = encodeSharedArt([["Emeria's Call", 'PZNR', '12']], false, () => 1)
+    ingestSharedArt('g-bob', asBob, 'Alice', line)
+    expect(cardKey(land)).toBe('PZNR/12#back')
+  })
+
+  it("CRD-11: a spectator sees each player's own art, not the spectator's picks", () => {
+    setCardArtPreference('Trostani, Selesnya\'s Voice', 'PRM', '50000')
+    noteGameView(GAME, view({ me: 'Spectator' }))
+    expect(cardKey(myTrostani)).toBe('GPT/128')
+    expect(cardKey(bobsTrostani)).toBe('GPT/128')
   })
 
   it('CRD-6: a card without a controller is matched to the player whose zone holds it', () => {
@@ -200,9 +243,9 @@ describe('which art another player\'s copy shows', () => {
     // a later announcement from Bob does not undo the viewer's change
     bobSays([['Trostani, Selesnya\'s Voice', 'SLD', '1000']])
     expect(cardKey(bobsTrostani)).toBe('RVR/216')
-    // next game: back to whatever the owner picks
+    // next game: back to whatever the owner picks (Bob has not told it yet: his deck's printing)
     noteGameView('g-next', view())
-    expect(cardKey(bobsTrostani)).toBe('PRM/50000')
+    expect(cardKey(bobsTrostani)).toBe('GPT/128')
   })
 
   it('CRD-6: a spectator treats every card as someone else\'s', () => {
@@ -322,8 +365,8 @@ describe('changing one copy during the game', () => {
     // a spectator neither: Bob's entries for Alice's Swamps do not count
     noteGameView(GAME, swamps('Spectator'))
     bobSays([['Swamp', 'UNF', '243', 's2']])
-    expect(artFor(swamp('s1', 'p-Alice'))).toEqual({ setCode: 'PRM', cardNumber: '50000' })
-    expect(artFor(swamp('s2', 'p-Alice'))).toEqual({ setCode: 'PRM', cardNumber: '50000' })
+    expect(artFor(swamp('s1', 'p-Alice'))).toBeNull()
+    expect(artFor(swamp('s2', 'p-Alice'))).toBeNull()
   })
 
   it("CRD-10: changing one of another player's copies changes only that one, and only on this screen", () => {
@@ -370,10 +413,10 @@ describe('changing one copy during the game', () => {
     setCopyArt(swamp('s1', 'p-Alice'), 'UNF', '238')
     setCopyArt(swamp('s1', 'p-Alice'), 'prm', '50000')
     expect(canRestoreDefaultArt(swamp('s1', 'p-Alice'))).toBe(false)
-    // Bob chose nothing: his copy shows the viewer's own pick
-    setCopyArt(swamp('s3', 'p-Bob'), 'PRM', '50000')
-    expect(canRestoreDefaultArt(swamp('s3', 'p-Bob'))).toBe(false)
+    // Bob shared nothing: his copy shows the printing the server sent, not the viewer's own pick
     setCopyArt(swamp('s3', 'p-Bob'), 'M21', '272')
+    expect(canRestoreDefaultArt(swamp('s3', 'p-Bob'))).toBe(false)
+    setCopyArt(swamp('s3', 'p-Bob'), 'PRM', '50000')
     expect(canRestoreDefaultArt(swamp('s3', 'p-Bob'))).toBe(true)
     // with no art chosen at all, the default is the printing the server sent
     resetCardArtPreferences()
@@ -436,11 +479,11 @@ describe('restoring the default art', () => {
   it("CRD-8: restoring another player's copy leaves the viewer's own pick alone, and shows what it showed before", () => {
     setCardArtPreference(TROSTANI, 'PRM', '50000')
     noteGameView(GAME, view())
-    // Bob shared nothing: before the change his copy showed the viewer's own pick
-    expect(cardKey(bobsTrostani)).toBe('PRM/50000')
+    // Bob shared nothing: before the change his copy showed his deck's printing
+    expect(cardKey(bobsTrostani)).toBe('GPT/128')
     setCopyArt(bobsTrostani, 'RVR', '216')
     restoreDefaultArt(bobsTrostani)
-    expect(cardKey(bobsTrostani)).toBe('PRM/50000')
+    expect(cardKey(bobsTrostani)).toBe('GPT/128')
     expect(cardArtPreference(TROSTANI)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
     expect(cardKey(myTrostani)).toBe('PRM/50000')
     // nothing new to tell the others: the change never left this screen

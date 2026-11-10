@@ -147,3 +147,32 @@ cards to show instead of an error.
   token is listed, so Scryfall answered 404 and the menu only showed an error; and a picked
   printing would not have shown on a token anyway.
 - Guard: `src/cards/sharedArt.test.ts` · `src/board/CardInspector.artRestore.test.tsx` · `src/decks/CardPrintingsModal.test.tsx` · `e2e/card-inspector.spec.ts`
+
+### CRD-11 · A player's art pick is for their own cards only
+An art a player picks in the deck builder shows on that player's own copies of the card. Another
+player's copy of the same card shows the art that player chose (CRD-6), and when they shared none,
+the printing the server sends for it, which is the one in their deck; never the viewer's own pick.
+That holds on the battlefield, on the stack, in graveyards and in exile, and for a spectator, who
+sees each player's own art. A card the game places with no player (one being looked at in a library
+search) still shows the viewer's own art first, as most such cards are the viewer's.
+
+- Why: the viewer's pick also went on every other player's copy of the card whenever that player had
+  shared no art (a model seat, an XMage desktop player, or a deck printing the server already has,
+  which needs no sharing), so players saw their own art on an opponent's cards over the art the
+  opponent chose.
+- Guard: `src/cards/sharedArt.test.ts`
+
+### CRD-12 · A modal double-faced card played as a land shows its land face
+A modal double-faced card whose back face is a land (a spell // land card such as Emeria's Call //
+Emeria, Shattered Skyclave) shows the land face while it is on the battlefield as that land: on the
+board, in the card preview and in the inspector, also the first time the card is seen. Everywhere
+else (hand, graveyard, exile, library) and while cast as the spell it shows the spell face. An art
+picked for the card covers both faces, also when the pick was stored under the front face's name
+only (a deck imported from an XMage `.dck` file), and the land face is the picked printing's.
+
+- Why: the server does not mark such a card as transformed when it is played as the land (its front
+  face is not a permanent): it only sends the land face's name with the main card's set and number,
+  so the web asked Scryfall for that printing and showed its front face, the spell. The web now
+  learns each modal double-faced card's face names from the Scryfall data and shows the face whose
+  name the server sends.
+- Guard: `src/cards/sharedArt.test.ts` · `src/cards/cardImages.test.ts` · `src/cards/modalFaces.test.tsx`

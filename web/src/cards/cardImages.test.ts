@@ -395,18 +395,93 @@ describe('double-faced and transform card resolution', () => {
   })
 })
 
+describe('a modal double-faced card played from its back face', () => {
+  const FRONT = 'https://img.test/emeria_call.jpg'
+  const BACK = 'https://img.test/emeria_skyclave.jpg'
+  /** What Scryfall sends for ZNR 12 (cut down): a modal double-faced card, a sorcery // a land. */
+  const emeriaJson = {
+    name: "Emeria's Call // Emeria, Shattered Skyclave",
+    layout: 'modal_dfc',
+    card_faces: [
+      { name: "Emeria's Call", image_uris: { normal: FRONT } },
+      { name: 'Emeria, Shattered Skyclave', image_uris: { normal: BACK } },
+    ],
+  }
+  /** In hand, in a graveyard, in exile, or cast: the main card, named for its front face. */
+  const asCard = { id: 'c1', name: "Emeria's Call", expansionSetCode: 'ZNR', cardNumber: '12', isDoubleFacedCard: true } as CardView
+  /** Played as the land: the server names the land face, keeps the main card's set and number, and
+   *  does not mark it transformed (its front face is not a permanent). */
+  const asLand = { id: 'c1', name: 'Emeria, Shattered Skyclave', expansionSetCode: 'ZNR', cardNumber: '12', cardTypes: ['LAND'] } as unknown as CardView
+
+  beforeEach(() => {
+    resetCardImageCache()
+    resetCardArtPreferences()
+    vi.restoreAllMocks()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => emeriaJson, headers: { get: () => null } }))
+  })
+
+  it('CRD-12: shows the land face on the battlefield, and the spell face everywhere else', async () => {
+    await expect(awaitImageUrl(asCard)).resolves.toBe(FRONT)
+    expect(cardKey(asLand)).toBe('ZNR/12#back')
+    await expect(awaitImageUrl(asLand)).resolves.toBe(BACK)
+    expect(cardKey(asCard)).toBe('ZNR/12')
+    await expect(awaitImageUrl(asCard)).resolves.toBe(FRONT)
+  })
+
+  it('CRD-12: a land the client never saw before gets its land face once Scryfall has answered', async () => {
+    // nothing is known about the card yet: the first key is the main card's
+    expect(cardKey(asLand)).toBe('ZNR/12')
+    await awaitImageUrl(asLand)
+    // the next render asks again, and the key now names the land face (useCardImageUrl.test.tsx)
+    expect(cardKey(asLand)).toBe('ZNR/12#back')
+    await expect(awaitImageUrl(asLand)).resolves.toBe(BACK)
+  })
+
+  it('CRD-12: with an art picked for the card, the land shows the land face of that printing', async () => {
+    setCardArtPreference("Emeria's Call", 'PZNR', '12')
+    await awaitImageUrl(asCard)
+    expect(cardKey(asLand)).toBe('PZNR/12#back')
+    expect(cardKey(asCard)).toBe('PZNR/12')
+  })
+
+  it('CRD-12: only modal double-faced cards: a back-face name of another layout is not taken', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        name: 'Bonecrusher Giant // Stomp',
+        layout: 'adventure',
+        image_uris: { normal: 'https://img.test/giant.jpg' },
+        card_faces: [{ name: 'Bonecrusher Giant' }, { name: 'Stomp' }],
+      }),
+      headers: { get: () => null },
+    }))
+    await awaitImageUrl({ name: 'Bonecrusher Giant', expansionSetCode: 'ELD', cardNumber: '115' } as CardView)
+    // the adventure on the stack is the same image, not a back face
+    expect(cardKey({ name: 'Stomp', expansionSetCode: 'ELD', cardNumber: '115' } as CardView)).toBe('ELD/115')
+  })
+
+  it('CRD-12: a transformed permanent still follows the server flag', async () => {
+    await awaitImageUrl(asCard)
+    // a creature // land card played as the land is "transformed" for the server: flipping it in the
+    // inspector asks for the front face, and gets it
+    const transformed = { ...asLand, transformed: true }
+    expect(cardKey(transformed)).toBe('ZNR/12#back')
+    expect(cardKey({ ...transformed, isFrontFace: true } as CardView)).toBe('ZNR/12')
+  })
+})
+
 describe('card art preference', () => {
   beforeEach(() => {
     resetCardImageCache()
     resetCardArtPreferences()
   })
 
-  it('la preferencia del jugador gana a la impresión de la vista, también en cartas del rival', () => {
+  it("the viewer's pick wins over the view's printing on a card no player is known to hold", () => {
     setCardArtPreference('Lightning Bolt', 'LEA', '161')
-    const mine = { name: 'Lightning Bolt', expansionSetCode: 'M10', cardNumber: '146' } as CardView
-    const rivals = { name: 'Lightning Bolt', expansionSetCode: '2XM', cardNumber: '130' } as CardView
-    expect(cardKey(mine)).toBe('LEA/161')
-    expect(cardKey(rivals)).toBe('LEA/161')
+    const anywhere = { name: 'Lightning Bolt', expansionSetCode: 'M10', cardNumber: '146' } as CardView
+    expect(cardKey(anywhere)).toBe('LEA/161')
+    // another player's copies keep that player's art, never the viewer's pick (sharedArt.test.ts, CRD-11)
   })
 
   it('no aplica a tokens ni a cartas boca abajo', () => {

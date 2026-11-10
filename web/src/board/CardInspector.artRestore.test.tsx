@@ -142,7 +142,8 @@ describe('the art menu during a match', () => {
     await openArtMenu(bobs2)
     fireEvent.click(screen.getByText('Secret Lair Drop'))
     expect(artFor(bobs2)).toEqual({ setCode: 'SLD', cardNumber: '999' })
-    expect(artFor(bobs)).toEqual({ setCode: 'PRM', cardNumber: '50000' })
+    // Bob's other copy keeps the printing his deck has: the viewer's own pick is for the viewer's cards (CRD-11)
+    expect(artFor(bobs)).toBeNull()
   })
 
   it('CRD-10: changing the art from an ability changes the card the ability comes from', async () => {

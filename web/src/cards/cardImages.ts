@@ -3,6 +3,7 @@ import { getCardLanguage } from '../i18n'
 import { extractOwnedKeywords } from '../data/keywordExtractor'
 import { scryfallJson } from './scryfallClient'
 import { artFor } from './sharedArt'
+import { isModalBackFace, learnModalFaces, resetModalFaces } from './modalFaces'
 import tokenImageData from '../data/tokenImages.generated.json'
 
 const memory = new Map<string, string | null>()
@@ -83,7 +84,8 @@ type FaceFlags = { isSecondCardFace?: boolean; isBackFace?: boolean; isFrontFace
 export function isCardBackFace(card: CardView & FaceFlags): boolean {
   if (card.isSecondCardFace === true || card.isBackFace === true) return true
   if (card.transformed === true && !card.isFrontFace) return true
-  return false
+  // a spell // land card played as the land: only its name tells (see modalFaces.ts)
+  return isModalBackFace(card)
 }
 
 function tokenImageName(card: CardView): string {
@@ -294,11 +296,13 @@ function candidateUrls(key: string): string[] {
 
 interface ScryfallImagePayload {
   data?: {
+    layout?: string
     image_uris?: { normal?: string; small?: string }
-    card_faces?: { image_uris?: { normal?: string; small?: string } }[]
+    card_faces?: { name?: string; image_uris?: { normal?: string; small?: string } }[]
   }[]
+  layout?: string
   image_uris?: { normal?: string; small?: string }
-  card_faces?: { image_uris?: { normal?: string; small?: string } }[]
+  card_faces?: { name?: string; image_uris?: { normal?: string; small?: string } }[]
   name?: string
   type_line?: string
   mana_cost?: string
@@ -336,6 +340,10 @@ async function tryFetch(key: string): Promise<string | null> {
         const backUrl = faces[1]?.image_uris?.normal ?? faces[1]?.image_uris?.small ?? null
         if (frontUrl) memory.set(cleanKey, frontUrl)
         if (backUrl) memory.set(`${cleanKey}#back`, backUrl)
+        // a card showing this back face from now on gets the back image (see modalFaces.ts); the
+        // card that asked re-renders once this image is in, and its key then names the back face
+        const layout = data.card_faces ? data.layout : data.data?.[0]?.layout
+        if (layout === 'modal_dfc' && backUrl) learnModalFaces(faces[0]?.name, faces[1]?.name)
       }
 
       const searchFirst = data.data?.[0]
@@ -461,6 +469,7 @@ export function resetCardImageCache() {
   metaMemory.clear()
   metaInflight.clear()
   tokenPins.clear()
+  resetModalFaces()
   loadQueue.length = 0
   activeLoads = 0
 }

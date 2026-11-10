@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { CardView, GameView, PermanentView } from '../net/types'
 import { cardArtPreference, type CardArtPreference } from './artPreferences'
+import { modalFrontFaceName } from './modalFaces'
 
 /**
  * Shared card art: the art a player picked for a card (`artPreferences.ts`), or the printing their
@@ -272,10 +273,18 @@ export function setDeckArt(entries: DeckArtEntry[]): void {
   emit()
 }
 
-/** The names to look a card up by: its own, and its front face while it is transformed. */
+/** The front-face name of a card showing its back face: transformed, or a spell // land card played
+ * as the land (the server then names the land only, see modalFaces.ts). */
+function frontFaceName(card: CardView): string | undefined {
+  if (card.transformed === true) return card.secondCardFace?.name
+  return modalFrontFaceName(card) ?? undefined
+}
+
+/** The names to look a card up by: its own, and its front face while its back face is up. */
 function lookupNames(card: CardView): string[] {
   const names = [card.name ?? '']
-  if (card.transformed === true && card.secondCardFace?.name) names.push(card.secondCardFace.name)
+  const front = frontFaceName(card)
+  if (front) names.push(front)
   return [...new Set(names.map(norm).filter(Boolean))]
 }
 
@@ -297,7 +306,7 @@ function artIn(map: Map<string, CardArtPreference> | undefined, card: CardView):
 
 /** This viewer's own art pick for the card. */
 function viewerPick(card: CardView): CardArtPreference | null {
-  for (const name of [card.name, card.transformed === true ? card.secondCardFace?.name : undefined]) {
+  for (const name of [card.name, frontFaceName(card)]) {
     const pick = name ? cardArtPreference(name) : null
     if (pick) return pick
   }
@@ -416,7 +425,8 @@ export function noteGameView(gameId: string, game: GameView): SharedArtEntry[] {
     // a token has no art pick or deck printing to announce
     if (token) continue
     const deck = deckArtFor(card)
-    for (const name of [card.name, card.secondCardFace?.name]) {
+    const names = [card.name, card.secondCardFace?.name, modalFrontFaceName(card) ?? undefined]
+    for (const name of [...new Set(names)]) {
       if (!name?.trim()) continue
       const pick = cardArtPreference(name)
       if (pick) want([name.trim(), pick.setCode, pick.cardNumber])
@@ -569,7 +579,9 @@ function baseArtFor(card: CardView): CardArtPreference | null {
   // a token: only the change its holder made to it; else the game's own token image
   if (isToken(card)) return sharedCopyArt(card, holder)
   if (holder && holder === myPlayerId) return ownArtFor(card)
-  if (holder) return sharedCopyArt(card, holder) ?? artIn(byPlayer.get(holder), card) ?? viewerPick(card)
+  // never this viewer's own pick: a pick is for its own cards, and the printing the server sent is
+  // the one in the owner's deck
+  if (holder) return sharedCopyArt(card, holder) ?? artIn(byPlayer.get(holder), card)
   return sharedCopyArt(card, undefined) ?? ownArtFor(card) ?? uniqueArt(byPlayer.values(), card)
 }
 
@@ -578,7 +590,8 @@ function baseArtFor(card: CardView): CardArtPreference | null {
  * - Any copy this viewer changed during the game: that art (only that copy).
  * - This client's own copy: its art pick, else the printing its deck had.
  * - Another player's copy: the art that player gave this very copy during the game, else the art
- *   that player chose for the card, else this viewer's own pick for the card.
+ *   that player chose for the card, else the printing the server sent (the one in that player's
+ *   deck). Never this viewer's own pick for the card: a pick is for the viewer's own copies.
  * - A card whose holder the view does not tell (a library search, cards being looked at): the art a
  *   player gave this very copy, else this viewer's own art (most such cards are its own), else the
  *   only art another player shared for that card.
