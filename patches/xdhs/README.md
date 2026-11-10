@@ -6,7 +6,7 @@ proxy source depends on. When building a second proxy flavor against the
 xenohedron fork (XDHS server, tag `1.6.1-XDHS-r2`), those same patches must be
 applied to that checkout before `mvn install`.
 
-The files touched by patches `0001`/`0002` apply cleanly against
+The files touched by patches `0001`/`0002`/`0004` apply cleanly against
 `1.6.1-XDHS-r2`.
 
 | Patch | Source commit (fork `nexus`) | Why the proxy needs it |
@@ -14,6 +14,7 @@ The files touched by patches `0001`/`0002` apply cleanly against
 | `0001-matchoptions-test-mode.patch` | `40a0cda712` | `MatchOptions.setSkipInitShuffling` / `setSkipStartingPlayerChoice` (deterministic test mode). Explicit `serialVersionUID` keeps the extra fields wire-compatible with unmodified servers. |
 | `0002-cheatsetup-client.patch` | `0e95f17bb9` | `SessionImpl.cheatSetup` + `MageServer`/`Testable` declarations. Against a stock XDHS server the call fails softly (the server has no such remote method). |
 | `0003-custom-threadpool-shared-pool.patch` | retired | The nexus-side thread-pool leak patch. **Not applied** since `1.6.1-XDHS-r2` (it does not apply: the XDHS fork carries the upstream fix itself, `CustomThreadPool.enableIdleThreadExit`, idle threads stop after 60 s). The file lives in `retired/` so the glob `patches/xdhs/*.patch` (CI and `host-xdhs.sh`) only ever applies active patches. |
+| `0004-matchoptions-undo-priority-steps.patch` | `c5185cc2c1` (the `MatchOptions` half) | `MatchOptions.getUndoPrioritySteps` / `setUndoPrioritySteps` ("Undo steps" when creating a table, KEY-13). The nexus fork clamps it with `GameOptions.clampUndoPrioritySteps`; here the 1 to 50 clamp is written inline, so `GameOptions` stays untouched. Applies after `0001` (same file); the explicit `serialVersionUID` from `0001` keeps the extra field wire-compatible, so a stock XDHS server ignores it. |
 
 ## Host install (`scripts/deploy/host-xdhs.sh`)
 
@@ -38,6 +39,7 @@ git clone https://github.com/xenohedron/mage ../xmage-xdhs
 git -C ../xmage-xdhs checkout 1.6.1-XDHS-r2
 git -C ../xmage-xdhs apply patches/xdhs/0001-matchoptions-test-mode.patch
 git -C ../xmage-xdhs apply patches/xdhs/0002-cheatsetup-client.patch
+git -C ../xmage-xdhs apply patches/xdhs/0004-matchoptions-undo-priority-steps.patch
 mvn -q -f ../xmage-xdhs/pom.xml -pl Mage.Common,Mage,Mage.Sets,Mage.Server.Plugins/Mage.Deck.Constructed -am install -DskipTests
 
 # Build the proxy in a throwaway copy: `clean` must not delete the nexus jar

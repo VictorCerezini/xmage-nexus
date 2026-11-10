@@ -1,0 +1,31 @@
+diff --git a/Mage/src/main/java/mage/game/match/MatchOptions.java b/Mage/src/main/java/mage/game/match/MatchOptions.java
+index 57d3f22..f518fda 100644
+--- a/Mage/src/main/java/mage/game/match/MatchOptions.java
++++ b/Mage/src/main/java/mage/game/match/MatchOptions.java
+@@ -40,6 +40,7 @@ public class MatchOptions implements Serializable {
+     protected String password;
+     protected SkillLevel skillLevel = SkillLevel.CASUAL;
+     protected boolean rollbackTurnsAllowed;
++    protected int undoPrioritySteps = 10; // how many priorities a player can go back (nexus fork: GameOptions.UNDO_PRIORITY_STEPS_DEFAULT)
+     protected boolean spectatorsAllowed;
+     protected boolean planeChase;
+     protected int quitRatio;
+@@ -204,6 +205,18 @@ public class MatchOptions implements Serializable {
+         this.rollbackTurnsAllowed = rollbackTurnsAllowed;
+     }
+ 
++    public int getUndoPrioritySteps() {
++        return undoPrioritySteps;
++    }
++
++    /**
++     * How many priorities in a row a player can go back (Game.undoPriorities), 1 to 50. Each one keeps a
++     * copy of the game for each human player, so the server's memory sets the limit.
++     */
++    public void setUndoPrioritySteps(int undoPrioritySteps) {
++        this.undoPrioritySteps = Math.max(1, Math.min(50, undoPrioritySteps));
++    }
++
+     public boolean isSpectatorsAllowed() {
+         return spectatorsAllowed;
+     }

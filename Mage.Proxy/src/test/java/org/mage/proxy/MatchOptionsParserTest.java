@@ -100,7 +100,8 @@ class MatchOptionsParserTest {
     void undoStepsAreReadAndKeptBetweenOneAndFifty() {
         mage.game.match.MatchOptions options = new mage.game.match.MatchOptions("Table", "Two Player Duel", false);
         MatchOptionsParser.applyMatchOptions(new JsonObject(), options);
-        assertEquals(mage.game.GameOptions.UNDO_PRIORITY_STEPS_DEFAULT, options.getUndoPrioritySteps(), "not sent: the default");
+        // GameOptions.UNDO_PRIORITY_STEPS_DEFAULT, not named: this test also compiles against the XDHS engine (patches/xdhs)
+        assertEquals(10, options.getUndoPrioritySteps(), "not sent: the default");
 
         JsonObject args = new JsonObject();
         args.addProperty("undoPrioritySteps", 25);

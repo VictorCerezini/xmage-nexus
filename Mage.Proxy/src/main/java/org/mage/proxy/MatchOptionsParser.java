@@ -112,8 +112,9 @@ final class MatchOptionsParser {
             options.setRollbackTurnsAllowed(JsonArgs.getBool(args, "rollbackTurnsAllowed", true));
         }
         if (args.has("undoPrioritySteps")) {
-            // how many of their priorities each player can go back (Ctrl+Z), 1..50: each one keeps a copy of the game
-            options.setUndoPrioritySteps(JsonArgs.getInt(args, "undoPrioritySteps", mage.game.GameOptions.UNDO_PRIORITY_STEPS_DEFAULT));
+            // how many of their priorities each player can go back (Ctrl+Z), 1..50: each one keeps a copy of the game.
+            // Only MatchOptions is used: the XDHS flavor gets it from patches/xdhs/0004, and its GameOptions has no undo steps
+            options.setUndoPrioritySteps(JsonArgs.getInt(args, "undoPrioritySteps", options.getUndoPrioritySteps()));
         }
         if (args.has("rated")) {
             options.setRated(JsonArgs.getBool(args, "rated", false));
