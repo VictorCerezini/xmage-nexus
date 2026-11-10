@@ -70,3 +70,57 @@ describe('useGameTransitions timers', () => {
     expect(announceBanner).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('useGameTransitions across a look back or a rollback (KEY-13)', () => {
+  type Props = { g: GameView | null; id: string | null; lookingBack: boolean; epoch: number }
+  const hook = () => renderHook(({ g, id, lookingBack, epoch }: Props) => useGameTransitions(g, id, { lookingBack, epoch }), {
+    initialProps: { g: turn(3), id: 'g1', lookingBack: false, epoch: 0 } as Props,
+  })
+  const turn = (n: number) => game({ turn: n, phase: 'BEGINNING', step: 'UNTAP' })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    clearFlights()
+    clearCardPositionRegistry()
+    vi.mocked(announceBanner).mockClear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('KEY-13: the game going on is animated (the turn banner), as a check of the cases below', () => {
+    const { rerender } = hook()
+    rerender({ g: turn(4), id: 'g1', lookingBack: false, epoch: 0 })
+    vi.advanceTimersByTime(10_000)
+    expect(announceBanner).toHaveBeenCalledTimes(1)
+  })
+
+  it('KEY-13: nothing is animated to a look back, between two of them, or back to the game as it is', () => {
+    const { rerender } = hook()
+    rerender({ g: turn(2), id: 'g1', lookingBack: true, epoch: 0 })
+    rerender({ g: turn(1), id: 'g1', lookingBack: true, epoch: 0 })
+    rerender({ g: turn(2), id: 'g1', lookingBack: true, epoch: 0 })
+    rerender({ g: turn(3), id: 'g1', lookingBack: false, epoch: 0 })
+    vi.advanceTimersByTime(10_000)
+    expect(announceBanner).not.toHaveBeenCalled()
+  })
+
+  it('KEY-13: nothing is animated when the server puts the game back', () => {
+    const { rerender } = hook()
+    rerender({ g: turn(4), id: 'g1', lookingBack: false, epoch: 0 })
+    vi.mocked(announceBanner).mockClear()
+    rerender({ g: turn(2), id: 'g1', lookingBack: false, epoch: 1 })
+    vi.advanceTimersByTime(10_000)
+    expect(announceBanner).not.toHaveBeenCalled()
+  })
+
+  it('KEY-13: after the jump the game is animated again', () => {
+    const { rerender } = hook()
+    rerender({ g: turn(2), id: 'g1', lookingBack: true, epoch: 0 })
+    rerender({ g: turn(2), id: 'g1', lookingBack: false, epoch: 1 })
+    rerender({ g: turn(3), id: 'g1', lookingBack: false, epoch: 1 })
+    vi.advanceTimersByTime(10_000)
+    expect(announceBanner).toHaveBeenCalledTimes(1)
+  })
+})

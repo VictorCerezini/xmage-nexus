@@ -101,6 +101,9 @@ export interface GameSlice {
   rollbackVote: RollbackVote | null
   /** The game some of my priorities back, shown before going back there (Ctrl+Z, KEY-13). */
   undoPreview: UndoPreview | null
+  /** Goes up each time the server put the game back (a rollback): the board then changes by a
+   *  jump, not by plays, so nothing is animated between the two views (KEY-13). */
+  boardEpoch: number
   viewer: CardViewerState | null
   playerMenu: PlayerMenuState | null
   inspectedCard: CardView | PermanentView | null
@@ -140,6 +143,7 @@ export const initialGame: GameSlice = {
   rollbackPendingAt: null,
   rollbackVote: null,
   undoPreview: null,
+  boardEpoch: 0,
   viewer: null,
   playerMenu: null,
   inspectedCard: null,

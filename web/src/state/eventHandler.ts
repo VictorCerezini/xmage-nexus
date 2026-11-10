@@ -143,7 +143,11 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
     // Rollback del servidor: la vista restaurada va hacia atrás en turno/paso pero es
     // la vigente; hay que tirar el estado de UI pre-rollback (prioridad, jugables, combate).
     // El flag se arma con la acción propia (pedir/aceptar) o el anuncio del servidor.
-    const rollbackRestored = positionRegressed && sameGame && !!currentGame && order !== 'older'
+    // Going back some priorities often stays in the same turn and step, so the position doesn't
+    // go back: there the server's announce (kept on the preview as appliedAt) tells it apart.
+    const undoApplied = !!s.undoPreview && s.undoPreview.gameId === s.gameId
+      && s.undoPreview.mode !== 'browse' && !!s.undoPreview.appliedAt
+    const rollbackRestored = (positionRegressed || undoApplied) && sameGame && !!currentGame && order !== 'older'
       && isRollbackPending(s, s.gameId)
     // Un espectador que se une a mitad de partida recibe como GAME_INIT la vista
     // cacheada del arranque (turn 0, sin manos ni battlefield): el servidor siembra
@@ -182,7 +186,7 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
         ...(sameEntries(entered, s.enteredThisTurn) ? null : { enteredThisTurn: entered }),
         // Solo se limpia al consumir el rollback: un accept normal no debe tumbar
         // un flag recién armado (el aviso por chat puede llegar tarde).
-        ...(rollbackRestored ? { rollbackPendingFor: null, rollbackPendingAt: null } : null),
+        ...(rollbackRestored ? { rollbackPendingFor: null, rollbackPendingAt: null, boardEpoch: s.boardEpoch + 1 } : null),
         // La UI apuntaba al estado pre-rollback: diálogo de prioridad, jugables y
         // combate viejos hay que tirarlos para que lleguen los frescos.
         ...(rollbackRestored ? { feedback: null, playableIds: [], playableWindow: null, combat: null } : null),

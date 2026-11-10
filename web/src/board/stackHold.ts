@@ -112,6 +112,20 @@ function resetStackHold() {
   refreshShown()
 }
 
+/**
+ * The board jumped (a look back, a rollback): the spells kept on display have no resolution to
+ * wait for, so the stack shows exactly the stack of the view on screen.
+ */
+export function dropStackHolds() {
+  generation++
+  held.clear()
+  queue.length = 0
+  busy = false
+  shownIds = Object.keys(current)
+  refreshShown()
+  notify()
+}
+
 /** A new game: drops every hold and queued resolution of the previous one. */
 export function clearStackHold() {
   resetStackHold()

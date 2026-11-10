@@ -1,5 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { sniffRollbackAnnounce } from '../state/events/game'
 import * as cmds from '../net/commands'
 import GameScreen, { isUndoPriorityShortcut, undoPriorityShortcut } from './GameScreen'
 import GameMenu from './GameMenu'
@@ -177,6 +180,44 @@ describe('KEY-13 Ctrl+Z looks at the game some of my priorities back', () => {
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
     expect(getState().undoPreview).toBeNull()
     expect(undoCalls()).toHaveLength(0)
+  })
+
+  it('KEY-13: the board is grayed out from Ctrl+Z, before the answer comes, until looking back ends', async () => {
+    render(<GameScreen />)
+    expect(root().dataset.undoPreview).toBeUndefined()
+    await act(async () => { pressZ({ ctrl: true }) })
+    expect(root().dataset.undoPreview).toBe('browse')
+    await act(async () => { answer(1) })
+    expect(root().dataset.undoPreview).toBe('browse')
+    await act(async () => { fireEvent.click(screen.getByTestId('undo-preview-cancel')) })
+    expect(root().dataset.undoPreview).toBeUndefined()
+    // the style that grays it: any look back, not only the vote
+    const css = readFileSync(resolve(__dirname, 'UndoPreviewBar.css'), 'utf8')
+    expect(css).toMatch(/\.game\[data-undo-preview\] \.game-stage \{\s*filter: grayscale\(/)
+  })
+
+  it('KEY-13: going back inside the same step is a restored game: the old playables and attackers are dropped', async () => {
+    bobIsComputer()
+    render(<GameScreen />)
+    await act(async () => { pressZ({ ctrl: true }) })
+    await act(async () => { answer(1, { ...getState().game! }) })
+    await act(async () => { fireEvent.click(screen.getByTestId('undo-preview-confirm')) })
+    await act(async () => {
+      setState({ playableIds: ['old-card'], combat: { mode: 'attack', selectable: ['old'], special: false, chosen: ['old'] } } as never)
+    })
+    const epoch = getState().boardEpoch
+    await act(async () => {
+      sniffRollbackAnnounce('Player request: Alice goes back to their last priority (turn 1, precombat main step)', 'game-1')
+    })
+    expect(getState().undoPreview?.appliedAt).toBeTruthy()
+    await act(async () => {
+      handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: ++messageId, objectId: 'game-1', data: { ...getState().game } } as never)
+    })
+    expect(getState().undoPreview).toBeNull()
+    expect(getState().combat).toBeNull()
+    expect(getState().playableIds).toEqual([])
+    expect(getState().boardEpoch).toBe(epoch + 1)
+    expect(root().dataset.undoPreview).toBeUndefined()
   })
 
   it('KEY-13: against a computer player, Confirm rollback goes back that many priorities at once', async () => {

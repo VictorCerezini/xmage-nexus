@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { CardView, GameView, PlayerView } from '../net/types'
 import { startCardFlight, noteFlightEvent, CAST_FLIGHT_MS, ENTER_FLIGHT_MS, ENTER_LAND_AT, type FlightTrail, type FlightVariant } from './flightManager'
-import { enqueueStackResolve } from './stackHold'
-import { releaseHeldHit } from './damageHold'
+import { dropStackHolds, enqueueStackResolve } from './stackHold'
+import { clearHeldHits, releaseHeldHit } from './damageHold'
 import { getPreviousCardPosition, getPreviousCardSize, clearCardPositionRegistry, type CardSourceSize } from './cardPositionRegistry'
 import { announceBanner, spawnFloater } from './feedbackFx'
 import { t } from '../i18n'
@@ -1630,10 +1630,40 @@ export function detectAndAnimateTransitions(prevGame: GameView, nextGame: GameVi
  * animations; the id is recorded with the view it arrived with, because the store switches it
  * on `START_GAME`, before the new game's first view.
  */
-export function useGameTransitions(game: GameView | null, gameId: string | null) {
+/** Whether the board changes by a jump, not by plays: nothing is animated between the two views. */
+export interface BoardJump {
+  /** the view is a look back at an earlier point (KEY-13), not the game as it is */
+  lookingBack: boolean
+  /** the store's boardEpoch: it moves when the server put the game back (a rollback) */
+  epoch: number
+}
+
+/** Drops what the animations keep between two views, when the next one doesn't follow from the last. */
+function resetTransitionState(): void {
+  cancelPendingTransitions()
+  clearPendingSlams()
+  clearCombatSnapshots()
+  clearBoardWipe()
+  clearControlChanges()
+  clearCommandReturns()
+  clearCreatureShifts()
+  clearHeldHits()
+  dropStackHolds()
+}
+
+/** To or from a look back, between two of them, or across a rollback. */
+function isBoardJump(prev: BoardJump | undefined, lookingBack: boolean, epoch: number): boolean {
+  return lookingBack || (prev?.lookingBack ?? false) || epoch !== (prev?.epoch ?? 0)
+}
+
+export function useGameTransitions(game: GameView | null, gameId: string | null, jump?: BoardJump) {
   const prevGameRef = useRef<GameView | null>(null)
   const prevGameIdRef = useRef<string | null>(null)
+  const prevJumpRef = useRef<BoardJump | undefined>(jump)
+  const lookingBack = jump?.lookingBack ?? false
+  const epoch = jump?.epoch ?? 0
   useMemo(() => {
+    if (isBoardJump(prevJumpRef.current, lookingBack, epoch)) return
     primeCombatHolds(prevGameRef.current, game)
     primeHandReturns(myHandReturns(prevGameRef.current, game))
     primeBoardWipe(prevGameRef.current, game)
@@ -1641,7 +1671,7 @@ export function useGameTransitions(game: GameView | null, gameId: string | null)
     primeCommandReturns(prevGameRef.current, game)
     primeStackEntries(prevGameRef.current, game)
     primeCreatureShifts(prevGameRef.current, game)
-  }, [game])
+  }, [game, lookingBack, epoch])
 
   useEffect(() => {
     if (!game) {
@@ -1658,7 +1688,15 @@ export function useGameTransitions(game: GameView | null, gameId: string | null)
     }
 
     const prevGame = prevGameRef.current
+    const wasJump = isBoardJump(prevJumpRef.current, lookingBack, epoch)
+    prevJumpRef.current = { lookingBack, epoch }
     if (prevGame === game) return
+    if (wasJump && prevGame) {
+      resetTransitionState()
+      prevGameRef.current = game
+      prevGameIdRef.current = gameId
+      return
+    }
     const coinMs = observeCoinFlip(game, gameId)
     if (prevGame) {
       const prevId = prevGameIdRef.current
@@ -1674,5 +1712,5 @@ export function useGameTransitions(game: GameView | null, gameId: string | null)
 
     prevGameRef.current = game
     prevGameIdRef.current = gameId
-  }, [game, gameId])
+  }, [game, gameId, lookingBack, epoch])
 }

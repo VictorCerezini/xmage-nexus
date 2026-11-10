@@ -79,11 +79,16 @@
   display: none;
 }
 
-/* while the others are asked, everyone sees where the game would go back to, grayed out */
-.game--undo-vote .game-stage {
+/* from Ctrl+Z until the game goes back or goes on, the board is grayed out: it shows an earlier
+   point (or is about to), not the game as it is. Also for everyone while the others are asked. */
+.game[data-undo-preview] .game-stage {
   filter: grayscale(0.85) brightness(0.8);
-  pointer-events: none;
   transition: filter 0.2s;
+}
+
+/* while the others are asked nobody can act on that board */
+.game--undo-vote .game-stage {
+  pointer-events: none;
 }
 
 /* another player stopped the game to look back: the notice can take two lines */

@@ -83,6 +83,14 @@ export function displayedGame(raw: GameView): GameView {
   return out
 }
 
+/** The board jumped (a rollback, a look back): no projectile will land for the hits held so far. */
+export function clearHeldHits() {
+  if (held.size === 0) return
+  held.clear()
+  heldVersion++
+  listeners.forEach((fn) => fn())
+}
+
 /** The projectiles aimed at `targetId` have all landed: its hit is shown now. */
 export function releaseHeldHit(targetId: string) {
   const life = held.delete(lifeKey(targetId))

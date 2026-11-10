@@ -165,7 +165,9 @@ export default function GameScreen() {
   const undoVoteBoard = !!previewBoard && undoPreview?.mode === 'vote'
   const game = previewBoard ?? rewindView?.game ?? liveGame
   const settings = useSettings()
-  useGameTransitions(game, gameId)
+  const boardEpoch = useStore((s) => s.boardEpoch)
+  // a look back, and the game put back by a rollback, are jumps: nothing is animated across them
+  useGameTransitions(game, gameId, { lookingBack: previewBoard != null, epoch: boardEpoch })
   const displayGame = useDisplayedGame(game, gameId, rewindView != null || previewBoard != null)
   const feedback = useStore((s) => s.feedback)
   const playableIds = useStore((s) => s.playableIds)
