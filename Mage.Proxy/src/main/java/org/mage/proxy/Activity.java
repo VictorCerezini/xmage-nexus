@@ -30,6 +30,10 @@ public final class Activity {
             "getTableChatId", "sendCardMark", "setBoosterLoaded", "replayNext", "replayPrevious",
             // a report gets its own line from report(), with the reference and the excerpt in it
             "report_issue"));
+    /** What a player answers the game with: too many for the event list, but each gets a log line. */
+    private static final Set<String> ANSWERS = new HashSet<>(Arrays.asList(
+            "sendPlayerAction", "sendPlayerUUID", "sendPlayerBoolean", "sendPlayerInteger",
+            "sendPlayerString", "sendPlayerManaType"));
     private static final Set<String> SAFE_ARGS = new HashSet<>(Arrays.asList(
             "gameType", "tableId", "gameId", "tournamentId", "playerType", "deckName", "format", "host", "port"));
 
@@ -112,6 +116,11 @@ public final class Activity {
                 s.lastActionAt = System.currentTimeMillis();
             }
         }
+        if (ANSWERS.contains(action)) {
+            // stdout only: when a game asks the same question again and again, the log shows what
+            // the client had answered (the questions are there as "event >>" lines)
+            System.out.println("[answer] " + Instant.now() + " " + answerLine(user, action, args));
+        }
         if (QUIET.contains(action)) return;
         StringBuilder d = new StringBuilder("action=").append(action);
         if (args != null) {
@@ -122,6 +131,48 @@ public final class Activity {
             }
         }
         emit("action", user, ip, d.toString());
+    }
+
+    /**
+     * One answer to the game, for the log: who, which game (its first 8 characters), the command and
+     * its value. A typed text is never written, only its length; an action's data only when it is a
+     * number, a boolean or an id.
+     */
+    static String answerLine(String user, String action, JsonObject args) {
+        StringBuilder d = new StringBuilder("user=").append(user);
+        String gameId = primitive(args, "gameId");
+        if (gameId != null) d.append(" game=").append(gameId.length() > 8 ? gameId.substring(0, 8) : gameId);
+        d.append(' ').append(action);
+        switch (action) {
+            case "sendPlayerAction": {
+                d.append(" action=").append(safeToken(primitive(args, "action")));
+                String data = primitive(args, "data");
+                if (data != null && data.matches("-?\\d{1,9}|true|false|[0-9a-fA-F-]{36}")) d.append(" data=").append(data);
+                break;
+            }
+            case "sendPlayerString": {
+                String value = primitive(args, "value");
+                d.append(" length=").append(value == null ? 0 : value.length());
+                break;
+            }
+            case "sendPlayerManaType":
+                d.append(" manaType=").append(safeToken(primitive(args, "manaType")));
+                break;
+            default:
+                d.append(" value=").append(safeToken(primitive(args, "value")));
+        }
+        return d.toString();
+    }
+
+    private static String primitive(JsonObject args, String key) {
+        if (args == null || !args.has(key) || !args.get(key).isJsonPrimitive()) return null;
+        return args.get(key).getAsString();
+    }
+
+    /** An id, a number, a boolean or an enum name as it is; anything else is not written. */
+    private static String safeToken(String value) {
+        if (value == null) return "none";
+        return value.matches("[A-Za-z0-9_-]{1,40}") ? value : "?";
     }
 
     static void game(String event, String user, String detail) {
