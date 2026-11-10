@@ -171,6 +171,10 @@ public abstract class GameImpl implements Game {
     protected transient int undoTargetSteps; // how many priorities back undoTarget is
     protected transient UUID undoRequestedBy;
     protected transient UUID undoStopPlayerId; // asked again after going back, whatever their skip settings
+    // see holdForUndo: not copied, simulations never wait
+    protected final transient Object undoHoldLock = new Object();
+    protected transient volatile UUID undoHolder;
+    protected transient volatile boolean undoHoldWaiting; // the game thread waits before a priority for undoHolder
 
     protected Date startTime;
     protected Date endTime;
@@ -1709,6 +1713,7 @@ public abstract class GameImpl implements Game {
             logger.debug("END of gameId: " + this.getId());
             endTime = new Date();
             state.endGame();
+            endUndoHold();
 
             // cancel all player dialogs/feedbacks
             for (Player player : state.getPlayers().values()) {
@@ -1946,6 +1951,13 @@ public abstract class GameImpl implements Game {
                                 saveState(false);
                                 if (isPaused() || checkIfGameIsOver()) {
                                     return;
+                                }
+                                if (!simulation && undoHolder != null) {
+                                    // someone looks back at their priorities: nobody gets one meanwhile
+                                    waitWhileUndoHold();
+                                    if (executingRollback() || isPaused() || checkIfGameIsOver()) {
+                                        return;
+                                    }
                                 }
                                 // resetPassed should be called if player performs any action
                                 boolean acted;
@@ -4298,6 +4310,7 @@ public abstract class GameImpl implements Game {
                 }
             }
         }
+        endUndoHold();
         executingRollback = false;
     }
 
@@ -4451,6 +4464,7 @@ public abstract class GameImpl implements Game {
         undoTargetSteps = steps;
         undoRequestedBy = playerId;
         executingRollback = true;
+        wakeUndoHold();
         // same as a turn rollback: every human stops what they're doing and their passes are forgotten
         for (Player playerObject : getPlayers().values()) {
             if (playerObject.isHuman() && playerObject.canRespond()) {
@@ -4479,6 +4493,7 @@ public abstract class GameImpl implements Game {
         undoTarget = null;
         undoTargetSteps = 0;
         undoRequestedBy = null;
+        endUndoHold();
         if (target == null) {
             executingRollback = false;
             return false;
@@ -4518,6 +4533,122 @@ public abstract class GameImpl implements Game {
     }
 
     @Override
+    public synchronized boolean holdForUndo(UUID playerId) {
+        if (simulation || !gameOptions.rollbackTurnsAllowed || executingRollback || hasEnded() || playerId == null) {
+            return false;
+        }
+        Player player = getPlayer(playerId);
+        if (player == null || !player.isInGame() || !(player.isHuman() || player.isTestMode())) {
+            return false;
+        }
+        synchronized (undoHoldLock) {
+            if (undoHolder != null && !undoHolder.equals(playerId)) {
+                return false;
+            }
+            undoHolder = playerId;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean releaseUndoHold(UUID playerId) {
+        synchronized (undoHoldLock) {
+            if (undoHolder == null || (playerId != null && !playerId.equals(undoHolder))) {
+                return false;
+            }
+            undoHolder = null;
+            undoHoldLock.notifyAll();
+            return undoHoldWaiting;
+        }
+    }
+
+    @Override
+    public UUID getUndoHolder() {
+        return undoHolder;
+    }
+
+    @Override
+    public boolean isUndoHoldReady() {
+        if (undoHolder == null || executingRollback) {
+            return false;
+        }
+        if (undoHoldWaiting) {
+            return true;
+        }
+        for (Player player : state.getPlayers().values()) {
+            if (player.isWaitingForAnswer()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The game thread waits here, before a priority, while a player looks back (holdForUndo). When
+     * the game goes on without going back, everyone gets the game again (it no longer shows the hold).
+     */
+    private void waitWhileUndoHold() {
+        boolean released = false;
+        synchronized (undoHoldLock) {
+            undoHoldWaiting = true;
+        }
+        try {
+            while (true) {
+                UUID holder = undoHolder;
+                if (holder == null) {
+                    released = true;
+                    break;
+                }
+                if (executingRollback || isPaused() || checkIfGameIsOver() || Thread.currentThread().isInterrupted()) {
+                    break;
+                }
+                Player holderPlayer = getPlayer(holder);
+                if (holderPlayer == null || !holderPlayer.isInGame()) {
+                    // they left meanwhile
+                    synchronized (undoHoldLock) {
+                        if (holder.equals(undoHolder)) {
+                            undoHolder = null;
+                        }
+                    }
+                    continue;
+                }
+                synchronized (undoHoldLock) {
+                    if (undoHolder != null && !executingRollback) {
+                        try {
+                            undoHoldLock.wait(250);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+            }
+        } finally {
+            synchronized (undoHoldLock) {
+                undoHoldWaiting = false;
+            }
+        }
+        if (released && !executingRollback) {
+            fireUpdatePlayersEvent();
+        }
+    }
+
+    private void wakeUndoHold() {
+        synchronized (undoHoldLock) {
+            undoHoldLock.notifyAll();
+        }
+    }
+
+    /**
+     * The game went back or ended: nobody holds it any more.
+     */
+    private void endUndoHold() {
+        synchronized (undoHoldLock) {
+            undoHolder = null;
+            undoHoldLock.notifyAll();
+        }
+    }
+
+    @Override
     public synchronized boolean useUndoStop(UUID playerId) {
         if (playerId != null && playerId.equals(undoStopPlayerId)) {
             undoStopPlayerId = null;
@@ -4537,6 +4668,7 @@ public abstract class GameImpl implements Game {
                 executingRollback = true;
                 turnToGoToForRollback = turnToGoTo;
                 undoStopPlayerId = null;
+                wakeUndoHold();
                 for (Player playerObject : getPlayers().values()) {
                     if (playerObject.isHuman() && playerObject.canRespond()) {
                         playerObject.resetStoredBookmark(this);

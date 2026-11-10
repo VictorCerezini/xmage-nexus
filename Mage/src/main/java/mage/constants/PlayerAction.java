@@ -26,6 +26,8 @@ public enum PlayerAction {
     UNDO,
     UNDO_LAST_PRIORITY, // go back to the player's last priority, or data (Integer) priorities back (Game.undoPriorities)
     UNDO_PREVIEW, // show the player the game data (Integer) of their priorities back, without going back
+    UNDO_HOLD, // look back while the game isn't waiting on the player: it stops at the next priority, then UNDO_PREVIEW 1 comes (Game.holdForUndo)
+    UNDO_HOLD_RELEASE, // done looking back without going back: the game goes on
     CONCEDE,
     MANA_AUTO_PAYMENT_ON,
     MANA_AUTO_PAYMENT_OFF,

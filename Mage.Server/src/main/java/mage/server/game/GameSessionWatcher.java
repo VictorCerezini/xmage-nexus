@@ -156,6 +156,8 @@ public class GameSessionWatcher {
         // so recalculate game view by game thread only to protect from ConcurrentModificationException
         // warning, don't forget to sync logci with GameSessionWatcher and GameSessionPlayer
         if (this.lastGameView != null && !ThreadUtils.isRunGameThread()) {
+            // the game may have been stopped or let go on since, which is done from other threads
+            this.lastGameView.refreshUndoHeldBy(game, null);
             return this.lastGameView;
         }
 

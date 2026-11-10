@@ -740,6 +740,34 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
     boolean undoPriorities(UUID playerId, int steps);
 
     /**
+     * A player looks back at their priorities while the game isn't waiting on them: the game stops
+     * before the next priority of anyone (the player included) until releaseUndoHold, or until it
+     * goes back (undoPriorities, rollbackTurns). A question that is open meanwhile stays open.
+     *
+     * @return false if they can't (going back isn't allowed, someone else holds it, game over)
+     */
+    boolean holdForUndo(UUID playerId);
+
+    /**
+     * The game goes on after holdForUndo (null: whoever holds it).
+     *
+     * @return true if the game was stopped before a priority (it sends the game to everyone when it
+     * goes on), false if it was waiting on a question or still running
+     */
+    boolean releaseUndoHold(UUID playerId);
+
+    /**
+     * @return the player who stopped the game to look back (holdForUndo), or null
+     */
+    UUID getUndoHolder();
+
+    /**
+     * @return true while the game is held and stopped: before a priority, or waiting on a question
+     * to a human. The game can be read safely then, as when it waits on a player.
+     */
+    boolean isUndoHoldReady();
+
+    /**
      * After going back to a priority, the player gets it even if their skip settings would pass it.
      *
      * @return true once, for the player who went back

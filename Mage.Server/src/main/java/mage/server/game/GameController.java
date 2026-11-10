@@ -95,6 +95,34 @@ public class GameController implements GameCallback {
     private boolean undoRequested; // the open request is to go back some priorities, not a turn rollback
     private int undoStepsRequested; // how many priorities back the open undo request goes
 
+    private static final int UNDO_HOLD_TIMEOUT_SECS = 60; // looking back longer than that, the game goes on (not while the vote is open)
+    private static final long UNDO_HOLD_READY_CHECK_MS = 100;
+
+    /**
+     * A player looks back at their priorities while the game isn't waiting on them (UNDO_HOLD): the
+     * game stops before the next priority (Game.holdForUndo), the clocks stop, and what the others send
+     * meanwhile is done when the game goes on (or dropped if it goes back).
+     */
+    private static final class UndoHold {
+        final UUID userId;
+        final UUID playerId;
+        int steps = 1; // how far back to show once the game is stopped (the last UNDO_PREVIEW asked)
+        boolean shown; // the game is stopped and the holder got it as it was back there
+        final List<Runnable> deferred = new ArrayList<>();
+        final Set<UUID> pausedTimers = new HashSet<>(); // clocks that run again when the game goes on
+        UUID idlePlayerId; // the idle timeout that starts again when the game goes on
+        ScheduledFuture<?> readyCheck;
+        ScheduledFuture<?> timeout;
+
+        UndoHold(UUID userId, UUID playerId) {
+            this.userId = userId;
+            this.playerId = playerId;
+        }
+    }
+
+    private final Object undoHoldLock = new Object();
+    private UndoHold undoHold; // guarded by undoHoldLock
+
     public GameController(ManagerFactory managerFactory, Game game, ConcurrentMap<UUID, UUID> userPlayerMap, UUID tableId, UUID choosingPlayerId, GameOptions gameOptions) {
         this.managerFactory = managerFactory;
         this.gameExecutor = managerFactory.threadExecutor().getGameExecutor();
@@ -113,6 +141,9 @@ public class GameController implements GameCallback {
     }
 
     public void cleanUp() {
+        synchronized (undoHoldLock) {
+            takeUndoHold(null);
+        }
         stopResponseIdleTimeout();
         for (PriorityTimer priorityTimer : timers.values()) {
             priorityTimer.cancel();
@@ -172,7 +203,9 @@ public class GameController implements GameCallback {
 
                                 player.setBufferTimeLeft(game.getBufferTime());
                                 timer.setBufferCount(game.getBufferTime());
-                                timer.resume();
+                                if (!keepClockStoppedForUndoHold(playerId)) {
+                                    timer.resume();
+                                }
                                 break;
                             case PAUSE_TIMER:
                                 playerId = event.getPlayerId();
@@ -184,6 +217,11 @@ public class GameController implements GameCallback {
                                     throw new MageException("PAUSE_TIMER: couldn't find timer for player: " + playerId);
                                 }
                                 timer.pause();
+                                synchronized (undoHoldLock) {
+                                    if (undoHold != null) {
+                                        undoHold.pausedTimers.remove(playerId);
+                                    }
+                                }
                                 break;
                         }
                     } catch (MageException e) {
@@ -563,11 +601,29 @@ public class GameController implements GameCallback {
         //SystemUtil.ensureRunInGameThread();
         switch (playerAction) {
             case UNDO:
+                if (deferForUndoHold(userId, () -> sendPlayerAction(playerAction, userId, data))) {
+                    break;
+                }
                 game.undo(getPlayerId(userId));
                 break;
             case UNDO_PREVIEW: // show the player the game some of their priorities back, nothing changes
                 sendUndoPreview(userId, data instanceof Integer ? (Integer) data : 1);
                 break;
+            case UNDO_HOLD: // look back while the game isn't waiting on the player: it stops at the next priority
+                startUndoHold(userId);
+                break;
+            case UNDO_HOLD_RELEASE: { // done looking back without going back
+                UndoHold hold;
+                synchronized (undoHoldLock) {
+                    // while their vote is open, its answer lets the game go on
+                    boolean voting = undoRequested && userId.equals(userRequestingRollback);
+                    hold = voting ? null : takeUndoHold(userId);
+                }
+                if (hold != null) {
+                    goOnAfterUndoHold(hold);
+                }
+                break;
+            }
             case UNDO_LAST_PRIORITY: // go back some of the player's priorities (data, 1 if none), the other humans must agree
             {
                 UUID playerId = getPlayerId(userId);
@@ -576,10 +632,20 @@ public class GameController implements GameCallback {
                     break;
                 }
                 int available = game.countUndoPriorities(playerId);
+                String otherHolder = undoHolderNameOtherThan(userId);
                 if (!game.getOptions().rollbackTurnsAllowed) {
                     game.informPlayer(player, "Going back isn't allowed in this game.");
+                } else if (otherHolder != null) {
+                    game.informPlayer(player, otherHolder + " is looking back at their priorities, wait until they're done.");
                 } else if (available == 0) {
                     game.informPlayer(player, "There's no earlier priority to go back to.");
+                    UndoHold hold;
+                    synchronized (undoHoldLock) {
+                        hold = takeUndoHold(userId);
+                    }
+                    if (hold != null) {
+                        goOnAfterUndoHold(hold);
+                    }
                 } else {
                     int steps = Math.max(1, Math.min(available, data instanceof Integer ? (Integer) data : 1));
                     // like a rollback request, a new request replaces any open one
@@ -593,7 +659,13 @@ public class GameController implements GameCallback {
                         undoRequested = false;
                         undoStepsRequested = 0;
                         requestsOpen = -1;
-                        game.undoPriorities(playerId, steps);
+                        UndoHold hold;
+                        synchronized (undoHoldLock) {
+                            hold = takeUndoHold(userId);
+                        }
+                        if (!game.undoPriorities(playerId, steps) && hold != null) {
+                            goOnAfterUndoHold(hold);
+                        }
                     } else {
                         // set before asking, so an answer that comes back at once is counted
                         userRequestingRollback = userId;
@@ -601,8 +673,16 @@ public class GameController implements GameCallback {
                         undoStepsRequested = steps;
                         requestsOpen = voters.size();
                         String where = undoTargetText(playerId, steps);
-                        // while the game waits on the requester, everyone sees where the game would go back to
+                        // while the game waits on the requester (or is stopped for them), everyone sees where the game would go back to
                         boolean showPreview = player.isWaitingForAnswer();
+                        synchronized (undoHoldLock) {
+                            if (undoHold != null && undoHold.userId.equals(userId)) {
+                                // the vote can take a while, its answer lets the game go on
+                                cancelFuture(undoHold.timeout);
+                                undoHold.timeout = null;
+                                showPreview = showPreview || undoHold.shown;
+                            }
+                        }
                         GameSessionPlayer requesterSession = gameSessions.get(playerId);
                         if (showPreview && requesterSession != null) {
                             requesterSession.undoPreview(buildUndoPreview(playerId, playerId, steps, available, true, player.getName()));
@@ -619,6 +699,14 @@ public class GameController implements GameCallback {
             }
             case ROLLBACK_TURNS: // basic request of a player to rollback
                 if (data instanceof Integer) {
+                    String holderName = undoHolderNameOtherThan(null);
+                    if (holderName != null) {
+                        Player player = game.getPlayer(getPlayerId(userId));
+                        if (player != null) {
+                            game.informPlayer(player, holderName + " is looking back at their priorities, wait until they're done.");
+                        }
+                        break;
+                    }
                     turnsToRollback = (Integer) data;
                     if (game.canRollbackTurns(turnsToRollback)) {
                         UUID playerId = getPlayerId(userId);
@@ -660,6 +748,7 @@ public class GameController implements GameCallback {
                     requestsOpen--;
                     if (requestsOpen == 0) {
                         boolean wasUndo = undoRequested;
+                        UUID requesterUserId = userRequestingRollback;
                         UUID requesterPlayerId = getPlayerId(userRequestingRollback);
                         int steps = undoStepsRequested;
                         int turns = turnsToRollback;
@@ -669,10 +758,17 @@ public class GameController implements GameCallback {
                         undoRequested = false;
                         undoStepsRequested = 0;
                         if (wasUndo) {
+                            UndoHold hold;
+                            synchronized (undoHoldLock) {
+                                hold = takeUndoHold(requesterUserId);
+                            }
                             // the previews end by themselves: the players get the game as it was with the log line saying so
                             if (requesterPlayerId == null || !game.undoPriorities(requesterPlayerId, steps)) {
                                 endUndoPreviews();
                                 game.informPlayers("Can't go back: there's no earlier priority to go back to.");
+                                if (hold != null) {
+                                    goOnAfterUndoHold(hold);
+                                }
                             }
                         } else {
                             game.rollbackTurns(turns);
@@ -690,6 +786,7 @@ public class GameController implements GameCallback {
                         // the requester can take back an undo request (nobody answers it, or they changed their mind)
                         if (!withdrawn || undoRequested) {
                             boolean wasUndo = undoRequested;
+                            UUID requesterUserId = userRequestingRollback;
                             turnsToRollback = -1;
                             userRequestingRollback = null;
                             requestsOpen = -1;
@@ -700,6 +797,15 @@ public class GameController implements GameCallback {
                             }
                             game.informPlayers((wasUndo ? "Undo request " : "Rollback request ")
                                     + (withdrawn ? "withdrawn by " : "denied by ") + player.getLogName());
+                            if (wasUndo) {
+                                UndoHold hold;
+                                synchronized (undoHoldLock) {
+                                    hold = takeUndoHold(requesterUserId);
+                                }
+                                if (hold != null) {
+                                    goOnAfterUndoHold(hold);
+                                }
+                            }
                         }
                     }
                 }
@@ -709,6 +815,13 @@ public class GameController implements GameCallback {
                 UUID playerId = getPlayerId(userId);
                 if (playerId != null) {
                     Player player = game.getPlayer(playerId);
+                    UndoHold hold;
+                    synchronized (undoHoldLock) {
+                        hold = takeUndoHold(userId);
+                    }
+                    if (hold != null) {
+                        goOnAfterUndoHold(hold);
+                    }
                     if (player != null) {
                         player.markGaveUp();
                         game.informPlayers(player.getLogName() + " wants to concede");
@@ -774,7 +887,254 @@ public class GameController implements GameCallback {
                 }
                 break;
             default:
+                if (deferForUndoHold(userId, () -> sendPlayerAction(playerAction, userId, data))) {
+                    break;
+                }
                 game.sendPlayerAction(playerAction, getPlayerId(userId), data);
+        }
+    }
+
+    /**
+     * UNDO_HOLD: the player looks back at their priorities. If the game waits on them it's the usual
+     * preview; otherwise the game stops before the next priority, and once it's stopped everyone gets
+     * the game (saying who stopped it) and the player the game one priority back (or as far as they
+     * asked meanwhile with UNDO_PREVIEW).
+     */
+    private void startUndoHold(UUID userId) {
+        UUID playerId = getPlayerId(userId);
+        Player player = playerId == null ? null : game.getPlayer(playerId);
+        GameSessionPlayer session = playerId == null ? null : gameSessions.get(playerId);
+        if (player == null || session == null) {
+            return;
+        }
+        // the game is only called outside undoHoldLock (its own locks are taken by the game thread too)
+        String otherHolder = undoHolderNameOtherThan(userId);
+        int available = game.countUndoPriorities(playerId);
+        boolean waitsOnThem = player.isWaitingForAnswer();
+        String refused = null;
+        boolean plainPreview = false;
+        UndoHold hold = null;
+        synchronized (undoHoldLock) {
+            if (undoHold != null && undoHold.userId.equals(userId)) {
+                plainPreview = true; // asked again
+            } else if (!game.getOptions().rollbackTurnsAllowed) {
+                refused = "Going back isn't allowed in this game.";
+            } else if (undoHold != null || otherHolder != null) {
+                refused = (otherHolder == null ? "Another player" : otherHolder) + " is looking back at their priorities, wait until they're done.";
+            } else if (userRequestingRollback != null && requestsOpen > 0) {
+                refused = "A rollback request is open, wait until it's answered.";
+            } else if (available == 0) {
+                refused = "There's no earlier priority to go back to.";
+            } else if (waitsOnThem) {
+                plainPreview = true; // the game waits on them already
+            } else {
+                hold = new UndoHold(userId, playerId);
+                undoHold = hold; // taken, so nobody else holds it meanwhile
+            }
+        }
+        if (hold != null) {
+            if (!game.holdForUndo(playerId)) {
+                synchronized (undoHoldLock) {
+                    if (undoHold == hold) {
+                        undoHold = null;
+                    }
+                }
+                refused = "You can't look back right now.";
+            } else {
+                synchronized (undoHoldLock) {
+                    if (undoHold != hold) {
+                        // ended meanwhile (they conceded)
+                        hold = null;
+                    } else {
+                        // the clocks don't run while the game is stopped
+                        for (Entry<UUID, PriorityTimer> entry : timers.entrySet()) {
+                            if (entry.getValue().isRunning()) {
+                                entry.getValue().pause();
+                                hold.pausedTimers.add(entry.getKey());
+                            }
+                        }
+                        // nor does the idle timeout of whoever the game waits on
+                        if (responseIdleTimeoutFuture != null && !responseIdleTimeoutFuture.isDone()) {
+                            hold.idlePlayerId = responseIdleTimeoutPlayerId;
+                        }
+                        final UndoHold started = hold;
+                        started.readyCheck = responseIdleTimeoutExecutor.scheduleWithFixedDelay(
+                                () -> checkUndoHoldReady(started), UNDO_HOLD_READY_CHECK_MS, UNDO_HOLD_READY_CHECK_MS, TimeUnit.MILLISECONDS);
+                        started.timeout = responseIdleTimeoutExecutor.schedule(
+                                () -> undoHoldTimedOut(started), UNDO_HOLD_TIMEOUT_SECS, TimeUnit.SECONDS);
+                    }
+                }
+                if (hold == null) {
+                    game.releaseUndoHold(playerId);
+                } else {
+                    cancelResponseIdleTimeout();
+                }
+            }
+        }
+        if (refused != null) {
+            game.informPlayer(player, refused);
+            session.undoPreview(new GameUndoPreviewView(null, 0, game.countUndoPriorities(playerId), false, player.getName()));
+        } else if (plainPreview) {
+            sendUndoPreview(userId, 1);
+        }
+    }
+
+    /**
+     * Runs every UNDO_HOLD_READY_CHECK_MS until the held game is stopped.
+     */
+    private void checkUndoHoldReady(UndoHold hold) {
+        try {
+            int steps;
+            synchronized (undoHoldLock) {
+                if (undoHold != hold || hold.shown) {
+                    cancelFuture(hold.readyCheck);
+                    return;
+                }
+            }
+            if (!game.isUndoHoldReady()) {
+                return;
+            }
+            synchronized (undoHoldLock) {
+                if (undoHold != hold || hold.shown) {
+                    return;
+                }
+                hold.shown = true;
+                cancelFuture(hold.readyCheck);
+                steps = hold.steps;
+            }
+            // the game is stopped, so it can be read: the others see who stopped it
+            updateGame();
+            if (!(undoRequested && hold.userId.equals(userRequestingRollback))) {
+                sendUndoPreview(hold.userId, steps);
+            }
+        } catch (Throwable e) {
+            logger.error("Undo hold check failed, game " + game.getId() + ": " + e, e);
+        }
+    }
+
+    private void undoHoldTimedOut(UndoHold hold) {
+        try {
+            synchronized (undoHoldLock) {
+                if (undoHold != hold) {
+                    return;
+                }
+                takeUndoHold(hold.userId);
+            }
+            Player player = game.getPlayer(hold.playerId);
+            GameSessionPlayer session = gameSessions.get(hold.playerId);
+            if (session != null) {
+                session.undoPreview(new GameUndoPreviewView(null, 0, 0, false, player == null ? "" : player.getName()));
+            }
+            if (player != null) {
+                game.informPlayer(player, "The game went on: looking back is limited to " + UNDO_HOLD_TIMEOUT_SECS + " seconds while it isn't waiting on you.");
+            }
+            goOnAfterUndoHold(hold);
+        } catch (Throwable e) {
+            logger.error("Undo hold timeout failed, game " + game.getId() + ": " + e, e);
+        }
+    }
+
+    /**
+     * Ends the hold of that user (null: anyone's) on the controller's side, call it with undoHoldLock
+     * held. The game itself is still stopped: goOnAfterUndoHold lets it go on, going back does too.
+     *
+     * @return the hold that ended, or null
+     */
+    private UndoHold takeUndoHold(UUID userId) {
+        UndoHold hold = undoHold;
+        if (hold == null || (userId != null && !userId.equals(hold.userId))) {
+            return null;
+        }
+        undoHold = null;
+        cancelFuture(hold.readyCheck);
+        cancelFuture(hold.timeout);
+        return hold;
+    }
+
+    /**
+     * The game goes on from where it was stopped: the clocks run again, everyone gets the game, and
+     * what the others sent meanwhile is done in order.
+     */
+    private void goOnAfterUndoHold(UndoHold hold) {
+        boolean gameSendsItself = game.releaseUndoHold(hold.playerId);
+        for (UUID timerPlayerId : hold.pausedTimers) {
+            PriorityTimer timer = timers.get(timerPlayerId);
+            if (timer != null && !timer.isRunning()) {
+                timer.resume();
+            }
+        }
+        if (!gameSendsItself && game.getState().getPlayers().values().stream().anyMatch(Player::isWaitingForAnswer)) {
+            // still waiting on a question: nothing else would tell the others the game went on
+            updateGame();
+        }
+        if (hold.idlePlayerId != null) {
+            startResponseIdleTimeout(hold.idlePlayerId);
+        }
+        if (!hold.deferred.isEmpty()) {
+            // an answer can wait for its question (see HumanPlayer.waitResponseOpen), so not in this thread
+            List<Runnable> deferred = new ArrayList<>(hold.deferred);
+            Thread thread = new Thread(() -> {
+                for (Runnable action : deferred) {
+                    try {
+                        action.run();
+                    } catch (Throwable e) {
+                        logger.error("Can't do a deferred action after looking back, game " + game.getId() + ": " + e, e);
+                    }
+                }
+            }, "UNDO HOLD " + game.getId());
+            thread.setDaemon(true);
+            thread.start();
+        }
+    }
+
+    /**
+     * While another player looks back (UNDO_HOLD), what this user sends waits until the game goes on.
+     *
+     * @return true if it was kept for later
+     */
+    private boolean deferForUndoHold(UUID userId, Runnable action) {
+        synchronized (undoHoldLock) {
+            if (undoHold == null || undoHold.userId.equals(userId)) {
+                return false;
+            }
+            undoHold.deferred.add(action);
+            return true;
+        }
+    }
+
+    /**
+     * A RESUME_TIMER while the game is held: that clock runs when the game goes on.
+     *
+     * @return true if it must stay stopped now
+     */
+    private boolean keepClockStoppedForUndoHold(UUID playerId) {
+        synchronized (undoHoldLock) {
+            if (undoHold == null) {
+                return false;
+            }
+            undoHold.pausedTimers.add(playerId);
+            return true;
+        }
+    }
+
+    /**
+     * @return the name of the player looking back (UNDO_HOLD) if it isn't that user, or null
+     */
+    private String undoHolderNameOtherThan(UUID userId) {
+        UUID holderPlayerId;
+        synchronized (undoHoldLock) {
+            if (undoHold == null || undoHold.userId.equals(userId)) {
+                return null;
+            }
+            holderPlayerId = undoHold.playerId;
+        }
+        Player holder = game.getPlayer(holderPlayerId);
+        return holder == null ? "Another player" : holder.getName();
+    }
+
+    private static void cancelFuture(Future<?> future) {
+        if (future != null) {
+            future.cancel(false);
         }
     }
 
@@ -800,8 +1160,8 @@ public class GameController implements GameCallback {
 
     /**
      * Shows a player the game some of their priorities back, only to them. Only while the game waits
-     * on them: the game thread is parked then, so the old state can be read safely. If it can't be
-     * shown they get no game, so they're back to the game as it is.
+     * on them, or is stopped for them (UNDO_HOLD): the game thread is parked then, so the old state
+     * can be read safely. If it can't be shown they get no game, so they're back to the game as it is.
      */
     private void sendUndoPreview(UUID userId, int steps) {
         UUID playerId = getPlayerId(userId);
@@ -810,8 +1170,24 @@ public class GameController implements GameCallback {
         if (player == null || session == null) {
             return;
         }
+        boolean stoppedForThem = false;
+        boolean someoneElseHolds = false;
+        synchronized (undoHoldLock) {
+            if (undoHold != null) {
+                if (!undoHold.userId.equals(userId)) {
+                    someoneElseHolds = true;
+                } else if (!undoHold.shown) {
+                    // the game isn't stopped yet: shown once it is
+                    undoHold.steps = Math.max(1, steps);
+                    return;
+                } else {
+                    stoppedForThem = true;
+                }
+            }
+        }
         int available = game.countUndoPriorities(playerId);
-        if (available == 0 || !player.isWaitingForAnswer() || (undoRequested && userId.equals(userRequestingRollback))) {
+        if (available == 0 || someoneElseHolds || !(stoppedForThem || player.isWaitingForAnswer())
+                || (undoRequested && userId.equals(userRequestingRollback))) {
             session.undoPreview(new GameUndoPreviewView(null, 0, available, false, player.getName()));
             return;
         }
@@ -1368,6 +1744,10 @@ public class GameController implements GameCallback {
      * @param command
      */
     private void sendMessage(UUID userId, Command command) {
+        if (deferForUndoHold(userId, () -> sendMessage(userId, command))) {
+            // another player looks back: answered when the game goes on
+            return;
+        }
         final UUID playerId = userPlayerMap.get(userId);
         // player has game under control (is not cotrolled by other player)
         Player player = game.getPlayer(playerId);
@@ -1402,6 +1782,13 @@ public class GameController implements GameCallback {
             return;
         }
         stopResponseIdleTimeout();
+        synchronized (undoHoldLock) {
+            if (undoHold != null) {
+                // the game is stopped for another player: it starts when the game goes on
+                undoHold.idlePlayerId = playerId;
+                return;
+            }
+        }
         responseIdleTimeoutPlayerId = playerId;
         responseIdleTimeoutFuture = responseIdleTimeoutExecutor.schedule(
                 () -> onResponseIdleTimeout(playerId),
@@ -1415,6 +1802,15 @@ public class GameController implements GameCallback {
     }
 
     private void stopResponseIdleTimeout() {
+        cancelResponseIdleTimeout();
+        synchronized (undoHoldLock) {
+            if (undoHold != null) {
+                undoHold.idlePlayerId = null; // answered
+            }
+        }
+    }
+
+    private void cancelResponseIdleTimeout() {
         logger.debug("cancelTimeout");
         if (responseIdleTimeoutFuture != null) {
             synchronized (responseIdleTimeoutFuture) {

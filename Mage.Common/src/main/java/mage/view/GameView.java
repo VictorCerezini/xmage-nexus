@@ -74,6 +74,9 @@ public class GameView implements Serializable {
     private final boolean canUndoPriority;
     // how many priorities that player can go back right now (see Game.undoPriorities)
     private final int undoPriorityCount;
+    // another player who stopped the game to look back at their priorities (see Game.holdForUndo), or null;
+    // not final: a cached view sent again is refreshed (see refreshUndoHeldBy)
+    private volatile String undoHeldBy;
 
     // Server-side game event log sequence counter — flows from Game to clients for cross-referencing
     private int gameSeq;
@@ -241,6 +244,7 @@ public class GameView implements Serializable {
         this.rollbackTurnsAllowed = game.getOptions().rollbackTurnsAllowed;
         this.undoPriorityCount = createdForPlayerId == null ? 0 : game.countUndoPriorities(createdForPlayerId);
         this.canUndoPriority = undoPriorityCount > 0;
+        this.undoHeldBy = undoHeldByFor(game, createdForPlayerId);
         this.gameSeq = game.getGameSeq();
         this.totalErrorsCount = game.getTotalErrorsCount();
         this.totalEffectsCount = game.getTotalEffectsCount();
@@ -566,6 +570,25 @@ public class GameView implements Serializable {
 
     public int getUndoPriorityCount() {
         return undoPriorityCount;
+    }
+
+    public String getUndoHeldBy() {
+        return undoHeldBy;
+    }
+
+    /**
+     * The server sends a view built earlier again when it's asked from another thread than the game's
+     * (see GameSessionPlayer.getGameView), and the game is stopped and let go on from other threads
+     * (Game.holdForUndo): this keeps that view telling who stopped it.
+     */
+    public void refreshUndoHeldBy(Game game, UUID createdForPlayerId) {
+        this.undoHeldBy = undoHeldByFor(game, createdForPlayerId);
+    }
+
+    private static String undoHeldByFor(Game game, UUID createdForPlayerId) {
+        UUID undoHolderId = game.getUndoHolder();
+        Player undoHolder = undoHolderId == null || undoHolderId.equals(createdForPlayerId) ? null : game.getPlayer(undoHolderId);
+        return undoHolder == null ? null : undoHolder.getName();
     }
 
     public String toJson() {

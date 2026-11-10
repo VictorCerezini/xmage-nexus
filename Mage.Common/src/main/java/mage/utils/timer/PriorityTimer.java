@@ -79,6 +79,10 @@ public class PriorityTimer extends TimerTask {
         state = States.RUNNING;
     }
 
+    public boolean isRunning() {
+        return state == States.RUNNING;
+    }
+
     public int getCount() {
         return count;
     }
