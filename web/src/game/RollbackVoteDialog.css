@@ -32,6 +32,19 @@
   }
 }
 
+/* "Now: turn 5 · Combat damage" over "Back to: turn 4 · Precombat Main", then the message */
+.rollback-vote-points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.rollback-vote-now {
+  color: var(--fg-2);
+}
+
 .rollback-vote-where {
   font-weight: 600;
 }

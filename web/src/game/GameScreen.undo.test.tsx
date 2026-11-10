@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as cmds from '../net/commands'
 import GameScreen, { isUndoPriorityShortcut, undoPriorityShortcut } from './GameScreen'
@@ -108,6 +108,10 @@ describe('KEY-13 Ctrl+Z looks at the game some of my priorities back', () => {
     await act(async () => { answer(1) })
     expect(screen.getByTestId('undo-preview-steps').textContent).toBe('1 priority back')
     expect(screen.getByTestId('undo-preview-where').textContent).toContain('Turn 2')
+    // the step as plain text, not the phase bar's pill (which narrow screens hide)
+    const step = within(screen.getByTestId('undo-preview-where')).getByTestId('step-name')
+    expect(step.textContent).toBe('Upkeep')
+    expect(step.classList.contains('phase-name')).toBe(false)
     expect(root().dataset.undoPreview).toBe('browse')
     expect(root().dataset.rewind).toBe('true')
     expect(getState().game).toBe(live)
@@ -211,7 +215,8 @@ describe('KEY-13 Ctrl+Z looks at the game some of my priorities back', () => {
     expect(getState().rollbackVote?.steps).toBe(2)
     expect(root().classList.contains('game--undo-vote')).toBe(true)
     expect(screen.getByText('You asked to go back 2 priorities')).toBeTruthy()
-    expect(screen.getByTestId('undo-vote-where').textContent).toContain('Back to turn 1')
+    expect(screen.getByTestId('undo-vote-now').textContent).toContain(`Now: turn ${live.turn}`)
+    expect(screen.getByTestId('undo-vote-where').textContent).toContain('Back to: turn 1')
     expect(screen.getByTestId('undo-vote-withdraw')).toBeTruthy()
   })
 
@@ -238,11 +243,20 @@ describe('KEY-13 Ctrl+Z looks at the game some of my priorities back', () => {
     expect(getState().undoPreview).toBeNull()
   })
 
-  it('KEY-13: does nothing while the game waits on someone else', async () => {
+  it('KEY-13: while the game waits on someone else, Ctrl+Z stops it first, and the bar says so', async () => {
     withGame({ players: (live.players ?? []).map((p) => ({ ...p, hasPriority: p.name === 'Bob' })), priorityPlayerName: 'Bob' })
     render(<GameScreen />)
     await act(async () => { pressZ({ ctrl: true }) })
+    expect(calls('UNDO_HOLD')).toEqual([['UNDO_HOLD', 'game-1']])
     expect(previewCalls()).toHaveLength(0)
+    expect(screen.getByTestId('undo-preview-loading').textContent).toBe('Stopping the game at the next priority…')
+    // once it's stopped, the server shows the board one priority back
+    await act(async () => { answer(1) })
+    expect(screen.getByTestId('undo-preview-steps').textContent).toBe('1 priority back')
+    // Cancel: the game goes on, nothing went back
+    fireEvent.click(screen.getByTestId('undo-preview-cancel'))
+    expect(calls('UNDO_HOLD_RELEASE')).toEqual([['UNDO_HOLD_RELEASE', 'game-1']])
+    expect(getState().undoPreview).toBeNull()
     expect(undoCalls()).toHaveLength(0)
   })
 
@@ -349,6 +363,7 @@ describe('KEY-13 the other player asks to go back', () => {
   }
 
   it('KEY-13: my screen grays out on the point Bob would go back to, and the dialog says how far', async () => {
+    withGame({ turn: 3, phase: 'COMBAT', step: 'DECLARE_BLOCKERS' })
     render(<GameScreen />)
     await act(async () => {
       serverPreview({ board: boardBack(1), steps: 3, available: 3, vote: true, requesterName: 'Bob' })
@@ -358,9 +373,16 @@ describe('KEY-13 the other player asks to go back', () => {
     expect(getState().undoPreview?.requestedByMe).toBe(false)
     expect(root().classList.contains('game--undo-vote')).toBe(true)
     expect(screen.getByText('Bob asks to go back 3 priorities')).toBeTruthy()
-    expect(screen.getByTestId('undo-vote-where').textContent).toContain('Back to turn 1')
+    // where the game is now, then where it would go back to, each with its step
+    const now = screen.getByTestId('undo-vote-now')
+    const where = screen.getByTestId('undo-vote-where')
+    expect(now.textContent).toContain('Now: turn 3')
+    expect(within(now).getByTestId('step-name').textContent).toBe('Blockers')
+    expect(where.textContent).toContain('Back to: turn 1')
+    expect(within(where).getByTestId('step-name').textContent).toBe('Upkeep')
+    expect(now.compareDocumentPosition(where) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // the live game is not touched
-    expect(getState().game?.turn).toBe(live.turn)
+    expect(getState().game?.turn).toBe(3)
   })
 
   it('KEY-13: if the request is denied, the board goes back to the game as it is', async () => {
@@ -372,6 +394,29 @@ describe('KEY-13 the other player asks to go back', () => {
     await act(async () => { serverPreview({ board: null, steps: 0, available: 0, vote: false, requesterName: '' }) })
     expect(getState().undoPreview).toBeNull()
     expect(root().classList.contains('game--undo-vote')).toBe(false)
+  })
+})
+
+describe('KEY-13 another player stopped the game to look back', () => {
+  const pressKey = (key: string, code = key) =>
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true }))
+
+  it('KEY-13: I see who stopped it; Space, the skip keys and Ctrl+Z send nothing until it goes on', async () => {
+    vi.mocked(cmds.sendPlayerBoolean).mockClear()
+    withGame({ undoHeldBy: 'Bob' })
+    render(<GameScreen />)
+    expect(screen.getByTestId('undo-hold-notice').textContent).toContain('Bob is looking back at earlier priorities')
+    await act(async () => { pressKey(' ', 'Space') })
+    await act(async () => { pressKey('F4') })
+    await act(async () => { pressZ({ ctrl: true }) })
+    expect(cmds.sendPlayerBoolean).not.toHaveBeenCalled()
+    expect(cmds.sendPlayerAction).not.toHaveBeenCalled()
+    expect(getState().undoPreview).toBeNull()
+    // the game goes on: the notice goes, and Space passes again
+    await act(async () => { withGame({ undoHeldBy: null }) })
+    expect(screen.queryByTestId('undo-hold-notice')).toBeNull()
+    await act(async () => { pressKey(' ', 'Space') })
+    expect(cmds.sendPlayerBoolean).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -388,13 +433,25 @@ describe('KEY-13 menu item', () => {
     expect(getState().undoPreview?.mode).toBe('browse')
   })
 
-  it('KEY-13: is disabled while the game waits on someone else', () => {
+  it('KEY-13: while the game waits on someone else, it stops the game first', async () => {
     withGame({ players: (live.players ?? []).map((p) => ({ ...p, hasPriority: p.name === 'Bob' })), priorityPlayerName: 'Bob' })
     render(<GameMenu />)
     openMenu()
     const item = screen.getByTestId('game-menu-undo-priority') as HTMLButtonElement
+    expect(item.disabled).toBe(false)
+    expect(item.title).toContain('it stops for everyone at the next priority')
+    await act(async () => { fireEvent.click(item) })
+    expect(calls('UNDO_HOLD')).toEqual([['UNDO_HOLD', 'game-1']])
+    expect(previewCalls()).toHaveLength(0)
+  })
+
+  it('KEY-13: is disabled while another player looks back', () => {
+    withGame({ undoHeldBy: 'Bob' })
+    render(<GameMenu />)
+    openMenu()
+    const item = screen.getByTestId('game-menu-undo-priority') as HTMLButtonElement
     expect(item.disabled).toBe(true)
-    expect(item.title).toContain('Only while the game waits for you')
+    expect(item.title).toContain('Bob is looking back at earlier priorities')
   })
 
   it('KEY-13: is disabled when there is nothing to go back to', () => {

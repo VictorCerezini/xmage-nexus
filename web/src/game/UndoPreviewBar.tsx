@@ -3,7 +3,7 @@ import Button from '../ui/Button'
 import Icon from '../ui/Icon'
 import { useTranslation } from '../i18n'
 import { useStore } from '../state/store'
-import { PhaseName } from './PhaseBar'
+import { StepName } from './PhaseBar'
 import { confirmUndoPreview, endUndoPreview, undoBrowseBack, undoBrowseForward } from '../state/undoPreview'
 import './UndoPreviewBar.css'
 
@@ -65,11 +65,13 @@ export default function UndoPreviewBar() {
             </span>
             <span className="undo-preview-where" data-testid="undo-preview-where">
               {t('game', 'undo_preview_turn', { turn: board.turn })}
-              {board.step && <> · <PhaseName step={board.step} /></>}
+              {board.step && <> · <StepName step={board.step} /></>}
             </span>
           </>
         ) : (
-          <span className="undo-preview-steps">{t('game', 'undo_preview_loading')}</span>
+          <span className="undo-preview-steps" data-testid="undo-preview-loading">
+            {preview.holding && !board ? t('game', 'undo_hold_loading') : t('game', 'undo_preview_loading')}
+          </span>
         )}
       </div>
       <div className="undo-preview-actions">

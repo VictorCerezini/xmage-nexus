@@ -8,9 +8,13 @@ import * as cmds from '../net/commands'
 import {
   UNDO_APPLIED_GRACE_MS,
   UNDO_APPLY_TIMEOUT_MS,
+  beginUndo,
   confirmUndoPreview,
+  endUndoPreview,
   startUndoBrowse,
+  syncUndoPreview,
   undoBrowseBack,
+  undoHeldByOther,
   waitsOnMe,
 } from './undoPreview'
 import { parseUndoSteps } from './rollbackVote'
@@ -201,6 +205,94 @@ describe('KEY-13 looking back, then going back', () => {
   it("KEY-13: the other player's request says how many priorities back", () => {
     expect(parseUndoSteps('Allow Bob to go back 3 priorities (turn 2, Upkeep)?')).toBe(3)
     expect(parseUndoSteps('Allow Bob to go back to their last priority (turn 2, Upkeep)?')).toBe(1)
+  })
+
+  describe('while the game waits on someone else', () => {
+    /** Bob (a human) has priority, not me. */
+    function bobsPriority(heldBy?: string | null): GameView {
+      const v = view({ turn: 5, step: 'PRECOMBAT_MAIN', bobIsHuman: true })
+      return {
+        ...v,
+        priorityPlayerName: 'Bob',
+        undoHeldBy: heldBy,
+        players: (v.players ?? []).map((p) => ({ ...p, hasPriority: p.name === 'Bob' })),
+      }
+    }
+    const sent = (action: string) => vi.mocked(cmds.sendPlayerAction).mock.calls.filter((c) => c[0] === action)
+
+    it('KEY-13: Ctrl+Z stops the game first (UNDO_HOLD); further back asked meanwhile is what gets shown', () => {
+      update(bobsPriority())
+      beginUndo(GAME)
+      expect(sent('UNDO_HOLD')).toEqual([['UNDO_HOLD', GAME]])
+      expect(sent('UNDO_PREVIEW')).toHaveLength(0)
+      const p = getState().undoPreview
+      expect(p?.mode).toBe('browse')
+      expect(p?.holding).toBe(true)
+      expect(p?.board).toBeNull()
+      // Ctrl+Z again before the game is stopped
+      undoBrowseBack(GAME)
+      expect(sent('UNDO_PREVIEW')).toEqual([['UNDO_PREVIEW', GAME, 2]])
+      preview({ board: view({ turn: 4, step: 'UPKEEP' }), steps: 2, available: 3, vote: false, requesterName: 'Alice' })
+      expect(getState().undoPreview?.steps).toBe(2)
+      // done looking: the game goes on
+      endUndoPreview(GAME)
+      expect(sent('UNDO_HOLD_RELEASE')).toEqual([['UNDO_HOLD_RELEASE', GAME]])
+    })
+
+    it('KEY-13: confirmed, the server lets the game go on or back by itself: no release from me', async () => {
+      update(bobsPriority())
+      beginUndo(GAME)
+      preview({ board: view({ turn: 4, step: 'UPKEEP' }), steps: 1, available: 3, vote: false, requesterName: 'Alice' })
+      undoBrowseBack(GAME)
+      preview({ board: view({ turn: 3, step: 'PRECOMBAT_MAIN' }), steps: 2, available: 3, vote: false, requesterName: 'Alice' })
+      await confirmUndoPreview(GAME)
+      expect(undoCalls()).toEqual([['UNDO_LAST_PRIORITY', GAME, 2]])
+      expect(getState().undoPreview?.mode).toBe('vote')
+      // denied: back to the game as it is
+      preview({ board: null, steps: 0, available: 0, vote: false, requesterName: '' })
+      chat('Undo request denied by Bob')
+      expect(getState().undoPreview).toBeNull()
+      expect(sent('UNDO_HOLD_RELEASE')).toHaveLength(0)
+    })
+
+    it('KEY-13: the request not reaching the server lets the game go on', async () => {
+      update(bobsPriority())
+      beginUndo(GAME)
+      preview({ board: view({ turn: 4, step: 'UPKEEP' }), steps: 1, available: 3, vote: false, requesterName: 'Alice' })
+      vi.mocked(cmds.sendPlayerAction).mockResolvedValueOnce({ ok: false, error: 'offline' } as never)
+      await confirmUndoPreview(GAME)
+      expect(sent('UNDO_HOLD_RELEASE')).toEqual([['UNDO_HOLD_RELEASE', GAME]])
+      expect(getState().undoPreview).toBeNull()
+    })
+
+    it('KEY-13: a question to me meanwhile ends looking back and lets the game go on', () => {
+      update(bobsPriority())
+      beginUndo(GAME)
+      setState({ priorityRequest: { method: 'GAME_TARGET' } as never })
+      syncUndoPreview()
+      expect(getState().undoPreview).toBeNull()
+      expect(sent('UNDO_HOLD_RELEASE')).toEqual([['UNDO_HOLD_RELEASE', GAME]])
+    })
+
+    it('KEY-13: a server without it says no: back to the game as it is, without an error', async () => {
+      update(bobsPriority())
+      vi.mocked(cmds.sendPlayerAction).mockResolvedValueOnce({ ok: false, error: 'unknown action' } as never)
+      beginUndo(GAME)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(getState().undoPreview).toBeNull()
+      expect(getState().error).toBeFalsy()
+    })
+
+    it('KEY-13: while another player looks back, Ctrl+Z does nothing', () => {
+      update(bobsPriority('Bob'))
+      expect(undoHeldByOther(getState().game)).toBe('Bob')
+      beginUndo(GAME)
+      expect(getState().undoPreview).toBeNull()
+      expect(cmds.sendPlayerAction).not.toHaveBeenCalled()
+      expect(undoHeldByOther({ ...bobsPriority(), undoHeldBy: '' })).toBeNull()
+      expect(undoHeldByOther(null)).toBeNull()
+    })
   })
 
   it('KEY-13: an answer to an older look back is dropped, and none at all while not looking back', () => {

@@ -55,6 +55,7 @@
         "rollbackTurnsAllowed": { "type": "boolean" },
         "canUndoPriority": { "type": "boolean" },
         "undoPriorityCount": { "type": "number" },
+        "undoHeldBy": { "type": ["string", "null"] },
         "totalErrorsCount": { "type": "number" },
         "totalEffectsCount": { "type": "number" },
         "gameCycle": { "type": "number" }

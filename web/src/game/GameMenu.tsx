@@ -13,7 +13,7 @@ import {
   setSetting,
   useStore,
 } from '../state/store'
-import { beginUndo, waitsOnMe as gameWaitsOn } from '../state/undoPreview'
+import { beginUndo, undoHeldByOther, waitsOnMe as gameWaitsOn } from '../state/undoPreview'
 import { useFullscreen } from '../utils/fullscreen'
 import { useTranslation } from '../i18n'
 import { soundManager } from '../audio/soundManager'
@@ -33,9 +33,10 @@ export default function GameMenu() {
   const { t } = useTranslation()
   const game = useGame()
   const gameId = useStore((s) => s.gameId)
-  // going back is looked at first, only while the game waits on me (KEY-13)
+  // going back is looked at first; if the game doesn't wait on me it stops for that (KEY-13)
   const waitsOnMe = useStore(gameWaitsOn)
   const undoPreviewOpen = useStore((s) => !!s.undoPreview)
+  const undoHolder = undoHeldByOther(game)
   const settings = useSettings()
   const [open, setOpen] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -155,14 +156,15 @@ export default function GameMenu() {
               <MenuItem
                 className="undo-priority-btn"
                 data-testid="game-menu-undo-priority"
-                disabled={!game.canUndoPriority || !waitsOnMe || undoPreviewOpen}
+                disabled={!game.canUndoPriority || !!undoHolder || undoPreviewOpen || (!waitsOnMe && game.undoPriorityCount === undefined)}
                 onClick={() => {
                   close()
                   beginUndo(gameId)
                 }}
                 title={!game.canUndoPriority
                   ? t('game', 'undo_priority_none')
-                  : waitsOnMe ? t('game', 'undo_priority_title') : t('game', 'undo_priority_wait')}
+                  : undoHolder ? t('game', 'undo_priority_wait', { name: undoHolder })
+                    : waitsOnMe ? t('game', 'undo_priority_title') : t('game', 'undo_priority_title_hold')}
               >
                 <Icon name="undo" size={13} /> {t('game', 'undo_priority')}
               </MenuItem>

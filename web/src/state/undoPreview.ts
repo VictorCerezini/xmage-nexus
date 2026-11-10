@@ -13,6 +13,8 @@ import { requestUndoPriority } from './actions'
  *   grayed out, until they answer.
  * - 'applying': confirmed without anyone to ask. The board stays on that point until the server
  *   sends the game as it was there.
+ * While the game doesn't wait on me, looking back first stops it for everyone at the next priority
+ * (UNDO_HOLD); it goes on when I stop looking without going back (UNDO_HOLD_RELEASE).
  */
 export type UndoPreviewMode = 'browse' | 'vote' | 'applying'
 
@@ -35,9 +37,13 @@ export interface UndoPreview {
   sawVote?: boolean
   /** when the server said the game went back */
   appliedAt?: number
+  /** the game didn't wait on me: the server stopped it for me (UNDO_HOLD) */
+  holding?: boolean
 }
 
 export const UNDO_PREVIEW_ACTION = 'UNDO_PREVIEW'
+export const UNDO_HOLD_ACTION = 'UNDO_HOLD'
+export const UNDO_HOLD_RELEASE_ACTION = 'UNDO_HOLD_RELEASE'
 /** Without the restored game by then, the confirmed board goes back to the game as it is. */
 export const UNDO_APPLY_TIMEOUT_MS = 8_000
 /** After the server said the game went back, the restored game is on screen by then. */
@@ -69,6 +75,23 @@ export function gameWaitsOnMe(): boolean {
   return waitsOnMe(getState())
 }
 
+/** Another player stopped the game to look back at their priorities: their name, or null. */
+export function undoHeldByOther(game: GameView | null | undefined): string | null {
+  const name = game?.undoHeldBy
+  return typeof name === 'string' && name.trim() ? name : null
+}
+
+/** Done looking back without going back: a game stopped for me goes on. */
+function releaseUndoHold(p: UndoPreview): void {
+  if (p.holding && p.mode === 'browse') void cmds.sendPlayerAction(UNDO_HOLD_RELEASE_ACTION, p.gameId)
+}
+
+/** Ends the preview on screen (it may have been for another game). */
+function dropUndoPreview(p: UndoPreview): void {
+  setState({ undoPreview: null })
+  releaseUndoHold(p)
+}
+
 export function isUndoBrowsing(gameId: string | null | undefined): boolean {
   return current(gameId)?.mode === 'browse'
 }
@@ -83,15 +106,56 @@ function ask(gameId: string, steps: number): void {
 }
 
 /** Ctrl+Z or the game menu: look back first. A server without the preview (no undoPriorityCount
- *  in its game view) goes back to the last priority at once, as before. */
+ *  in its game view) goes back to the last priority at once, as before, and only while the game
+ *  waits on me. */
 export function beginUndo(gameId: string): void {
   const live = getState().game
-  if (!live?.canUndoPriority || !gameWaitsOnMe()) return
+  if (!live?.canUndoPriority) return
+  if (!gameWaitsOnMe()) {
+    if (live.undoPriorityCount !== undefined) startUndoHold(gameId)
+    return
+  }
   if (live.undoPriorityCount === undefined) {
     void requestUndoPriority(gameId)
     return
   }
   startUndoBrowse(gameId)
+}
+
+/**
+ * Ctrl+Z while the game doesn't wait on me: the server stops it at the next priority (anyone's),
+ * then shows me the game one priority back. Meanwhile the bar says it's stopping the game.
+ */
+export function startUndoHold(gameId: string): boolean {
+  const s = getState()
+  const live = s.game
+  if (s.undoPreview || !live?.canUndoPriority || live.undoPriorityCount === undefined || undoHeldByOther(live)) return false
+  const me = live.players?.find((p) => p.controlled)
+  if (!me) return false
+  setState({
+    undoPreview: {
+      gameId,
+      mode: 'browse',
+      steps: 0,
+      pendingSteps: 1,
+      available: Math.max(1, live.undoPriorityCount),
+      board: null,
+      requester: me.name,
+      requestedByMe: true,
+      atRequest: s.priorityRequest,
+      holding: true,
+    },
+  })
+  void cmds.sendPlayerAction(UNDO_HOLD_ACTION, gameId).then((res) => {
+    if (res.ok) return
+    // a server without it says no: back to the game as it is
+    const p = current(gameId)
+    if (p?.holding && p.mode === 'browse') {
+      setState({ undoPreview: null })
+      addLog('partida', tStatic('game', 'undo_preview_unavailable'), gameId)
+    }
+  })
+  return true
 }
 
 /** Ctrl+Z: show the game one priority back, only to me. */
@@ -144,7 +208,7 @@ export function undoBrowseForward(gameId: string): void {
 
 export function endUndoPreview(gameId?: string | null): void {
   const p = getState().undoPreview
-  if (p && (!gameId || p.gameId === gameId)) setState({ undoPreview: null })
+  if (p && (!gameId || p.gameId === gameId)) dropUndoPreview(p)
 }
 
 /**
@@ -163,7 +227,10 @@ export async function confirmUndoPreview(gameId: string) {
     }, UNDO_APPLY_TIMEOUT_MS)
   }
   const res = await requestUndoPriority(gameId, p.steps)
-  if (!res.ok) endUndoPreview(gameId)
+  if (!res.ok) {
+    if (p.holding) void cmds.sendPlayerAction(UNDO_HOLD_RELEASE_ACTION, gameId)
+    endUndoPreview(gameId)
+  }
   return res
 }
 
@@ -216,11 +283,11 @@ export function syncUndoPreview(): void {
   const p = s.undoPreview
   if (!p) return
   if (p.gameId !== s.gameId) {
-    setState({ undoPreview: null })
+    dropUndoPreview(p)
     return
   }
   if (p.mode === 'browse') {
-    if (p.atRequest !== undefined && s.priorityRequest !== p.atRequest) setState({ undoPreview: null })
+    if (p.atRequest !== undefined && s.priorityRequest !== p.atRequest) dropUndoPreview(p)
     return
   }
   if (p.mode !== 'vote') return

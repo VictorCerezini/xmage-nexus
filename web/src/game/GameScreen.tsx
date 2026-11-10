@@ -15,8 +15,9 @@ import MobileSpectator from './MobileSpectator'
 import { useNarrowScreen } from './useNarrowScreen'
 import { useRewind, viewedSnapshot } from './rewind'
 import { clearFeedback, getState, isRollbackVoteBlocking, maybeAutoPass, setStoreError, useGame, useSettings, useStore } from '../state/store'
-import { beginUndo, isUndoBrowsing, syncUndoPreview, undoBrowseBack, undoBrowseForward } from '../state/undoPreview'
+import { beginUndo, isUndoBrowsing, syncUndoPreview, undoBrowseBack, undoBrowseForward, undoHeldByOther } from '../state/undoPreview'
 import UndoPreviewBar from './UndoPreviewBar'
+import UndoHoldNotice from './UndoHoldNotice'
 import FeedbackDialog from './FeedbackDialog'
 import UserRequestDialog from './UserRequestDialog'
 import RollbackDialog from './RollbackDialog'
@@ -170,6 +171,8 @@ export default function GameScreen() {
   const playableIds = useStore((s) => s.playableIds)
   const combat = useStore((s) => s.combat)
   const rollbackBlocking = useStore((s) => isRollbackVoteBlocking(s.rollbackVote))
+  // another player stopped the game to look back: the shortcuts wait too (KEY-4)
+  const undoHeld = !!undoHeldByOther(liveGame)
   const gameRootRef = useRef<HTMLDivElement>(null)
   const gameBodyRef = useRef<HTMLDivElement>(null)
   const boardWrapRef = useRef<HTMLDivElement>(null)
@@ -365,14 +368,14 @@ export default function GameScreen() {
         if (e.repeat) return
         // No enviar pass a ciegas si hay un diálogo de maná o target abierto
         if (feedback && feedback.mode !== 'combat') return
-        if (rollbackBlocking) return
+        if (rollbackBlocking || undoHeld) return
         if (gameRootRef.current?.dataset.rewind) return
         if (canPass) void onResolveClick()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [canPass, feedback, onResolveClick, rollbackBlocking])
+  }, [canPass, feedback, onResolveClick, rollbackBlocking, undoHeld])
 
   // Skips one-shot estilo desktop (F4/F5/F7/F9/F10/F11) + F3 cancela.
   // Sin F6: el propio desktop lo tiene desactivado ("Skip action don't used").
@@ -397,19 +400,19 @@ export default function GameScreen() {
       if (e.repeat) return
       // Sin diálogos modales abiertos (misma guarda que Space)
       if (feedback && feedback.mode !== 'combat') return
-      if (rollbackBlocking) return
+      if (rollbackBlocking || undoHeld) return
       if (gameRootRef.current?.dataset.rewind) return
       const skip = skipForShortcut(e.key)
       void sendSkip(skip ? skip.action : CANCEL_SKIP_ACTION)
     }
     window.addEventListener('keydown', handleSkipKeys)
     return () => window.removeEventListener('keydown', handleSkipKeys)
-  }, [feedback, sendSkip, rollbackBlocking])
+  }, [feedback, sendSkip, rollbackBlocking, undoHeld])
 
   // Ctrl+Z: look at the game one of my priorities back, only for me; again for further back,
-  // Ctrl+Shift+Z forward, and "Confirm rollback" goes back there (UndoPreviewBar). Only while the
-  // game waits on me (my priority or a question to me, even a misclicked spell's targets), and
-  // only when the server says there is a priority to go back to.
+  // Ctrl+Shift+Z forward, and "Confirm rollback" goes back there (UndoPreviewBar). If the game
+  // doesn't wait on me, it first stops for everyone at the next priority (UNDO_HOLD). Only when the
+  // server says there is a priority to go back to, and not while another player looks back.
   const canUndoPriority = !!liveGame?.canUndoPriority && !!liveGame.players?.some((p) => p.controlled)
   useEffect(() => {
     const handleUndoKey = (e: KeyboardEvent) => {
@@ -425,11 +428,11 @@ export default function GameScreen() {
       }
       if (getState().undoPreview) return
       if (gameRootRef.current?.dataset.rewind) return
-      if (direction === 'back' && canUndoPriority) beginUndo(gameId)
+      if (direction === 'back' && canUndoPriority && !undoHeld) beginUndo(gameId)
     }
     window.addEventListener('keydown', handleUndoKey)
     return () => window.removeEventListener('keydown', handleUndoKey)
-  }, [gameId, canUndoPriority, rollbackBlocking])
+  }, [gameId, canUndoPriority, rollbackBlocking, undoHeld])
 
   // the preview ends when the game goes on, or with the vote it was shown for
   const rollbackVoteState = useStore((s) => s.rollbackVote)
@@ -727,6 +730,7 @@ export default function GameScreen() {
           <TableZoom stageRef={stageRef} />
           <PriorityOrbLayer orbs={priorityOrbs} onDone={doneOrb} />
           <UndoPreviewBar />
+          <UndoHoldNotice />
           <FeedbackDialog />
           <UserRequestDialog />
           <RollbackDialog />

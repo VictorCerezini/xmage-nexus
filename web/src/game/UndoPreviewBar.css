@@ -85,3 +85,13 @@
   pointer-events: none;
   transition: filter 0.2s;
 }
+
+/* another player stopped the game to look back: the notice can take two lines */
+.undo-hold-notice .undo-preview-status {
+  white-space: normal;
+  align-items: flex-start;
+}
+
+.undo-hold-notice .undo-hold-text {
+  overflow: visible;
+}

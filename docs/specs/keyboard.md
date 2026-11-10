@@ -41,8 +41,9 @@ field.
 
 ### KEY-4 · Game shortcuts stand down while something else is being decided
 Space and the skip keys send nothing while a prompt is open (targets, mana payment, a yes/no, a
-card grid: any prompt except declaring attackers or blockers), while a rollback vote is open, or
-while the player is looking at an earlier board in rewind. Space also stands down while a viewer
+card grid: any prompt except declaring attackers or blockers), while a rollback vote is open, while
+another player has stopped the game to look back (KEY-13), or while the player is looking at an
+earlier board in rewind. Space also stands down while a viewer
 is open (a graveyard or exile pile, the cross-zone list, a hand viewer, the card inspector), even
 when focus fell to the page behind it; inside the viewer Space activates the focused control, as
 in a dialog.
@@ -50,8 +51,9 @@ in a dialog.
 - Why: Space passed blindly while a mana or target prompt was open (`d132b1259b`); during a
   rollback vote the requester must keep priority so the game cannot drift past the turn being
   voted on (`d1e18a9d03`); a rewound board is read-only (`a7143aebc1`); viewers: `61cce0db84`.
-- Guard: `src/game/GameScreen.space.test.ts` · `src/ui/clickable.test.ts` (the viewer condition;
-  the prompt, vote and rewind conditions are not asserted)
+- Guard: `src/game/GameScreen.space.test.ts` · `src/ui/clickable.test.ts` (the viewer condition) ·
+  `src/game/GameScreen.undo.test.tsx` (another player looking back); the prompt, vote and rewind
+  conditions are not asserted
 
 ### KEY-5 · A held key acts once
 Holding Space or a skip key sends one pass or one skip; the keyboard's auto-repeat is ignored.
@@ -136,16 +138,26 @@ bar on top says how many priorities back the board is and where (turn and step),
 Confirm rollback and Cancel; the prompts are hidden meanwhile. Confirm rollback sends
 `UNDO_LAST_PRIORITY` with that number (no number for one, as older servers expect). Against computer
 players it runs at once. Other humans (model seats included) are asked first in the rollback vote
-dialog, which says who asks and how many priorities back; while it is open everyone's board shows
-that point, grayed out, and nobody can act. The vote dialog can be dragged aside (anywhere but its
+dialog, which says who asks and how many priorities back, with where the game is now and where it
+would go back to (turn and step, "Now: turn 5 · Combat damage" over "Back to: turn 4 · Precombat
+Main"); while it is open everyone's board shows that point, grayed out, and nobody can act. The vote dialog can be dragged aside (anywhere but its
 buttons) to see the board under it, which in multiplayer it can cover; it stays inside the screen
 (also when the window gets smaller), follows the pointer at any interface scale, and each new vote
 opens in the usual place again.
-Accepted, the game goes back there; denied, or withdrawn by the one who asked, it stays as it is. Looking back works only while the game waits on the player
-(their priority, a question to them, or the priority of a player they control; the server checks it
-too), also in the middle of casting or paying. Not while typing in a text field (where Ctrl+Z undoes
-the typing), not with Alt held, not while a rollback vote is on screen, not in rewind, and not for
-spectators. The game going on (a new priority request) ends looking back. It needs the game view to
+Accepted, the game goes back there; denied, or withdrawn by the one who asked, it stays as it is.
+Looking back works while the game waits on the player (their priority, a question to them, or the
+priority of a player they control), also in the middle of casting or paying. While it waits on
+someone else, Ctrl+Z or the menu item first stops the game for everyone before the next priority of
+any player (`UNDO_HOLD`; a question already open stays open): the bar says "Stopping the game at the
+next priority…" until the server has stopped it and shows the board one priority back, or as far
+back as Ctrl+Z was pressed meanwhile. While it is stopped the clocks don't run, the other players
+see "Bob is looking back at earlier priorities…" and their shortcuts stand down, and what they send
+is done when the game goes on, or dropped if it goes back. Cancel, Esc, forward from the last one, a
+question to the player or a refused request let the game go on (`UNDO_HOLD_RELEASE`), and so does a
+denied or withdrawn vote; after a minute of looking back without asking (the vote itself has no
+limit) it goes on by itself. One player at a time: while one looks back, the others can't, and no
+rollback can be asked. Not while typing in a text field (where Ctrl+Z undoes the typing), not with
+Alt held, not while a rollback vote is on screen, not in rewind, and not for spectators. The game going on (a new priority request) ends looking back. It needs the game view to
 say there is a priority to go back to (`canUndoPriority`; older servers don't send it, and the menu
 item is then hidden); a server without `undoPriorityCount` goes back to the last priority at once,
 as before. Only games that allow rollbacks have it. How many priorities each player can go back is
@@ -159,7 +171,9 @@ passed by smart stops.
 
 - Why: a misclick or a pass at the wrong time in a long turn could only be fixed by rolling back the
   whole turn. Looking first lets the player find the right point before anyone is asked, and the
-  others see where the game would resume before they agree. The engine side (what is put back, how
-  many points a table keeps, extra phases and turns, players who lost) is tested in the engine's
-  `UndoLastPriorityTest`, `UndoLastPriorityMultiplayerTest` and `UndoSeveralPrioritiesTest`.
+  others see where the game would resume before they agree. Stopping the game first lets a player
+  look back at once while another player is thinking, without the game moving past what they look
+  at. The engine side (what is put back, how many points a table keeps, extra phases and turns,
+  players who lost, stopping and going on) is tested in the engine's `UndoLastPriorityTest`,
+  `UndoLastPriorityMultiplayerTest`, `UndoSeveralPrioritiesTest` and `UndoHoldTest`.
 - Guard: `src/game/GameScreen.undo.test.tsx` · `src/game/RollbackVoteDialog.test.tsx` · `src/state/undoPreview.test.ts` · `src/state/undoPriority.test.ts` · `src/lobby/CreateTableDialog.test.tsx` · `src/lobby/CreateTable/tableKind.test.ts`

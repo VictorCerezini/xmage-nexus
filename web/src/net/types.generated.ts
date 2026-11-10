@@ -28,6 +28,7 @@ export interface GameView {
   rollbackTurnsAllowed: boolean
   canUndoPriority?: boolean
   undoPriorityCount?: number
+  undoHeldBy?: string | null
   totalErrorsCount: number
   totalEffectsCount: number
   gameCycle: number

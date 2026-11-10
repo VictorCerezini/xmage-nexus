@@ -8,7 +8,7 @@ import Icon from '../ui/Icon'
 import Button from '../ui/Button'
 import { useTranslation } from '../i18n'
 import { withdrawUndoRequest } from '../state/actions'
-import { PhaseName } from './PhaseBar'
+import { StepName } from './PhaseBar'
 import { clampDragPos } from '../ui/useDraggablePos'
 import './RollbackVoteDialog.css'
 
@@ -118,6 +118,7 @@ export default function RollbackVoteDialog() {
   const { t } = useTranslation()
   const vote = useStore((s) => s.rollbackVote)
   const currentTurn = useStore((s) => s.game?.turn ?? null)
+  const currentStep = useStore((s) => s.game?.step ?? null)
   // the game where the undo would go back to, on screen while the others are asked
   const undoBoard = useStore((s) => (s.undoPreview?.mode === 'vote' && s.undoPreview.gameId === s.rollbackVote?.gameId ? s.undoPreview.board : null))
   const [busy, setBusy] = useState(false)
@@ -178,18 +179,26 @@ export default function RollbackVoteDialog() {
   const title = vote.requestedByMe
     ? t('dialogs', several ? 'undo_vote_title_mine_n' : `${prefix}_title_mine`, { count: steps })
     : t('dialogs', several ? 'undo_vote_title_n' : `${prefix}_title`, { name: vote.requester || '?', count: steps })
-  // where it goes back to: the board on screen shows that point (the server sends it with the request)
+  // where the game is now and where it goes back to, so it is clear how far: the board on screen
+  // shows the point back there (the server sends it with the request); the store keeps the live game
   const where = isUndo && undoBoard ? (
-    <span className="rollback-vote-where" data-testid="undo-vote-where">
-      {t('dialogs', 'undo_vote_where', { turn: undoBoard.turn })}
-      {undoBoard.step && <> <PhaseName step={undoBoard.step} />.</>}
+    <span className="rollback-vote-points">
+      {currentTurn != null && (
+        <span className="rollback-vote-now" data-testid="undo-vote-now">
+          {t('dialogs', 'undo_vote_now', { turn: currentTurn })}
+          {currentStep && <> · <StepName step={currentStep} /></>}
+        </span>
+      )}
+      <span className="rollback-vote-where" data-testid="undo-vote-where">
+        {t('dialogs', 'undo_vote_where', { turn: undoBoard.turn })}
+        {undoBoard.step && <> · <StepName step={undoBoard.step} /></>}
+      </span>
     </span>
   ) : null
   const message = isUndo
     ? (
       <>
         {where}
-        {where && ' '}
         {vote.requestedByMe
           ? t('dialogs', where ? 'undo_vote_preview_mine' : 'undo_vote_target_mine')
           : where

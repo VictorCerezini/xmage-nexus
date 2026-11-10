@@ -1,24 +1,33 @@
 import { useTranslation } from '../i18n'
 import { STEPS, STEP_GROUPS, activeStepIndex, isDamageStep, usePhaseStopToggles } from './phaseSteps'
+import type { StepDef } from './phaseSteps'
 import { useChangeFlag } from './useChangeFlag'
 import './PhaseBar.css'
 
+/** The name of a step (both combat damage steps share one), or null for a step the bar doesn't know. */
+function stepNameKey(step: string): StepDef['nameKey'] | null {
+  if (isDamageStep(step)) return 'combat_damage_title'
+  return STEPS.find((s) => s.key === step)?.nameKey ?? null
+}
+
+/** The current step as the phase bar's pill (hidden on narrow screens, where the bar shows it). */
 export function PhaseName({ step }: { step: string }) {
   const { t } = useTranslation()
-  const def = STEPS.find((s) => s.key === step)
-  if (isDamageStep(step)) {
-    return (
-      <span className="phase-name" data-testid="phase-name" aria-live="polite" key={step}>
-        {t('game', 'combat_damage_title')}
-      </span>
-    )
-  }
-  if (!def) return null
+  const key = stepNameKey(step)
+  if (!key) return null
   return (
-    <span className="phase-name" data-testid="phase-name" aria-live="polite" key={def.key}>
-      {t('game', def.nameKey)}
+    <span className="phase-name" data-testid="phase-name" aria-live="polite" key={step}>
+      {t('game', key)}
     </span>
   )
+}
+
+/** A step's name as plain text, for messages ("turn 4 · Main Phase 1"): shown on every screen. */
+export function StepName({ step }: { step: string }) {
+  const { t } = useTranslation()
+  const key = stepNameKey(step)
+  if (!key) return null
+  return <span className="step-name" data-testid="step-name">{t('game', key)}</span>
 }
 
 export default function PhaseBar({ step }: { step: string }) {
