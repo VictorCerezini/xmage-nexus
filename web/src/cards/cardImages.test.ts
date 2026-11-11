@@ -240,6 +240,49 @@ describe('token image resolution', () => {
   })
 })
 
+describe('emblem image resolution', () => {
+  beforeEach(() => {
+    resetCardImageCache()
+    vi.restoreAllMocks()
+  })
+
+  // as the server sends it in a player's commandList (EmblemView: no card number, no object type)
+  const emblem = (set: string, over: Record<string, unknown> = {}) =>
+    ({ id: 'e1', name: 'Emblem Teferi', cardNumber: '', imageFileName: '', imageNumber: 0, expansionSetCode: set, rules: [], ...over }) as unknown as CardView
+
+  it("shows the emblem of the planeswalker that made it, not another one's of the same name", () => {
+    // Teferi, Hero of Dominaria: "Whenever you draw a card, exile target permanent an opponent controls."
+    expect(cardKey(emblem('DOM'))).toBe('tdom/16')
+    // Teferi Akosa of Zhalfir, Teferi, Who Slows the Sunset, Teferi, Temporal Archmage
+    expect(cardKey(emblem('MOM'))).toBe('tmom/22')
+    expect(cardKey(emblem('MID'))).toBe('tmid/17')
+    expect(cardKey(emblem('C14'))).toBe('tc14/34')
+  })
+
+  it('resolves the emblem a trigger on the stack comes from', () => {
+    const source = { ...emblem('DOM'), mageObjectType: 'EMBLEM', cardNumber: '0' }
+    const trigger = { id: 't1', name: 'Ability', mageObjectType: 'ABILITY_STACK', sourceCard: source } as unknown as CardView
+    expect(cardKey(trigger)).toBe('tdom/16')
+    expect(cardKey({ ...trigger, sourceCard: undefined, displayName: 'Emblem Teferi' } as unknown as CardView)).toBeNull()
+  })
+
+  it('looks an emblem the table does not know up only among its set\'s emblems', async () => {
+    const unknown = emblem('ZZZ')
+    expect(cardKey(unknown)).toBe('emblem:zzz/Teferi')
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 })
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(awaitImageUrl(unknown)).resolves.toBeNull()
+    // one set-scoped search, and no search by the bare name "Emblem Teferi"
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]))
+    expect(urls.every((u) => u.includes(encodeURIComponent('set:tzzz')))).toBe(true)
+    expect(urls.some((u) => /named\?|q=Emblem/.test(u))).toBe(false)
+  })
+
+  it('has no image for an emblem without a set', () => {
+    expect(cardKey(emblem(''))).toBeNull()
+  })
+})
+
 describe('ability image and metadata resolution', () => {
   beforeEach(() => {
     resetCardImageCache()

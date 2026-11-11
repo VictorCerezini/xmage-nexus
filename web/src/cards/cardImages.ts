@@ -40,6 +40,21 @@ export function isTokenCard(card: CardView): boolean {
   return card.isToken === true || card.mageObjectType === 'TOKEN'
 }
 
+/**
+ * An emblem as the engine sends it: a name like "Emblem Teferi", a set and a picture number, and no
+ * card number, like a token. Its picture comes from the same table as the tokens' (the set tells
+ * which planeswalker made it); a name search would not, since several planeswalkers share a name.
+ */
+export function isEmblemCard(card: CardView): boolean {
+  if (card.mageObjectType === 'EMBLEM') return true
+  return !card.cardNumber && /^Emblem\b/i.test(card.name ?? '')
+}
+
+/** The planeswalker name in an emblem's name: "Emblem Teferi" → "Teferi". */
+function emblemSubject(card: CardView): string {
+  return (card.name ?? '').replace(/^Emblem[\s:-]*/i, '').trim()
+}
+
 /** Returns true if the permanent/card has Vigilance (does not tap when attacking). */
 export function hasVigilance(card: CardView | unknown): boolean {
   if (!card || typeof card !== 'object') return false
@@ -172,6 +187,8 @@ export function cardKey(card: CardView): string | null {
       if (srcKey) return srcKey
     }
     const sourceName = getSourceCardName(card)
+    // an emblem's trigger: never by the emblem's name (another planeswalker's emblem could match)
+    if (/^Emblem\b/i.test(sourceName)) return null
     if (sourceName && !/^habilidad$/i.test(sourceName) && !/^ability$/i.test(sourceName)) {
       return `named:${sourceName}${backSuffix}`
     }
@@ -188,9 +205,18 @@ export function cardKey(card: CardView): string | null {
   const art = artFor(card)
   if (art) return `${art.setCode}/${art.cardNumber}${backSuffix}`
 
-  if (isToken) {
+  const isEmblem = isEmblemCard(card)
+  if (isToken || isEmblem) {
     const exact = tokenTableKey(card, isBack)
     if (exact) return pinTokenKey(card, exact)
+  }
+
+  // an emblem the table does not know: only among that set's emblems (never by name alone, which
+  // could show another planeswalker's emblem with other rules)
+  if (isEmblem && !(num && num !== '0')) {
+    const subject = emblemSubject(card)
+    if (!set || set === 'XMAGE' || !subject) return null
+    return `emblem:${set.toLowerCase()}/${subject}`
   }
 
   // Cards with a real card number (including copy tokens that inherited the original's number)
@@ -255,6 +281,12 @@ function candidateUrls(key: string): string[] {
       `https://api.scryfall.com/cards/search?q=${encodeURIComponent(name)}+include:extras`,
       `https://api.scryfall.com/cards/search?q=t:token+name:%22${encodeURIComponent(name)}%22+include:extras`,
     ]
+  }
+
+  if (cleanKey.startsWith('emblem:')) {
+    const [set, ...rest] = cleanKey.slice(7).split('/')
+    const subject = rest.join('/')
+    return [`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`t:emblem set:t${set} name:"${subject}"`)}+include:extras`]
   }
 
   if (cleanKey.startsWith('token:')) {
@@ -387,7 +419,8 @@ export async function awaitImageUrl(card: CardView): Promise<string | null> {
 
   const p = (async () => {
     let url = await load(key).catch(() => null)
-    if (!url && cleanName && !key.replace(/#back$/, '').startsWith('named:')) {
+    // no name search for an emblem: it could find another planeswalker's emblem
+    if (!url && cleanName && !/^(?:named|emblem):/.test(key) && !isEmblemCard(card)) {
       const isBack = key.endsWith('#back')
       const fallbackKey = `named:${cleanName}${isBack ? '#back' : ''}`
       url = await load(fallbackKey).catch(() => null)
