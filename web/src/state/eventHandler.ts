@@ -1,4 +1,4 @@
-import { captureRewind } from '../game/rewind'
+import { captureRewind, clearRewind } from '../game/rewind'
 import type { ProxyMessage } from '../net/types'
 import { parseFeedback } from '../game/feedback'
 import { getState, setState, addLog } from './state'
@@ -30,7 +30,7 @@ import { notifyStagingRoster } from './stagingSounds'
 import { perfMark } from '../system/perfProbe'
 import { isRollbackPending } from './actions'
 import { applyRollbackOutcome } from './rollbackVote'
-import { ingestUndoPreview, noteLiveGameView } from './undoPreview'
+import { endUndoPreview, ingestUndoPreview, noteLiveGameView } from './undoPreview'
 import { syncSharedArt } from './sharedArtSync'
 
 export function handleMessage(msg: ProxyMessage) {
@@ -137,8 +137,12 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
     const order = sameGame && currentGame ? gameEventOrder(objectId, messageId) : 'unknown'
     const turnRegressed = !!currentGame && currentGame.myPlayerId === embeddedGame.myPlayerId
       && embeddedGame.turn < currentGame.turn
+    // Except a newer view back at turn 1: the game was restarted (Karn Liberated's last ability
+    // starts the same game, same id, over at turn 1). Thrown away, the restarted game never showed
+    // and its prompts were answered against the board from before it.
+    const gameRestarted = !!sameGame && !!currentGame && order === 'current' && turnRegressed && embeddedGame.turn <= 1
     const stale = sameGame && currentGame && typeof messageId === 'number'
-      ? order === 'older' || turnRegressed
+      ? order === 'older' || (turnRegressed && !gameRestarted)
       : positionRegressed
     // Rollback del servidor: la vista restaurada va hacia atrás en turno/paso pero es
     // la vigente; hay que tirar el estado de UI pre-rollback (prioridad, jugables, combate).
@@ -149,6 +153,10 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
       && s.undoPreview.mode !== 'browse' && !!s.undoPreview.appliedAt
     const rollbackRestored = (positionRegressed || undoApplied) && sameGame && !!currentGame && order !== 'older'
       && isRollbackPending(s, s.gameId)
+    // A restart with no rollback asked: what the screen kept from the game before goes like on a
+    // rollback, and the look-back history, whose turns are those of the game before, with it.
+    const gameJumpedBack = gameRestarted && !rollbackRestored
+    const boardReset = rollbackRestored || gameJumpedBack
     // Un espectador que se une a mitad de partida recibe como GAME_INIT la vista
     // cacheada del arranque (turn 0, sin manos ni battlefield): el servidor siembra
     // GameSessionWatcher con la vista por defecto generada en startGame y, como el
@@ -168,10 +176,10 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
       if (objectId) noteGameEvent(objectId, messageId, method === 'GAME_INIT')
       dispatchGameSounds(currentGame, embeddedGame, method, s.settings.prioritySound)
       recordMatchStats(currentGame, embeddedGame, objectId ?? s.gameId ?? null)
-      if (rollbackRestored) resetTurnRecap(objectId ?? s.gameId ?? null)
-      const recap = rollbackRestored ? null : observeTurnRecap(currentGame, embeddedGame, objectId ?? s.gameId ?? null)
-      if (rollbackRestored) resetBattlefieldEntries(objectId ?? s.gameId ?? null)
-      const entered = observeBattlefieldEntries(rollbackRestored ? null : currentGame, embeddedGame, objectId ?? s.gameId ?? null)
+      if (boardReset) resetTurnRecap(objectId ?? s.gameId ?? null)
+      const recap = boardReset ? null : observeTurnRecap(currentGame, embeddedGame, objectId ?? s.gameId ?? null)
+      if (boardReset) resetBattlefieldEntries(objectId ?? s.gameId ?? null)
+      const entered = observeBattlefieldEntries(boardReset ? null : currentGame, embeddedGame, objectId ?? s.gameId ?? null)
       // La mano controlada cambió/desapareció: la barra propia vuelve a la mía.
       const switched = s.switchedHandKey
       const switchedValid =
@@ -182,15 +190,17 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
         watchingTable: null,
         gameId: objectId ?? s.gameId,
         ...(switched && !switchedValid ? { switchedHandKey: null } : null),
-        ...(recap ? { turnRecap: recap } : switchingGame || rollbackRestored ? { turnRecap: null } : null),
+        ...(recap ? { turnRecap: recap } : switchingGame || boardReset ? { turnRecap: null } : null),
         ...(sameEntries(entered, s.enteredThisTurn) ? null : { enteredThisTurn: entered }),
         // Solo se limpia al consumir el rollback: un accept normal no debe tumbar
         // un flag recién armado (el aviso por chat puede llegar tarde).
-        ...(rollbackRestored ? { rollbackPendingFor: null, rollbackPendingAt: null, boardEpoch: s.boardEpoch + 1 } : null),
+        ...(rollbackRestored ? { rollbackPendingFor: null, rollbackPendingAt: null } : null),
+        ...(boardReset ? { boardEpoch: s.boardEpoch + 1 } : null),
         // La UI apuntaba al estado pre-rollback: diálogo de prioridad, jugables y
         // combate viejos hay que tirarlos para que lleguen los frescos.
-        ...(rollbackRestored ? { feedback: null, playableIds: [], playableWindow: null, combat: null } : null),
+        ...(boardReset ? { feedback: null, playableIds: [], playableWindow: null, combat: null } : null),
       })
+      if (gameJumpedBack) clearRewind()
       if (s.settings.boardRewind) captureRewind(objectId ?? s.gameId ?? null, getState().game)
       // every game view counts, not only full updates: the deciding player gets the prompts
       // (who starts, mulligans, targets) instead, and a commander first shows up in those
@@ -199,7 +209,9 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
         addLog('partida', tStatic('game', 'log_board_restored', { turn: embeddedGame.turn }))
         applyRollbackOutcome(objectId ?? s.gameId, embeddedGame.turn)
       }
-      if (sameGame) noteLiveGameView(objectId, rollbackRestored)
+      // the game jumped back by itself: a look-back at the game before ends, the turns it showed are gone
+      if (gameJumpedBack) endUndoPreview(objectId)
+      else if (sameGame) noteLiveGameView(objectId, rollbackRestored)
       // La partida re-unida ya está adoptada: el guard de lobby vuelve a aplicar.
       if (objectId && getState().resumingGameId === objectId) setState({ resumingGameId: null })
     }

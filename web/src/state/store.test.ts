@@ -139,10 +139,11 @@ describe('handleMessage', () => {
   })
 
   it('ignores a game view OLDER than the current one (no pisa el estado con turnos pasados)', () => {
+    // turn 2, not 1: a newer view back at turn 1 is the game restarted (Karn Liberated, rollback.test.ts)
     const t3 = makeGameView({ turn: 3, phase: 'COMBAT', step: 'DECLARE_ATTACKERS' })
-    const t1 = makeGameView({ turn: 1, phase: 'PRECOMBAT_MAIN', step: 'PRECOMBAT_MAIN' })
+    const t2 = makeGameView({ turn: 2, phase: 'PRECOMBAT_MAIN', step: 'PRECOMBAT_MAIN' })
     handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 1, objectId: 'g-1', data: t3 })
-    handleMessage({ type: 'event', method: 'GAME_UPDATE_AND_INFORM', messageId: 2, objectId: 'g-1', data: { gameView: t1 } })
+    handleMessage({ type: 'event', method: 'GAME_UPDATE_AND_INFORM', messageId: 2, objectId: 'g-1', data: { gameView: t2 } })
     expect(getState().game).toBe(t3)
   })
 

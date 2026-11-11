@@ -6,6 +6,7 @@ import { handleMessage, requestRollback } from './store'
 import { reset } from './gateway'
 import * as cmds from '../net/commands'
 import { t } from '../i18n'
+import { getRewind } from '../game/rewind'
 
 vi.mock('../net/commands', () => ({
   setGateway: vi.fn(),
@@ -116,6 +117,51 @@ describe('rollback del servidor', () => {
     handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 3, objectId: 'g-9', data: t3 })
     expect(getState().game).toBe(t5)
     expect(getState().playableIds).toEqual(['c-1'])
+  })
+
+  it('Karn Liberated restarts the game: the view back at turn 1 is the game, and the old board goes', () => {
+    setState({ settings: { ...getState().settings, boardRewind: true } })
+    acceptTurn5()
+    const t5later = makeGameView({ turn: 5, phase: 'POSTCOMBAT_MAIN', step: 'END_TURN' })
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 2, objectId: 'g-9', data: t5later })
+    expect(getRewind().snapshots.length).toBeGreaterThan(0)
+    const epoch = getState().boardEpoch
+    setState({
+      feedback: STALE_FEEDBACK,
+      playableIds: ['c-1'],
+      playableWindow: { turn: 5, phase: 'POSTCOMBAT_MAIN' },
+      combat: { mode: 'attack', selectable: [], special: false, chosen: [] },
+    })
+
+    // same game id, newer message, turn 1 again: the restarted game (mulligans come next)
+    const restarted = makeGameView({ turn: 1, phase: 'BEGINNING', step: 'UPKEEP' })
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 3, objectId: 'g-9', data: restarted })
+
+    const s = getState()
+    expect(s.game?.turn).toBe(1)
+    expect(s.feedback).toBeNull()
+    expect(s.playableIds).toEqual([])
+    expect(s.playableWindow).toBeNull()
+    expect(s.combat).toBeNull()
+    expect(s.boardEpoch).toBe(epoch + 1)
+    // not a rollback: no "board restored" line
+    expect(s.log.some((e) => e.text === t('game', 'log_board_restored', { turn: 1 }))).toBe(false)
+    // the look-back history holds only the restarted game
+    expect(getRewind().snapshots.every((snap) => snap.game === s.game)).toBe(true)
+
+    // the game goes on from there
+    const t2 = makeGameView({ turn: 2, phase: 'PRECOMBAT_MAIN', step: 'PRECOMBAT_MAIN' })
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 4, objectId: 'g-9', data: t2 })
+    expect(getState().game?.turn).toBe(2)
+  })
+
+  it('an older message back at turn 1 is still thrown away', () => {
+    acceptTurn5()
+    const t5later = makeGameView({ turn: 5, phase: 'POSTCOMBAT_MAIN', step: 'END_TURN' })
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 5, objectId: 'g-9', data: t5later })
+    const t1 = makeGameView({ turn: 1, phase: 'BEGINNING', step: 'UPKEEP' })
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 4, objectId: 'g-9', data: t1 })
+    expect(getState().game).toBe(t5later)
   })
 
   it('sin nada pendiente sigue descartando vistas viejas (no pisa el estado)', () => {
