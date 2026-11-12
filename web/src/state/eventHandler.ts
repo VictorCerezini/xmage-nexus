@@ -8,6 +8,7 @@ import {
   gameViewFrom, isOlderThanCurrentGame, gameEventOrder, noteGameEvent,
 } from './gameUtils'
 import { switchableHandKeys } from '../board/handSwitch'
+import { forgetCommanderDamage } from '../board/commanders'
 import { dispatchGameSounds } from '../audio/gameSoundDispatcher'
 import { recordMatchStats } from '../game/matchStats'
 import { observeTurnRecap, resetTurnRecap } from '../game/turnRecap'
@@ -177,6 +178,7 @@ function handleEvent(method: string, objectId: string | null, data: unknown, mes
       dispatchGameSounds(currentGame, embeddedGame, method, s.settings.prioritySound)
       recordMatchStats(currentGame, embeddedGame, objectId ?? s.gameId ?? null)
       if (boardReset) resetTurnRecap(objectId ?? s.gameId ?? null)
+      if (boardReset) forgetCommanderDamage()
       const recap = boardReset ? null : observeTurnRecap(currentGame, embeddedGame, objectId ?? s.gameId ?? null)
       if (boardReset) resetBattlefieldEntries(objectId ?? s.gameId ?? null)
       const entered = observeBattlefieldEntries(boardReset ? null : currentGame, embeddedGame, objectId ?? s.gameId ?? null)

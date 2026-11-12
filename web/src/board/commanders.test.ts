@@ -4,6 +4,7 @@ import {
   commanderPlaysCount,
   commanderTax,
   commandersOf,
+  forgetCommanderDamage,
   hasCommanders,
   resetCommanderMemory,
   syncCommanderMemory,
@@ -474,5 +475,51 @@ describe('double-faced commander (Slicer)', () => {
       expect(roster.map((c) => c.id)).toEqual(['cz-1'])
       expect(commanderDamageDealt(after, roster[0], (after.players ?? [])[1])).toBe(4)
     }
+  })
+})
+
+// Recorded on the local server (Commander duel, Bruce Banner // The Incredible Hulk cast as the Hulk
+// from the command zone, Chaos Warp back to it, cast again): the command zone entry is the whole card,
+// the permanent is the face with the whole card as `secondCardFace`. Back in the command zone the
+// entry carries no rules at all, and the permanent of the second cast has none until it deals damage.
+describe('double-faced commander back in the command zone (Bruce Banner // The Incredible Hulk)', () => {
+  afterEach(() => resetCommanderMemory())
+
+  const hulk = (rules: string[]) =>
+    makePermanent({ id: 'face-1', name: 'The Incredible Hulk', rules, secondCardFace: makeCard({ id: 'cz-1', name: 'Bruce Banner' }) })
+  const view = (alice: { commandList?: CardView[]; battlefield?: Record<string, ReturnType<typeof hulk>> }) =>
+    makeGameView({
+      players: [
+        makePlayer({ playerId: 'p1', name: 'Alice', commandList: alice.commandList ?? [], battlefield: alice.battlefield ?? {} }),
+        makePlayer({ playerId: 'p2', name: 'Bob' }),
+      ],
+    })
+  const inCommandZone = () => view({ commandList: [makeCard({ id: 'cz-1', name: 'Bruce Banner', mageObjectType: 'COMMANDER', rules: [] })] })
+  const onField = (rules: string[]) => view({ battlefield: { 'face-1': hulk(rules) } })
+  const read = (gv: GameView) => {
+    const [alice] = syncCommanderMemory(gv).filter((c) => c.ownerId === 'p1')
+    return { id: alice?.id, dmg: alice ? commanderDamageDealt(gv, alice, (gv.players ?? [])[1]) : -1, casts: alice?.castCount }
+  }
+
+  it('keeps the damage while the commander is back in the command zone and after it is cast again', () => {
+    expect(read(view({ commandList: [commanderCard('cz-1', 'Bruce Banner', [])] }))).toEqual({ id: 'cz-1', dmg: 0, casts: 0 })
+    expect(read(onField([]))).toEqual({ id: 'cz-1', dmg: 0, casts: 0 })
+    expect(read(onField([commanderInfoRule(1), commanderDamageRule(8, 'Bob')]))).toEqual({ id: 'cz-1', dmg: 8, casts: 1 })
+    // Chaos Warp: back in the command zone, with no rules on the wire
+    expect(read(inCommandZone())).toEqual({ id: 'cz-1', dmg: 8, casts: 1 })
+    // cast again: the new permanent has no lines until it deals damage
+    expect(read(onField([]))).toEqual({ id: 'cz-1', dmg: 8, casts: 1 })
+    expect(read(onField([commanderInfoRule(2), commanderDamageRule(16, 'Bob')]))).toEqual({ id: 'cz-1', dmg: 16, casts: 2 })
+  })
+
+  it('a line in the current view wins over a higher remembered one', () => {
+    read(onField([commanderInfoRule(1), commanderDamageRule(16, 'Bob')]))
+    expect(read(onField([commanderInfoRule(1), commanderDamageRule(8, 'Bob')])).dmg).toBe(8)
+  })
+
+  it('forgets the remembered damage when the board goes back in time', () => {
+    read(onField([commanderInfoRule(1), commanderDamageRule(8, 'Bob')]))
+    forgetCommanderDamage()
+    expect(read(inCommandZone())).toEqual({ id: 'cz-1', dmg: 0, casts: 0 })
   })
 })

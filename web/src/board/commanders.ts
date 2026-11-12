@@ -14,6 +14,12 @@ export interface CommanderInfo {
    *  (`<b>Commander</b>`) manda y lo marca como comandante. */
   isCommander: boolean
   castCount: number
+  /** The last view of this commander that carried its damage lines, kept by the game memory
+   *  (`syncCommanderMemory`). A double-faced commander (Bruce Banner // The Incredible Hulk) loses
+   *  every line when it goes back to the command zone, and its permanent has none again until it
+   *  deals damage, so without this the table read 0 while the engine still counted the damage.
+   *  Used only when no carrier in the current view has a damage line. */
+  damageCard?: CardView
 }
 
 /** Comandante de la matriz de daño: añade la atribución de dueño. */
@@ -148,14 +154,32 @@ export function syncCommanderMemory(game: GameView | null | undefined): MatrixCo
   rosterMemory = rosterMemory.filter((r) => !live.some((c) => c.id !== r.id && sameCommander(c, r)))
   for (const c of live) {
     const idx = rosterMemory.findIndex((r) => r.id === c.id)
+    const prev = idx >= 0 ? rosterMemory[idx] : undefined
+    // A commander's totals only grow during a game: a view that carries no line keeps the last
+    // seen ones (a rollback or a restart clears them first, see `forgetCommanderDamage`).
+    c.damageCard = prev?.damageCard
+    c.castCount = Math.max(c.castCount, prev?.castCount ?? 0)
     if (idx >= 0) rosterMemory[idx] = c
     else rosterMemory.push(c)
+  }
+  for (const r of rosterMemory) {
+    const lined = commanderStateCarriers(game, r).find(hasDamageLine)
+    if (lined) r.damageCard = lined
   }
   const merged = [...live]
   for (const r of rosterMemory) {
     if (!merged.some((c) => c.id === r.id)) merged.push(r)
   }
   return merged
+}
+
+/** The board went back in time (a rollback, or Karn Liberated restarting the game): the remembered
+ *  damage and cast counts may be ahead of the restored game, so only what the next views carry counts. */
+export function forgetCommanderDamage(): void {
+  for (const r of rosterMemory) {
+    r.damageCard = undefined
+    r.castCount = 0
+  }
 }
 
 /** Solo tests: vacía la memoria (se re-llena en el próximo sync). */
@@ -235,19 +259,32 @@ export function commanderDamageDealt(
 ): number {
   const targetName = targetKey(target.name)
   if (!targetName) return 0
+  const carriers = commanderStateCarriers(game, commander)
+  // The current view wins whenever it carries any line (it holds every total); otherwise the
+  // last view that did (a double-faced commander back in the command zone shows none).
+  const source = carriers.some(hasDamageLine) ? carriers : commander.damageCard ? [commander.damageCard] : []
   let dealt = 0
-  for (const card of commanderStateCarriers(game, commander)) {
-    for (const rule of card.rules ?? []) {
-      for (const sentence of String(rule).split(SENTENCE_BOUNDARY)) {
-        const line = sentence.replace(TAGS, ' ')
-        for (const match of line.matchAll(DAMAGE_TO_PLAYER)) {
-          if (targetKey(match[2]) !== targetName) continue
-          dealt = Math.max(dealt, Number(match[1]))
-        }
-      }
+  for (const card of source) {
+    for (const { amount, target: name } of damageLines(card)) {
+      if (targetKey(name) === targetName) dealt = Math.max(dealt, amount)
     }
   }
   return dealt
+}
+
+function damageLines(card: Pick<CardView, 'rules'>): { amount: number; target: string }[] {
+  const out: { amount: number; target: string }[] = []
+  for (const rule of card.rules ?? []) {
+    for (const sentence of String(rule).split(SENTENCE_BOUNDARY)) {
+      const line = sentence.replace(TAGS, ' ')
+      for (const match of line.matchAll(DAMAGE_TO_PLAYER)) out.push({ amount: Number(match[1]), target: match[2] })
+    }
+  }
+  return out
+}
+
+function hasDamageLine(card: Pick<CardView, 'rules'>): boolean {
+  return damageLines(card).length > 0
 }
 
 const PLAYS_FROM_COMMAND_ZONE = /(\d+)\s+times?\s+played from the command zone/i
