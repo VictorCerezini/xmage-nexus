@@ -53,9 +53,20 @@ public class CommanderInfoWatcher extends Watcher {
             }
         }
         // Add card info to the commander
-        if (event.getType() == GameEvent.EventType.ZONE_CHANGE && event.getTargetId().equals(sourceId)) {
+        // A zone change clears the moved card's info. A double-faced commander moves as one of its
+        // halves (the event names the half), but the whole card is cleared too, so check the halves:
+        // otherwise the commander loses its info in the command zone and its next permanent has none.
+        if (event.getType() == GameEvent.EventType.ZONE_CHANGE && isCommanderPart(event.getTargetId(), game)) {
             this.addCardInfoToCommander(game);
         }
+    }
+
+    private boolean isCommanderPart(UUID objectId, Game game) {
+        if (sourceId.equals(objectId)) {
+            return true;
+        }
+        Card card = game.getCard(objectId);
+        return card != null && card.getMainCard() != null && sourceId.equals(card.getMainCard().getId());
     }
 
     public void addCardInfoToCommander(Game game) {
