@@ -6,6 +6,7 @@ import type { DeckV2 } from './types'
 import { alertDialog } from '../ui/confirmDialog'
 import { captureUnhandledRejections, settle } from '../utils/unhandledRejections'
 import { t } from '../i18n'
+import { getState, initialState, setState } from '../state/state'
 
 const storeState = vi.hoisted(() => ({ decks: [] as DeckV2[] }))
 const confirmState = vi.hoisted(() => ({ calls: [] as string[], resolve: true }))
@@ -186,6 +187,17 @@ describe('DecksGallery footer (C.13-mayores §1–§2)', () => {
     }
   })
 
+  it('DCK-20: a format from the export menu opens the export window with the selected deck', async () => {
+    storeState.decks = [customDeck()]
+    render(<DecksGallery onEdit={() => {}} />)
+    fireEvent.click(await screen.findByTestId('decks-export-menu'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Plain' }))
+    const text = (await screen.findByTestId('deck-export-text')) as HTMLTextAreaElement
+    expect(text.value).toContain('4 Lightning Bolt')
+    fireEvent.click(screen.getByTestId('deck-export-dialog-close'))
+    await waitFor(() => expect(screen.queryByTestId('deck-export-dialog')).toBeNull())
+  })
+
   it('el confirm de borrado muestra el NOMBRE del mazo', async () => {
     storeState.decks = [customDeck()]
     render(<DecksGallery onEdit={() => {}} />)
@@ -315,5 +327,93 @@ describe('DecksGallery empty state (gallery polish)', () => {
     const openedId = onEdit.mock.calls[0][0] as string
     expect(openedId.startsWith('precon-')).toBe(false)
     expect(storeState.decks.find((d) => d.id === openedId)?.source).toBe('custom')
+  })
+})
+
+describe('DecksGallery · a new deck is a draft until it gets a card', () => {
+  it('DCK-27: Create deck stores the new deck as a draft and opens it', async () => {
+    const onEdit = vi.fn()
+    render(<DecksGallery onEdit={onEdit} />)
+    await waitFor(() => expect(document.querySelector('.deck-box-create')).not.toBeNull())
+    fireEvent.click(document.querySelector('.deck-box-create')!)
+    await waitFor(() => expect(onEdit).toHaveBeenCalledOnce())
+    expect(storeState.decks).toHaveLength(1)
+    expect(storeState.decks[0]).toMatchObject({ id: onEdit.mock.calls[0][0], draft: true, cards: [], sideboard: [] })
+  })
+
+  it('DCK-27: opening the gallery drops an empty draft left behind and keeps every other deck', async () => {
+    storeState.decks = [
+      customDeck({ id: 'left-empty', name: 'Mazo 1', cards: [], draft: true }),
+      customDeck({ id: 'draft-with-cards', name: 'Mazo 2', draft: true }),
+      customDeck({ id: 'kept-empty', name: 'Vacío a propósito', cards: [] }),
+      customDeck({ id: 'burn', name: 'Mi Burn' }),
+    ]
+    render(<DecksGallery onEdit={() => {}} />)
+    await waitFor(() => expect(storeState.decks.map((d) => d.id)).not.toContain('left-empty'))
+    expect(storeState.decks.map((d) => d.id).sort()).toEqual(['burn', 'draft-with-cards', 'kept-empty'])
+    await waitFor(() => expect(document.querySelector('.decks-grid')?.textContent).toContain('Mi Burn'))
+    expect(document.querySelector('.decks-grid')?.textContent).not.toContain('Mazo 1')
+  })
+})
+
+describe('DecksGallery · why a deck is not legal', () => {
+  it('DCK-19: selecting a deck that is not legal shows why under its name', async () => {
+    storeState.decks = [customDeck({ id: 'short', name: 'Corto', format: 'Commander' })]
+    render(<DecksGallery onEdit={() => {}} />)
+    const box = await waitFor(() => {
+      const el = document.querySelector('.deck-box[aria-label="Corto"]')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    fireEvent.click(box)
+    const issue = await screen.findByTestId('decks-footer-issue')
+    expect(issue.textContent).toContain('4/100')
+    expect(issue.getAttribute('title')).toContain(t('decks', 'commander_hint'))
+  })
+
+  it('DCK-23: My decks equips the selected deck and marks it on its tile', async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      get length() { return values.size },
+      clear: () => values.clear(),
+      getItem: (k: string) => values.get(k) ?? null,
+      key: (i: number) => [...values.keys()][i] ?? null,
+      removeItem: (k: string) => { values.delete(k) },
+      setItem: (k: string, v: string) => { values.set(k, String(v)) },
+    })
+    setState({ ...initialState } as never)
+    storeState.decks = [customDeck({ id: 'burn', name: 'Mi Burn' }), customDeck({ id: 'krenko', name: 'Krenko' })]
+    render(<DecksGallery onEdit={() => {}} />)
+    const box = await waitFor(() => {
+      const el = document.querySelector('.deck-box[aria-label="Krenko"]')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    expect(screen.queryByTestId('deckbox-equipped')).toBeNull()
+
+    fireEvent.click(box)
+    const equip = await screen.findByTestId('decks-equip')
+    expect(equip.textContent).toBe(t('decks', 'builder_equip'))
+    fireEvent.click(equip)
+
+    expect((getState().myDeck as { id?: string } | null)?.id).toBe('krenko')
+    expect(equip.textContent).toBe(`✓ ${t('decks', 'builder_equipped')}`)
+    expect((equip as HTMLButtonElement).disabled).toBe(true)
+    expect(box.querySelector('[data-testid="deckbox-equipped"]')).not.toBeNull()
+    expect(screen.getAllByTestId('deckbox-equipped')).toHaveLength(1)
+    setState({ ...initialState } as never)
+  })
+
+  it('DCK-19: a legal deck shows no reason', async () => {
+    storeState.decks = [customDeck({ id: 'burn', name: 'Mi Burn' })]
+    render(<DecksGallery onEdit={() => {}} />)
+    const box = await waitFor(() => {
+      const el = document.querySelector('.deck-box[aria-label="Mi Burn"]')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    fireEvent.click(box)
+    await waitFor(() => expect(document.querySelector('.decks-footer-name')?.textContent).toBe('Mi Burn'))
+    expect(screen.queryByTestId('decks-footer-issue')).toBeNull()
   })
 })

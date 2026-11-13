@@ -50,3 +50,33 @@ token change that drops below the minimum fails the unit run.
   were reviewed; requiring 3:1 on every divider would change the look of the whole app for a need that
   WCAG does not place on decorative lines. The light appearance did not exist at review time.
 - Guard: `src/appearance/appearanceContrast.test.ts`
+
+### APR-4 · Flag emoji show as flags on every system
+The language pickers, the login country picker and the players' flags in the lobby show a flag, never two
+letters, on every operating system. When the browser cannot draw flag emoji (Windows has no glyphs for
+them, so 🇪🇸 shows as "ES"), the app loads a font that only holds the flags, served by the app itself so
+the desktop app and offline play get it too; `--font-ui` and `--font-display` list it first, and its
+unicode-range leaves every other character on the usual fonts. No screen sets an interface font of its
+own that leaves the flag font out. The flags come from Twemoji under CC BY 4.0, credited in About next to
+Scryfall and XMage; the page footer only credits Scryfall and XMage.
+
+- Why: on Chrome and Edge for Windows every flag in the app read as two capital letters (report of
+  2026-10-31). The deck editor still showed "GB EN" and "ES" because its stylesheet set a font stack of
+  its own without the flag font, and the flags credit took a third link in the footer of every page
+  (reports of 2026-11-06).
+- Guard: `src/system/flagEmoji.test.ts` · `src/system/flagFontStacks.test.ts` · `src/system/Attribution.test.tsx`
+
+### APR-5 · The client loads no font from a third-party host
+Every web font the client loads is served by the app itself, so it loads under the proxy's
+Content-Security-Policy (`default-src 'self'`, no font host) and in the desktop app and offline play.
+Cinzel and Merriweather ship as woff2 files sliced by unicode-range, so a page only fetches the slices it
+draws; Merriweather carries the Cyrillic that Cinzel lacks. No page or stylesheet asks a font CDN for
+anything, and fonts are never inlined as `data:` URLs, which that policy blocks too. Japanese and Chinese
+use the system CJK fonts their stacks list (Hiragino Sans, Yu Gothic, PingFang SC, Microsoft YaHei); the
+Noto Sans JP and SC files are not bundled.
+
+- Why: `index.html` loaded Cinzel, Merriweather and Noto Sans JP/SC from Google Fonts, which the proxy's
+  CSP blocks, so on xmage-nexus.com every display title fell back to Georgia (report of 2026-11-10).
+  Bundling Noto Sans JP and SC would add about 15 MB to the build and the desktop installer for fonts
+  the systems that read those languages already have.
+- Guard: `src/system/webFonts.test.ts`

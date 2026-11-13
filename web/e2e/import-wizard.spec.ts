@@ -26,6 +26,21 @@ test.describe('Import wizard', () => {
         }),
       })
     })
+    await page.route('https://api.scryfall.com/cards/collection', async (route) => {
+      const { identifiers } = route.request().postDataJSON() as { identifiers: { name: string }[] }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          object: 'list',
+          not_found: identifiers.filter((id) => !CARDS[id.name]),
+          data: identifiers.filter((id) => CARDS[id.name]).map(({ name }) => ({
+            object: 'card', name, set: CARDS[name].set, collector_number: CARDS[name].num, cmc: 1, type_line: 'Instant',
+            legalities: { modern: 'legal' },
+          })),
+        }),
+      })
+    })
     await withFakeServer(decksGalleryScenario, async () => {
       await page.goto(`/?proxyPort=${proxyPort()}`)
       await dismissSetupWizard(page)
@@ -41,7 +56,8 @@ test.describe('Import wizard', () => {
       if (shots) await page.screenshot({ path: `${shots}/1-source.png` })
       await page.locator('[data-testid="import-next-btn"]').click()
       await expect(page.locator('[data-testid="import-step-setup"]')).toBeVisible()
-      await page.locator('[data-testid="import-format-select"]').selectOption('Modern')
+      await page.locator('[data-testid="import-format-select"]').click()
+      await page.getByRole('option', { name: /^Modern/ }).click()
       if (shots) await page.screenshot({ path: `${shots}/2-setup.png` })
       await page.locator('[data-testid="import-resolve-btn"]').click()
       await expect(page.locator('[data-testid="import-step-review"]')).toBeVisible()

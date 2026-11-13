@@ -5,9 +5,6 @@ import type { DeckV2 } from './types'
 import type { ValidationIssue } from './formatRules'
 import { t } from '../i18n'
 
-const { downloadDeckFile } = vi.hoisted(() => ({ downloadDeckFile: vi.fn(async () => {}) }))
-vi.mock('./exportDeckFile', () => ({ downloadDeckFile }))
-
 const deck: DeckV2 = {
   id: 'deck-1',
   name: 'Burn',
@@ -49,7 +46,6 @@ function props(overrides: Partial<DeckEditorTopBarProps> = {}): DeckEditorTopBar
 describe('DeckEditorTopBar', () => {
   afterEach(() => {
     cleanup()
-    downloadDeckFile.mockClear()
   })
 
   it('DCK-5: shows the name, format, counts and cover of the deck', () => {
@@ -57,7 +53,7 @@ describe('DeckEditorTopBar', () => {
       <DeckEditorTopBar {...props({ coverArtUrl: 'https://img.test/cover.jpg' })} />,
     )
     expect(screen.getByRole('textbox', { name: t('decks', 'builder_deck_name_placeholder') })).toHaveProperty('value', 'Burn')
-    expect(screen.getByRole('combobox', { name: t('lobby', 'filter_format_label') })).toHaveProperty('value', 'Modern')
+    expect(screen.getByRole('combobox', { name: t('lobby', 'filter_format_label') }).textContent).toBe('Modern')
     expect(container.querySelector('.deck-editor-counts')?.textContent).toBe(
       `60 ${t('decks', 'zone_main')} · 15 ${t('decks', 'sideboard')}`,
     )
@@ -108,9 +104,8 @@ describe('DeckEditorTopBar', () => {
       target: { value: 'Burn 2' },
     })
     expect(onNameChange).toHaveBeenCalledWith('Burn 2')
-    fireEvent.change(screen.getByRole('combobox', { name: t('lobby', 'filter_format_label') }), {
-      target: { value: 'Legacy' },
-    })
+    fireEvent.click(screen.getByRole('combobox', { name: t('lobby', 'filter_format_label') }))
+    fireEvent.click(screen.getByRole('option', { name: 'Legacy' }))
     expect(onFormatChange).toHaveBeenCalledWith('Legacy')
   })
 
@@ -157,6 +152,6 @@ describe('DeckEditorTopBar', () => {
     render(<DeckEditorTopBar {...props()} />)
     fireEvent.click(screen.getByRole('button', { name: t('decks', 'export_deck') }))
     fireEvent.click(screen.getByRole('menuitem', { name: '.dck' }))
-    expect(downloadDeckFile).toHaveBeenCalledWith(deck, 'dck', expect.any(String))
+    expect((screen.getByTestId('deck-export-text') as HTMLTextAreaElement).value).toContain('4 [M10:146] Lightning Bolt')
   })
 })

@@ -2,13 +2,15 @@ import { useId, useLayoutEffect, useState, type CSSProperties, type ReactNode } 
 import type { DeckV2 } from './types'
 import { ALL_FORMATS } from './formatRules'
 import type { ValidationIssue } from './formatRules'
-import { downloadDeckFile, type DeckExportKind } from './exportDeckFile'
+import type { DeckExportKind } from './exportDeckFile'
+import { DeckExportDialog } from './DeckExportDialog'
 import { EXPORT_KINDS, legalityOf } from './DeckEditorTopBar'
 import { CardSizeSlider } from './CardSizeSlider'
 import { canSeparateCreatures } from './stackColumns'
 import { DECK_STACKS_SCALE_MAX, DECK_STACKS_SCALE_MIN, DECK_STACKS_SCALE_STEP } from './stacksScale'
 import type { DeckEditorView, DeckStacksCopies, DeckStacksGroup, DeckStacksSort } from '../state/persistence'
 import Button from '../ui/Button'
+import Select from '../ui/Select'
 import ChipButton from '../ui/ChipButton'
 import CloseButton from '../ui/CloseButton'
 import DropdownMenu from '../ui/DropdownMenu'
@@ -101,9 +103,7 @@ export function DeckEditorPhoneTopBar({
     ? t('decks', 'legal_in', { format })
     : legality.shortBy > 0 ? t('decks', 'cards_short', { n: legality.shortBy }) : legality.message
 
-  const exportDeck = (kind: DeckExportKind) => {
-    void downloadDeckFile(deck, kind, `✓ ${t('common', 'copied')}`)
-  }
+  const [exportKind, setExportKind] = useState<DeckExportKind | null>(null)
 
   return (
     <header className="deck-phone-top">
@@ -124,12 +124,13 @@ export function DeckEditorPhoneTopBar({
           direction="down"
           aria-label={t('decks', 'editor_more')}
           className="deck-phone-more"
+          menuClassName="deck-phone-more-panel"
           data-testid="deck-editor-more"
         >
           <MenuItem role="menuitem" icon="download" onClick={onImport}>{t('decks', 'import_deck')}</MenuItem>
           <MenuCaption>{t('decks', 'export_deck')}</MenuCaption>
           {EXPORT_KINDS.map((item) => (
-            <MenuItem key={item.kind} role="menuitem" icon={item.icon} onClick={() => exportDeck(item.kind)}>
+            <MenuItem key={item.kind} role="menuitem" icon={item.icon} onClick={() => setExportKind(item.kind)}>
               {item.label}
             </MenuItem>
           ))}
@@ -184,16 +185,13 @@ export function DeckEditorPhoneTopBar({
       </div>
 
       <div className="deck-phone-status">
-        <select
+        <Select
           value={format}
-          onChange={(e) => onFormatChange(e.target.value as DeckV2['format'])}
+          onChange={onFormatChange}
           className="deck-phone-format"
           aria-label={t('lobby', 'filter_format_label')}
-        >
-          {ALL_FORMATS.map((f) => (
-            <option key={f} value={f}>{f}</option>
-          ))}
-        </select>
+          options={ALL_FORMATS.map((f) => ({ value: f, label: f }))}
+        />
         <span className="deck-phone-counts">{`${mainCount} ${t('decks', 'zone_main')} · ${sideCount} ${t('decks', 'sideboard')}`}</span>
         <span className={`deck-phone-legal ${legality.isValid ? 'is-valid' : 'is-invalid'}`}>{legalText}</span>
         {issues.length > 0 && (
@@ -220,6 +218,7 @@ export function DeckEditorPhoneTopBar({
           ))}
         </ul>
       )}
+      {exportKind && <DeckExportDialog deck={deck} kind={exportKind} onClose={() => setExportKind(null)} />}
     </header>
   )
 }

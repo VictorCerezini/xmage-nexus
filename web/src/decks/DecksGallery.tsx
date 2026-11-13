@@ -1,5 +1,6 @@
 import Tabs from '../ui/Tabs'
 import Button from '../ui/Button'
+import Select from '../ui/Select'
 import DropdownMenu from '../ui/DropdownMenu'
 import MenuItem from '../ui/MenuItem'
 import CloseButton from '../ui/CloseButton'
@@ -7,24 +8,28 @@ import IconButton from '../ui/IconButton'
 import ChipButton from '../ui/ChipButton'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DeckBox, DeckBoxCreate } from './DeckBox'
+import { useDeckLegality } from './deckLegality'
 import { fetchCardJson } from '../cards/scryfallCards'
 import { getDeckStorage } from './storage'
 import type { DeckV2 } from './types'
-import { MAX_DECKS, deckMainCount, makeDeckId } from './types'
+import { MAX_DECKS, deckMainCount, isEmptyDraft, makeDeckId } from './types'
 import { ALL_FORMATS } from './formatRules'
-import { exportDck, exportArena, exportTxt, exportDek } from './parseDck'
 import { bundledDecks, type DeckCard } from '../lobby/decks'
 import Icon from '../ui/Icon'
 import { DeckBrowser } from './DeckBrowser'
 import { cloneDeckForEdit } from './cloneDeck'
 import { DeckInspectorModal } from './DeckInspectorModal'
+import { DeckExportDialog } from './DeckExportDialog'
+import type { DeckExportKind } from './exportDeckFile'
 import { ImportDeckDialog } from './ImportDeckDialog'
 import type { MetaDeckItem } from './metaDeckCatalog'
 import { ManaPip } from './ArenaManaSymbols'
 import { useTranslation } from '../i18n'
 import { alertDialog, confirmDialog } from '../ui/confirmDialog'
 import { downloadBlob } from '../utils/download'
-import { copyText } from '../utils/clipboard'
+import { setMyDeck } from '../state/store'
+import { equippedDeckId } from '../state/persistence'
+import { withCommanderFirst } from './deckUtils'
 import './DecksGallery.css'
 
 function inferDeckColors(cards: DeckCard[]): ('W' | 'U' | 'B' | 'R' | 'G')[] {
@@ -99,6 +104,7 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
   const [formatFilter, setFormatFilter] = useState<string>('All Decks')
   const [sortBy, setSortBy] = useState<'updated' | 'name' | 'size'>('updated')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [equippedId, setEquippedId] = useState<string | null>(() => equippedDeckId())
   const [inspectingDeck, setInspectingDeck] = useState<DeckV2 | null>(null)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [importPrefill, setImportPrefill] = useState<{ text: string; name: string } | null>(null)
@@ -124,7 +130,13 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
       return custom.length > 0 ? custom[0].id : null
     })
   }
-  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    void (async () => {
+      const drafts = (await storage.list()).filter(isEmptyDraft)
+      await Promise.all(drafts.map((d) => storage.del(d.id)))
+      await load()
+    })()
+  }, [])
 
   const selected = useMemo(() => decks.find((d) => d.id === selectedId) ?? null, [decks, selectedId])
 
@@ -223,6 +235,7 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
       createdAt: now,
       updatedAt: now,
       source: 'custom',
+      draft: true,
     }
     await storage.put(empty)
     await load()
@@ -254,6 +267,11 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
     await load()
     setSelectedId(deck.id)
     setMainView('my-decks')
+  }
+
+  const equipDeck = (deck: DeckV2) => {
+    setMyDeck({ ...deck, cards: withCommanderFirst(deck.cards, deck.commanderCard, deck.partnerCard) })
+    setEquippedId(deck.id)
   }
 
   const handleDelete = async () => {
@@ -293,13 +311,7 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
     await cloneDeck(selected)
   }
 
-  const handleExport = async (fmt: 'dck' | 'arena' | 'plain' | 'dek') => {
-    if (!selected) return
-    const text = fmt === 'dck' ? exportDck(selected) : fmt === 'arena' ? exportArena(selected) : fmt === 'dek' ? exportDek(selected) : exportTxt(selected)
-    await copyText(text)
-    const ext = fmt === 'dck' ? 'dck' : fmt === 'arena' ? 'txt' : fmt === 'dek' ? 'dek' : 'plain.txt'
-    downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), `${selected.name.replace(/[^a-z0-9\-_ ]/gi, '_')}.${ext}`)
-  }
+  const [exportKind, setExportKind] = useState<DeckExportKind | null>(null)
 
   const handleFavorite = async () => {
     if (!selected || selected.source === 'precon') return
@@ -426,18 +438,28 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
 
         {mainView === 'my-decks' && (
           <div className="decks-filters">
-            <select value={formatFilter} onChange={(e) => setFormatFilter(e.target.value)} className="decks-select">
-              <option value="All Decks">{t('decks', 'gallery_all_formats')}</option>
-              {ALL_FORMATS.map((f) => (
-                <option key={f} value={f}>{f}</option>
-              ))}
-              <option value="Favoritos">★ {t('decks', 'favorite')}</option>
-            </select>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as never)} className="decks-select">
-              <option value="updated">{t('decks', 'gallery_recent')}</option>
-              <option value="name">{t('common', 'search')} A–Z</option>
-              <option value="size">{t('decks', 'total_cards')}</option>
-            </select>
+            <Select
+              value={formatFilter}
+              onChange={setFormatFilter}
+              className="decks-select"
+              aria-label={t('lobby', 'filter_format_label')}
+              options={[
+                { value: 'All Decks', label: t('decks', 'gallery_all_formats') },
+                ...ALL_FORMATS.map((f) => ({ value: f, label: f })),
+                { value: 'Favoritos', label: `★ ${t('decks', 'favorite')}` },
+              ]}
+            />
+            <Select
+              value={sortBy}
+              onChange={setSortBy}
+              className="decks-select"
+              aria-label={t('decks', 'sort_by')}
+              options={[
+                { value: 'updated', label: t('decks', 'gallery_recent') },
+                { value: 'name', label: `${t('common', 'search')} A–Z` },
+                { value: 'size', label: t('decks', 'total_cards') },
+              ]}
+            />
             <div className="decks-search-wrap">
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('common', 'search')} className="decks-search" />
               {search && <CloseButton variant="plain" size="sm" className="decks-search-clear" label={t('common', 'clear')} onClick={() => setSearch('')} />}
@@ -481,6 +503,7 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
                 key={d.id}
                 deck={d}
                 selected={selectedId === d.id}
+                equipped={equippedId === d.id}
                 onSelect={() => setSelectedId(d.id)}
                 onDoubleClick={() => setInspectingDeck(d)}
                 onEdit={() => void openForEdit(d)}
@@ -520,6 +543,7 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
                 <>
                   <span className="decks-footer-name" title={selected.name}>{selected.name}</span>
                   <span className="decks-footer-meta">{deckMainCount(selected)} {t('decks', 'total_cards')} · {selected.format}</span>
+                  <SelectedDeckIssue deck={selected} />
                 </>
               )}
             </div>
@@ -535,12 +559,22 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
               <Button variant="subtle" size="sm" className={`decks-footer-btn ${selected?.favorite ? 'fav-active' : ''}`} disabled={!selected || selected?.source === 'precon'} aria-pressed={!!selected?.favorite} onClick={handleFavorite}><span aria-hidden="true">★</span> {t('decks', 'favorite')}</Button>
               <Button variant="subtle" size="sm" className="decks-footer-btn" icon="copy" disabled={!selected} onClick={handleClone}>{t('common', 'copy')}</Button>
               <DropdownMenu label={t('decks', 'export_deck')} icon="download" direction="up" align="end" disabled={!selected} className="decks-footer-btn" data-testid="decks-export-menu">
-                <MenuItem role="menuitem" icon="save" onClick={() => handleExport('dck')}>.dck</MenuItem>
-                <MenuItem role="menuitem" icon="clipboard" onClick={() => handleExport('arena')}>Arena</MenuItem>
-                <MenuItem role="menuitem" icon="file" onClick={() => handleExport('plain')}>Plain</MenuItem>
-                <MenuItem role="menuitem" icon="file" onClick={() => handleExport('dek')}>.dek</MenuItem>
+                <MenuItem role="menuitem" icon="save" onClick={() => setExportKind('dck')}>.dck</MenuItem>
+                <MenuItem role="menuitem" icon="clipboard" onClick={() => setExportKind('arena')}>Arena</MenuItem>
+                <MenuItem role="menuitem" icon="file" onClick={() => setExportKind('txt')}>Plain</MenuItem>
+                <MenuItem role="menuitem" icon="file" onClick={() => setExportKind('dek')}>.dek</MenuItem>
               </DropdownMenu>
               <Button variant="soft-danger" size="sm" className="decks-footer-btn" icon="trash" disabled={!selected || selected?.source === 'precon'} title={selected?.source === 'precon' ? t('decks', 'browser_filter_precon') : undefined} onClick={handleDelete}>{t('common', 'delete')}</Button>
+              <Button
+                variant={selected && equippedId === selected.id ? 'success' : 'secondary'}
+                size="sm"
+                className="decks-footer-btn decks-equip-btn"
+                data-testid="decks-equip"
+                disabled={!selected || equippedId === selected.id}
+                onClick={() => selected && equipDeck(selected)}
+              >
+                {selected && equippedId === selected.id ? `✓ ${t('decks', 'builder_equipped')}` : t('decks', 'builder_equip')}
+              </Button>
               <Button variant="primary" className="decks-edit-btn" icon="pencil" disabled={!selected} onClick={() => selected && void openForEdit(selected)}>{t('decks', 'editor_open')}</Button>
             </div>
             <input ref={restoreInputRef} type="file" accept=".json" hidden onChange={async (e) => {
@@ -584,6 +618,20 @@ export default function DecksGallery({ onEdit }: { onEdit: (id: string) => void 
           onSelectCover={inspectingDeck.source === 'precon' ? undefined : handleSelectCover}
         />
       )}
+
+      {selected && exportKind && (
+        <DeckExportDialog deck={selected} kind={exportKind} onClose={() => setExportKind(null)} />
+      )}
     </div>
+  )
+}
+
+function SelectedDeckIssue({ deck }: { deck: DeckV2 }) {
+  const { isValid, reasons } = useDeckLegality(deck)
+  if (isValid || reasons.length === 0) return null
+  return (
+    <span className="decks-footer-issue" data-testid="decks-footer-issue" title={reasons.join('\n')}>
+      <Icon name="alert" size={12} /> {reasons[0]}{reasons.length > 1 ? ` (+${reasons.length - 1})` : ''}
+    </span>
   )
 }

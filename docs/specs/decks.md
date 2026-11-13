@@ -60,18 +60,17 @@ as before.
 - Guard: `e2e/decks-touch.spec.ts`
 
 ### DCK-5 · One deck editor with two views, Piles and List
-The gallery opens a deck with one button, "Open" (it replaces "Edit" and "Stacks editor"); the
-separate stacks screen is gone. The editor has a top bar and a toolbar. The top bar holds, left to
-right: back to My decks, the cover thumbnail, the editable name, and under it the format selector,
-the legality chip ("Legal in <format>" or what is wrong; clicking it opens today's issue list), the
-main and sideboard counts and the save state (saving, saved, failed with retry); then Import,
-Export, Sample hand, Equip and Done. The toolbar holds the catalogue toggle (DCK-12), View
-(Piles | List), and in Piles view Group, Copies, Sort and Card size (DCK-1, DCK-6, DCK-8). List view
-is today's strip list with every strip action; Piles view is DCK-6 to DCK-11. Everything the old
+The gallery opens a deck with one button, "Open" (it replaces "Edit" and "Stacks editor"); the separate
+stacks screen is gone. The editor has a top bar and a toolbar. The top bar holds, left to right: back
+to My decks, the cover thumbnail, the editable name, and under it the format selector, the legality
+chip ("Legal in <format>" or what is wrong; clicking it opens today's issue list), the main and
+sideboard counts and the save state (saving, saved, failed with retry); then Import, Export, Sample
+hand, Equip and Done. The toolbar holds the catalogue toggle (DCK-12), View (Piles | List), Group and
+Sort (List view groups too, DCK-25), and in Piles view Copies and Card size (DCK-1, DCK-6, DCK-8). List
+view is today's strip list with every strip action; Piles view is DCK-6 to DCK-11. Everything the old
 builder offered stays reachable in both views: server and XMage format issue banners with repair,
-commander and partner, printings, cover, curve, basic lands, the deck inspector, suggestions,
-dropping a deck file. The view is a player setting (`deckEditorView`, default Piles) kept across
-sessions.
+commander and partner, printings, cover, curve, basic lands, the deck inspector, suggestions, dropping
+a deck file. The view is a player setting (`deckEditorView`, default Piles) kept across sessions.
 
 - Why: the review of 2026-10-28 found two screens for one job with different features (the stacks
   screen had no curve, validation, commander, printings or cover; the builder had no piles), and a
@@ -269,3 +268,155 @@ carries over to a deck built from a draft or sealed pool.
   Voice printings), so imports raised warnings and an "Auto-resolve" button that, once pressed,
   replaced the art the player had chosen with a printing the server knew.
 - Guard: `src/decks/deckIssues.test.ts` · `src/lobby/DeckIssuesDialog.test.tsx` · `src/decks/DeckServerIssues.test.tsx` · `src/decks/deckArt.test.ts` · `src/state/events/draft.test.ts` · `e2e/deckvalidation.spec.ts`
+
+### DCK-18 · A colour chip shows cards of that colour and the lands that make it
+In the editor's search, picking one or more colour chips (white, blue, black, red, green) shows cards
+whose colours are all among the picked ones, and lands whose colour identity is among them and not
+empty, that is, lands that make one of the picked colours. Colourless cards and lands that make none of
+those colours are left out. The colourless chip shows them on its own: colourless cards that are not
+lands, and lands whose colour identity is colourless, so a land that makes coloured mana (Abandoned
+Campground) stays out of it. Suggestions filter the same way by colour identity.
+
+- Why: picking only red listed colourless lands that make no red (Abandoned Air Temple, Academy Ruins)
+  and colourless artifacts first, because a colourless card's colours are always "within" any pick
+  (report of 2026-10-31). MTG Arena's colour filter keeps colourless cards behind their own chip too.
+  The colourless chip listed every land, coloured ones included, because no land has a colour (report of
+  2026-11-06).
+- Guard: `src/decks/filterQuery.test.ts` · `src/decks/filterMatch.test.ts`
+
+### DCK-19 · My decks judges a deck as the editor does, and says why it is not legal
+A deck's format badge in My decks takes XMage's DeckValidator verdict, the same one the editor shows and
+the server applies at a table, whenever the proxy is connected and the format has a validator; the local
+check against Scryfall's legalities is only the fallback without it. Each saved version of a deck is
+validated once, one deck at a time. Selecting a deck that is not legal shows the first reason under its
+name in the footer, with how many more there are, and all of them on hover.
+
+- Why: a Commander deck led by Gargantos, the Endbringer was legal in the editor and not legal in My
+  decks, with nothing on screen saying why (report of 2026-11-01). The list only ran the local check, and
+  Scryfall marks every card of a set that is not out yet (Gargantos and The Darkhold, out 2027-04-09) as
+  not legal in every format, while XMage, which implements them, accepts them.
+- Guard: `src/decks/deckLegality.test.ts` · `src/decks/DecksGallery.test.tsx`
+
+### DCK-20 · Exporting opens a window to copy the deck, and downloads only on request
+Choosing a format to export a deck (.dck, Arena, Plain, .dek), from the editor on any screen size or from
+My decks, opens a window with the deck written in that format. Copy puts the text on the clipboard and
+the button says it was copied for a moment; when the browser refuses the clipboard, the text is selected
+so it can be copied by hand. Download saves the file in that format, and nothing is downloaded or copied
+until one of the two is pressed.
+
+- Why: every export copied the deck and downloaded a file at once, so a player who only wanted to paste
+  the list got the browser's "where to save" window each time; and in the editor, telling the player the
+  copy worked rewrote the text of whatever had focus, which after the menu closed was the page itself,
+  so the whole app was replaced by "Copied!" (report of 2026-11-01).
+- Guard: `src/decks/DeckExportDialog.test.tsx` · `src/decks/DecksGallery.test.tsx`
+
+### DCK-21 · The editor's search shows cards only once there is something to search for
+Opening the editor's Search tab asks Scryfall for nothing: the grid says, across its whole width, to type a
+name or pick a filter, and the count and load-more footer are hidden until there is a search, which then
+reads "175 of 8,027 cards".
+Typing a name, or picking any filter (colour, mana value, type, rarity, keyword, power, toughness or
+set), runs the search; the deck's format and the sort order alone do not. Clearing the name and every
+filter empties the grid again.
+
+- Why: the grid loaded the whole of `game:paper -t:basic` with its images every time the editor opened,
+  while most players import their decks and never use it (report of 2026-11-01). Every tile is a Scryfall
+  image the player did not ask for.
+- Guard: `src/decks/filterQuery.test.ts` · `src/decks/SearchPanel.test.tsx`
+
+### DCK-22 · Every filter with a list of values is a dropdown
+In the editor's filter bar, mana value (All, 0 to 6, 7+), card type and sort order are dropdowns, and in
+the advanced filters so are rarity, keyword, set and the comparison (≥, =, ≤, >, <) of power and
+toughness. All of them open the shared list of CTL-1, anchored under its button and as wide as its content;
+a menu that would run past the filter bar opens toward the left, as does the card language menu. Mana
+value, sort order, set and the comparisons pick one value and close; card type, rarity and keyword keep
+several picks (the menu stays open and each value toggles; several types are searched as one OR group,
+`(t:creature OR t:artifact)`), and the set dropdown has a search box over every paper set by code and
+name (Scryfall's set list, loaded the first time the advanced filters open, without tokens, memorabilia
+or digital-only sets). Picking a set applies it and closes the menu; Enter in the search applies a set
+typed by its name by its code, and anything else as typed. The keyword dropdown lists the 24 common
+keywords and has a search box over every keyword ability Scryfall knows, by English or translated name;
+Enter picks the first match, a picked keyword outside the common list stays on top, and a keyword of two
+words is searched as one phrase (`keyword:"first strike"`). A search box with no match says so. A
+dropdown that filters is highlighted and names what it filters by ("Creature +1" for two types); "Any"
+(or All) clears it. Escape or a click outside closes an open menu.
+
+- Why: eight mana value chips and eight type chips took three rows of the narrow search column, the
+  rarity letters sat off-centre, the keyword chips needed a "More" toggle, and the eight quick set chips
+  only covered sets from 2023 and 2024; a native `datalist` for the set looked different in every browser
+  and showed no list at all in Chrome until typing, and the native selects opened a different menu from the
+  custom ones (reports of 2026-11-01 and 2026-11-06).
+- Guard: `src/decks/ArenaFilterBar.test.tsx` · `src/decks/filterQuery.test.ts`
+
+### DCK-23 · My decks equips a deck without opening it, and the label stays clear of the buttons
+The bottom bar of My decks has an Equip button for the selected deck, next to Open. It does what the
+editor's Equip does: the deck becomes the one used to join tables, the button turns into "✓ Equipped"
+and stays disabled, and the deck's tile says "✓ Equipped" under its name. Only one tile carries the mark.
+On a tile, the format label moves below the quick actions whenever they show (hover, focus, the selected
+tile, and always on touch screens), so the buttons never cover it.
+
+- Why: equipping meant opening the editor just to press one button, and the quick actions sat on top of
+  the format label on narrow tiles (report of 2026-11-06).
+- Guard: `src/decks/DecksGallery.test.tsx` · `e2e/decks-gallery.spec.ts`
+
+### DCK-24 · The editor's search can look for words in the rules text
+The advanced filters of the editor's search have a "Rules text" field. Each word typed there must appear
+in the card's Oracle text, and a phrase in quotes must appear as it is; each one becomes a Scryfall `o:`
+term (`"enters tapped" draw` searches `o:"enters tapped" o:"draw"`). Text in the field is enough to start
+a search (DCK-21), Clear empties it, and a hint under the field says the text is matched in English,
+because Scryfall's Oracle text is English only. The suggestions panel, which filters a fixed list, has no
+such field.
+
+- Why: finding cards by what they do (draw, sacrifice, "enters tapped") needed Scryfall syntax typed by
+  hand in the name box, while other deck builders offer the field (report of 2026-11-06).
+- Guard: `src/decks/filterQuery.test.ts` · `src/decks/ArenaFilterBar.test.tsx` · `src/decks/SearchPanel.test.tsx`
+
+### DCK-25 · List view groups and sorts like Piles
+In List view the toolbar shows the same Group as Piles (Type, Mana value, Colour, Rarity, Identity, EDH
+power, Free) and Sort (mana value or name). The grouping is one setting for both views and both list
+layouts, so switching between Piles, List, vertical and horizontal keeps it; Free lists the deck by its
+own piles, and by type while it has none yet. The vertical list makes one section per group, under the
+commander section, and the horizontal list one column per group with the commander column first. The
+horizontal columns are at least 200 px wide and flow like newspaper columns: a group is never split or
+squeezed and never overlaps the next one, so a card's name is never covered by its cost. Grouping by
+rarity uses each card's rarity from Scryfall. The commander's crown sits in the strip's quantity slot,
+beside the name.
+
+- Why: List view only grouped by type, the horizontal list always used fixed mana value columns about
+  95 px wide where the cost covered the name, grouping by rarity left a whole deck in one "other" column
+  because card details dropped the rarity, a long group in the horizontal list was squeezed over the
+  next row, and the board's `.commander-badge` style pulled the list's
+  crown on top of the commander's name (report of 2026-11-06).
+- Guard: `src/decks/DeckEditorToolbar.test.tsx` · `src/decks/DeckListPanel.test.tsx` · `src/decks/deckCardOps.test.ts` · `src/decks/ArenaCardStrip.test.tsx`
+
+### DCK-26 · An import never calls a card missing because Scryfall did not answer
+When an import or a resolve has cards XMage did not place, it asks Scryfall about them by name (and by
+set for "A specific set"; a split card by its first face) in batches of up to 75 per `/cards/collection`
+request, and looks a card up on its own (exact name, then fuzzy, or the release-ordered search of
+"Oldest printing") only when the batch reports it not found or did not answer. The answers are cached
+like single lookups, so a second import of the same cards asks Scryfall nothing. Requests to the
+endpoints Scryfall limits to 2 per second (`/cards/search`, `/cards/named`, `/cards/random`,
+`/cards/collection`) are at least 500 ms apart,
+while the rest of the API keeps its 150 ms spacing and is not held behind them. A 429 pauses every
+request for its `Retry-After`, or for Scryfall's full 30 s block when it has none, and a 503 for its
+`Retry-After` or 2 s; the request is then sent again, up to three attempts. A card Scryfall did not
+answer for (throttled past every attempt, offline, or an HTTP error other than 404) is not listed under
+"Not found": the review lists it under "Scryfall did not answer", says the card stays in the deck as
+written, and offers to try again, which resolves the deck again from the cache and asks only for what
+is still unknown.
+
+- Why: importing a 100-card deck whose names XMage did not resolve fired one rate-limited request per
+  card at 150 ms; Scryfall answered 429 and blocked for 30 s, the 2 s back-off spent the three attempts
+  inside the block, and every card that lost its lookup was shown as "No encontradas" although it exists
+  (report of 2026-11-10).
+- Guard: `src/cards/scryfallClient.test.ts` · `src/cards/scryfallCards.test.ts` · `src/decks/importResolve.scryfall.test.ts` · `src/decks/ImportDeckDialog.test.tsx`
+
+### DCK-27 · A new deck left without cards is not kept
+"Create deck" opens the editor on a new deck that stays a draft until it gets its first card, in the main
+deck, the sideboard or as commander. Leaving the editor while it still has none deletes it instead of
+saving it, whatever its name or format; a draft left behind by closing or reloading the page is deleted
+the next time My decks opens. Once it has had a card it is a normal deck and is kept,
+even if it is emptied later, and an empty deck that was not just created is never removed.
+
+- Why: opening "Create deck" only to check whether a card is implemented left an empty "Deck N" in My
+  decks every time (report of 2026-10-31).
+- Guard: `src/decks/DecksGallery.test.tsx` · `src/decks/DeckBuilder.test.tsx` · `e2e/decks-gallery.spec.ts`

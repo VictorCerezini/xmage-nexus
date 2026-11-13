@@ -7,7 +7,8 @@ Everything between opening the app and the first game view: the login screen
 table list (`LobbyScreen.tsx`, `TableFilterBar.tsx`), the create-table wizard
 (`lobby/CreateTable/`), joining and watching (`useTableActions.ts`, `JoinTableDialog.tsx`), the
 waiting room (`SpectatorStagingScreen.tsx`), invite links (`useInviteLink.ts`, `deepLink.ts`),
-the history tab (`FinishedMatchesPanel.tsx`) and the reload restore (`setup/bootRestore.ts`).
+the history tab (`FinishedMatchesPanel.tsx`), the public ranking opened from the login screen
+(`PublicRankingScreen.tsx`, route `#/ranking`) and the reload restore (`setup/bootRestore.ts`).
 How their dialogs open, stack and close is `dialogs.md` (DLG-1 to DLG-4).
 
 ### LBY-1 · The proxy and the XMage server are two addresses, and a port is never guessed
@@ -313,3 +314,23 @@ group title.
   GitHub body as is, download table first, cut at 2 000 characters before the changes (report of
   2026-10-29, inspired by EDHPlay's bell).
 - Guard: `src/system/WhatsNew.test.tsx` · `src/system/news.test.ts` · `e2e/about.spec.ts`
+
+### LBY-27 · The public ranking's way back is the first control at the top
+The public ranking (`#/ranking`) has one way back to the login screen: a "Back to login" button with a
+left chevron, the first thing in the card's header above the title, as the deck editor puts "My decks"
+first in its top bar. There is no second copy at the end of the page.
+
+- Why: the button sat under the tables, so leaving a long ranking meant scrolling to the very bottom
+  (report of 2026-10-31). The full-page screens put their exit at the top, and a single control keeps
+  one place to look for it.
+- Guard: `src/lobby/PublicRankingScreen.test.tsx`
+
+### LBY-28 · The top tabs close the deck editor, so Decks opens on My decks
+When the player goes from the deck editor to another tab (Tables, History, Ranking or the active-table
+shortcut), the editor closes with its changes saved, so the Decks tab opens on My decks the next time.
+Pressing the Decks tab while the editor is open also closes it and shows My decks.
+Opening a deck from the create-table dialog still lands in the editor.
+
+- Why: the Decks tab reopened the last deck the player had left, instead of the list they expect from a
+  top-level tab (report of 2026-11-06).
+- Guard: `src/lobby/LobbyScreen.render.test.tsx`

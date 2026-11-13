@@ -2,9 +2,14 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 
 const scryfallJson = vi.hoisted(() => vi.fn())
-vi.mock('../cards/scryfallClient', () => ({ scryfallJson }))
+vi.mock('../cards/scryfallClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../cards/scryfallClient')>()),
+  scryfallJson,
+  scryfallFetch: async () => { throw new TypeError('offline') },
+}))
 
 import { ImportDeckDialog } from './ImportDeckDialog'
+import { ScryfallUnavailableError } from '../cards/scryfallClient'
 import { captureUnhandledRejections, settle } from '../utils/unhandledRejections'
 import type { DeckV2 } from './types'
 
@@ -43,8 +48,9 @@ describe('ImportDeckDialog wizard', () => {
     fireEvent.click(screen.getByTestId('import-next-btn'))
 
     await screen.findByTestId('import-step-setup')
-    expect((screen.getByTestId('import-format-select') as HTMLSelectElement).value).toBe('Freeform')
-    fireEvent.change(screen.getByTestId('import-format-select'), { target: { value: 'Modern' } })
+    expect(screen.getByTestId('import-format-select').textContent).toMatch(/^Freeform/)
+    fireEvent.click(screen.getByTestId('import-format-select'))
+    fireEvent.click(screen.getByRole('option', { name: /^Modern/ }))
 
     fireEvent.click(screen.getByTestId('import-resolve-btn'))
     await screen.findByTestId('import-step-review')
@@ -73,6 +79,38 @@ describe('ImportDeckDialog wizard', () => {
     await waitFor(() => expect(onImport).toHaveBeenCalled())
     const all = [...onImport.mock.calls[0][0].cards, ...onImport.mock.calls[0][0].sideboard]
     expect(all.some((c) => c.cardName === 'Smash to Smithereens')).toBe(false)
+  })
+
+  it('DCK-26: lists cards Scryfall did not answer for apart from the missing ones and tries them again', async () => {
+    let throttled = true
+    scryfallJson.mockImplementation(async (url: string, opts?: { rejectOnFailure?: boolean }) => {
+      if (url.includes('Lightning%20Bolt')) return card('Lightning Bolt', 'clu', '141')
+      if (url.includes('Shock')) {
+        if (!throttled) return card('Shock', 'm21', '159')
+        if (opts?.rejectOnFailure) throw new ScryfallUnavailableError(url)
+        return null
+      }
+      return null
+    })
+    const onImport = vi.fn<(d: DeckV2) => void>()
+    render(<ImportDeckDialog onImport={onImport} onClose={vi.fn()} />)
+    paste(ARENA)
+    fireEvent.click(screen.getByTestId('import-next-btn'))
+    await screen.findByTestId('import-step-setup')
+    fireEvent.click(screen.getByTestId('import-resolve-btn'))
+
+    const unanswered = await screen.findByTestId('import-unanswered')
+    expect(unanswered.textContent).toContain('Scryfall no respondió (1)')
+    expect(unanswered.textContent).toContain('Shock')
+    expect(screen.getByTestId('import-unresolved').textContent).not.toContain('Shock')
+    expect(screen.getByTestId('import-unresolved').textContent).toContain('Smash to Smithereens')
+
+    throttled = false
+    fireEvent.click(screen.getByTestId('import-retry-btn'))
+    await waitFor(() => expect(screen.queryByTestId('import-unanswered')).toBeNull())
+    fireEvent.click(screen.getByTestId('import-create-btn'))
+    await waitFor(() => expect(onImport).toHaveBeenCalled())
+    expect(onImport.mock.calls[0][0].cards.find((c) => c.cardName === 'Shock')).toMatchObject({ setCode: 'M21', cardNumber: '159', amount: 2 })
   })
 
   it('keeps the quick import path that skips setup', async () => {
@@ -140,10 +178,10 @@ describe('ImportDeckDialog wizard', () => {
     paste(ARENA)
     fireEvent.click(screen.getByTestId('import-next-btn'))
     await screen.findByTestId('import-step-setup')
-    const select = screen.getByTestId('import-format-select') as HTMLSelectElement
-    const detected = select.value
-    const option = [...select.options].find((o) => o.value === detected)
-    expect(option?.textContent).toContain('✓')
+    fireEvent.click(screen.getByTestId('import-format-select'))
+    const marked = screen.getAllByRole('option').filter((o) => o.textContent?.includes('✓'))
+    expect(marked).toHaveLength(1)
+    expect(marked[0].getAttribute('aria-selected')).toBe('true')
   })
 
   it('on a page that may not read the clipboard, Paste points to Ctrl+V in the box', () => {

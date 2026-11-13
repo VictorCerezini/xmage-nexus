@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import MenuItem from '../ui/MenuItem'
+import { useState, useRef, useEffect, useId } from 'react'
+import Select from '../ui/Select'
 import IconButton from '../ui/IconButton'
 import Button from '../ui/Button'
 import ChipButton from '../ui/ChipButton'
@@ -12,12 +12,20 @@ import type { Rarity, StatFilter, StatOp } from './filterQuery'
 import { rawQueryHasColor } from './filterQuery'
 import type { ScryfallSortDir, ScryfallSortOrder } from './scryfallSearch'
 import { CardSizeSlider } from './CardSizeSlider'
+import { matchingSets, setCodeFor, useScryfallSets } from './scryfallSets'
+import { matchingKeywords, useKeywordCatalog } from './keywordCatalog'
+import { FilterDropdown } from './FilterDropdown'
 import './ArenaFilterBar.css'
 
 const COLORS = ['W', 'U', 'B', 'R', 'G', 'C'] as const
 const TYPES = ['Creature', 'Instant', 'Sorcery', 'Planeswalker', 'Artifact', 'Enchantment', 'Land', 'Battle'] as const
 const RARITIES: Rarity[] = ['common', 'uncommon', 'rare', 'mythic']
-const RARITY_LABEL: Record<Rarity, string> = { common: 'C', uncommon: 'U', rare: 'R', mythic: 'M' }
+const RARITY_LABEL_KEYS: Record<Rarity, 'rarity_common' | 'rarity_uncommon' | 'rarity_rare' | 'rarity_mythic'> = {
+  common: 'rarity_common',
+  uncommon: 'rarity_uncommon',
+  rare: 'rarity_rare',
+  mythic: 'rarity_mythic',
+}
 export const COLOR_LABEL_KEYS: Record<(typeof COLORS)[number], keyof import('../i18n').TranslationSchema['game']> = {
   W: 'color_white',
   U: 'color_blue',
@@ -26,10 +34,14 @@ export const COLOR_LABEL_KEYS: Record<(typeof COLORS)[number], keyof import('../
   G: 'color_green',
   C: 'color_colorless',
 }
-const KEYWORDS_PRIMARY = ['Flying', 'Haste', 'Trample', 'Deathtouch', 'Lifelink', 'Vigilance', 'Hexproof', 'Menace', 'Reach', 'First Strike', 'Double Strike', 'Ward'] as const
-const KEYWORDS_EXTRA = ['Flash', 'Defender', 'Indestructible', 'Prowess', 'Toxic', 'Backup', 'Convoke', 'Delve', 'Evolve', 'Cascade', 'Kicker', 'Cycling'] as const
+const KEYWORDS = [
+  'Flying', 'Haste', 'Trample', 'Deathtouch', 'Lifelink', 'Vigilance', 'Hexproof', 'Menace', 'Reach', 'First Strike', 'Double Strike', 'Ward',
+  'Flash', 'Defender', 'Indestructible', 'Prowess', 'Toxic', 'Backup', 'Convoke', 'Delve', 'Evolve', 'Cascade', 'Kicker', 'Cycling',
+] as const
 const keywordIdOfLabel = (label: string): string => label.toLowerCase().replace(/ /g, '_')
-const QUICK_SETS = ['mh3', 'blb', 'dsk', 'otj', 'mkm', 'lci', 'woe', 'one'] as const
+const CMC_VALUES = [0, 1, 2, 3, 4, 5, 6, 7] as const
+const STAT_OPS: StatOp[] = ['>=', '=', '<=', '>', '<']
+const STAT_OP_LABEL: Record<StatOp, string> = { '>=': '≥', '=': '=', '<=': '≤', '>': '>', '<': '<' }
 const SORT_ORDERS: ScryfallSortOrder[] = ['cmc', 'name', 'rarity', 'color', 'edhrec', 'released']
 const SORT_LABEL_KEYS: Record<ScryfallSortOrder, keyof import('../i18n').TranslationSchema['decks']> = {
   cmc: 'sort_cmc',
@@ -59,7 +71,7 @@ export function ArenaFilterBar({
   cmcFilter,
   onCmcChange,
   typeFilter,
-  onTypeChange,
+  onToggleType,
   rarityFilter,
   onToggleRarity,
   keywordFilter,
@@ -70,6 +82,8 @@ export function ArenaFilterBar({
   onToughnessChange,
   setFilter,
   onSetChange,
+  oracleText = '',
+  onOracleTextChange,
   onReset,
   searchLang = 'any',
   onSearchLangChange,
@@ -87,8 +101,8 @@ export function ArenaFilterBar({
   onToggleColor: (color: string) => void
   cmcFilter: number | null
   onCmcChange: (cmc: number | null) => void
-  typeFilter: string | null
-  onTypeChange: (type: string | null) => void
+  typeFilter: Set<string>
+  onToggleType: (type: string) => void
   rarityFilter: Set<Rarity>
   onToggleRarity: (r: Rarity) => void
   keywordFilter: Set<string>
@@ -99,6 +113,8 @@ export function ArenaFilterBar({
   onToughnessChange: (f: StatFilter | null) => void
   setFilter: string | null
   onSetChange: (s: string | null) => void
+  oracleText?: string
+  onOracleTextChange?: (text: string) => void
   onReset: () => void
   searchLang?: string
   onSearchLangChange?: (lang: string) => void
@@ -111,48 +127,49 @@ export function ArenaFilterBar({
   onGridSizeChange?: (size: number) => void
 }) {
   const { t, cardLanguages } = useTranslation()
-  const [langMenuOpen, setLangMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [moreKeywords, setMoreKeywords] = useState(false)
-  const [setInput, setSetInput] = useState(setFilter ?? '')
+  const [setQuery, setSetQuery] = useState('')
+  const [keywordQuery, setKeywordQuery] = useState('')
+  const oracleId = useId()
   const [powerOp, setPowerOp] = useState<StatOp>('>=')
   const [toughnessOp, setToughnessOp] = useState<StatOp>('>=')
-  const langMenuRef = useRef<HTMLDivElement>(null)
   const helpRef = useRef<HTMLDivElement>(null)
   const helpBtnRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => { setSetInput(setFilter ?? '') }, [setFilter])
+  const sets = useScryfallSets(advancedOpen)
+  const keywordCatalog = useKeywordCatalog(advancedOpen)
+  const keywordLabel = (kw: string) => keywordDisplayName(keywordIdOfLabel(kw), kw, (k) => t('keywords', k))
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (langMenuRef.current && !langMenuRef.current.contains(e.target as Node)) setLangMenuOpen(false)
       if (helpRef.current && !helpRef.current.contains(e.target as Node)) setHelpOpen(false)
     }
-    if (langMenuOpen || helpOpen) document.addEventListener('mousedown', handleClickOutside)
+    if (helpOpen) document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [langMenuOpen, helpOpen])
+  }, [helpOpen])
 
   const allLangOptions = [
     { code: 'any', name: t('common', 'all'), flag: '🌐' },
     ...cardLanguages,
   ]
   const activeLangOption = allLangOptions.find((l) => l.code === searchLang) ?? allLangOptions[0]
+  const shownKeywords = matchingKeywords(KEYWORDS, keywordCatalog, keywordQuery, keywordLabel)
+  const keywordOptions = [
+    ...(keywordQuery.trim() ? [] : [...keywordFilter].filter((kw) => !shownKeywords.some((s) => s.toLowerCase() === kw.toLowerCase()))),
+    ...shownKeywords,
+  ]
+  const shownSets = matchingSets(sets, setQuery)
   const hasActiveFilters =
     query.trim() !== '' ||
     colorFilter.size > 0 ||
     cmcFilter !== null ||
-    typeFilter !== null ||
+    typeFilter.size > 0 ||
     rarityFilter.size > 0 ||
     keywordFilter.size > 0 ||
     powerFilter !== null ||
     toughnessFilter !== null ||
-    (setFilter !== null && setFilter.trim() !== '')
-
-  const handleSetSubmit = () => {
-    const v = setInput.trim().toLowerCase()
-    onSetChange(v ? v : null)
-  }
+    (setFilter !== null && setFilter.trim() !== '') ||
+    oracleText.trim() !== ''
 
   return (
     <div className="arena-filter-bar">
@@ -208,30 +225,17 @@ export function ArenaFilterBar({
         )}
 
         {onSearchLangChange && (
-          <div className="arena-lang-select-wrap" ref={langMenuRef}>
-            <button type="button" className="arena-lang-btn" onClick={() => setLangMenuOpen(!langMenuOpen)} title={t('common', 'card_language')} aria-label={t('common', 'card_language')}>
-              <span className="lang-flag">{activeLangOption.flag}</span>
-              <span className="lang-code">{activeLangOption.code.toUpperCase()}</span>
-              <span className="lang-arrow">▾</span>
-            </button>
-            {langMenuOpen && (
-              <div className="arena-lang-dropdown" role="menu">
-                {allLangOptions.map((l) => (
-                  <MenuItem
-                    selected={l.code === searchLang}
-                    key={l.code}
-                    onClick={() => {
-                      onSearchLangChange(l.code)
-                      setLangMenuOpen(false)
-                    }}
-                  >
-                    <span>{l.flag}</span>
-                    <span>{l.name}</span>
-                    {l.code === searchLang && <span className="arena-lang-check">✓</span>}
-                  </MenuItem>
-                ))}
-              </div>
-            )}
+          <div className="arena-lang-select-wrap">
+            <Select
+              className="arena-lang-btn"
+              aria-label={t('common', 'card_language')}
+              title={t('common', 'card_language')}
+              value={searchLang}
+              onChange={onSearchLangChange}
+              searchable={false}
+              summary={<><span className="lang-flag">{activeLangOption.flag}</span><span className="lang-code">{activeLangOption.code.toUpperCase()}</span></>}
+              options={allLangOptions.map((l) => ({ value: l.code, label: <><span>{l.flag}</span><span>{l.name}</span></>, text: l.name }))}
+            />
           </div>
         )}
 
@@ -257,23 +261,34 @@ export function ArenaFilterBar({
       </div>
 
       <div className="filter-bar-bottom">
-        <div className="arena-filter-chips">
-          <span className="arena-chip-label">{t('decks', 'filter_cmc')}</span>
-          {[0, 1, 2, 3, 4, 5, 6, 7].map((n) => (
-            <ChipButton size="sm" active={cmcFilter === n} className="cmc-chip" key={n} onClick={() => onCmcChange(cmcFilter === n ? null : n)} aria-label={`${t('decks', 'filter_cmc')} ${n === 7 ? '7+' : n}`}>
-              {n === 7 ? '7+' : n}
-            </ChipButton>
-          ))}
-        </div>
+        <FilterDropdown
+          label={t('decks', 'filter_cmc')}
+          active={cmcFilter !== null}
+          testId="filter-cmc"
+          summary={cmcFilter === null ? t('common', 'all') : cmcFilter === 7 ? '7+' : String(cmcFilter)}
+          value={cmcFilter ?? -1}
+          onChange={(v) => onCmcChange(v < 0 ? null : v)}
+          options={[
+            { value: -1, label: t('common', 'all') },
+            ...CMC_VALUES.map((n) => ({ value: n, label: n === 7 ? '7+' : String(n) })),
+          ]}
+        />
 
-        <div className="arena-filter-chips">
-          <span className="arena-chip-label">{t('decks', 'filter_type')}</span>
-          {TYPES.map((tKey) => (
-            <ChipButton size="sm" activeTone="gold" active={typeFilter === tKey} key={tKey} onClick={() => onTypeChange(typeFilter === tKey ? null : tKey)}>
-              {t('game', TYPE_LABEL_KEYS[tKey])}
-            </ChipButton>
-          ))}
-        </div>
+        <FilterDropdown
+          label={t('decks', 'filter_type')}
+          active={typeFilter.size > 0}
+          testId="filter-type"
+          summary={typeFilter.size === 0
+            ? t('common', 'all')
+            : (() => {
+              const picked = TYPES.filter((tKey) => typeFilter.has(tKey))
+              return `${t('game', TYPE_LABEL_KEYS[picked[0]])}${picked.length > 1 ? ` +${picked.length - 1}` : ''}`
+            })()}
+          multiple
+          selectedValues={TYPES.filter((tKey) => typeFilter.has(tKey))}
+          onChange={onToggleType}
+          options={TYPES.map((tKey) => ({ value: tKey, label: t('game', TYPE_LABEL_KEYS[tKey]) }))}
+        />
 
         <ChipButton size="sm" activeTone="gold" active={advancedOpen} onClick={() => setAdvancedOpen((v) => !v)} aria-expanded={advancedOpen}>
           {t('decks', 'filter_advanced')} {advancedOpen ? '▴' : '▾'}
@@ -281,17 +296,15 @@ export function ArenaFilterBar({
 
         {onSortOrderChange && sortOrder && (
           <div className="arena-sort-wrap">
-            <span className="arena-chip-label">{t('decks', 'sort_by')}</span>
-            <select
-              className="arena-sort-select"
+            <FilterDropdown
+              label={t('decks', 'sort_by')}
+              active={false}
+              testId="arena-sort"
+              summary={t('decks', SORT_LABEL_KEYS[sortOrder])}
               value={sortOrder}
-              onChange={(e) => onSortOrderChange(e.target.value as ScryfallSortOrder)}
-              aria-label={t('decks', 'sort_by')}
-            >
-              {SORT_ORDERS.map((o) => (
-                <option key={o} value={o}>{t('decks', SORT_LABEL_KEYS[o])}</option>
-              ))}
-            </select>
+              onChange={onSortOrderChange}
+              options={SORT_ORDERS.map((o) => ({ value: o, label: t('decks', SORT_LABEL_KEYS[o]) }))}
+            />
             {onSortDirChange && (
               <IconButton data-testid="arena-sort-dir-btn" label={sortDir === 'desc' ? t('decks', 'sort_desc') : t('decks', 'sort_asc')}
                 onClick={() => onSortDirChange(sortDir === 'desc' ? 'asc' : 'desc')}>
@@ -314,53 +327,96 @@ export function ArenaFilterBar({
 
       {advancedOpen && (
         <div className="filter-advanced-panel">
-          <div className="adv-row">
-            <span className="arena-chip-label">{t('decks', 'filter_rarity')}</span>
-            <div className="arena-filter-chips">
-              {RARITIES.map((r) => (
-                <button key={r} type="button" className={`rarity-chip rarity-${r} ${rarityFilter.has(r) ? 'active' : ''}`} onClick={() => onToggleRarity(r)} title={`${t('decks', 'filter_rarity')} ${RARITY_LABEL[r]}`} aria-label={`${t('decks', 'filter_rarity')} ${RARITY_LABEL[r]}`} aria-pressed={rarityFilter.has(r)}>
-                  {RARITY_LABEL[r]}
-                </button>
-              ))}
+          {onOracleTextChange && (
+            <div className="adv-row adv-oracle-row">
+              <label className="arena-chip-label" htmlFor={oracleId}>{t('decks', 'filter_oracle')}</label>
+              <input
+                id={oracleId}
+                className="arena-filter-oracle"
+                type="search"
+                spellCheck={false}
+                placeholder={t('decks', 'filter_oracle_placeholder')}
+                aria-describedby={`${oracleId}-hint`}
+                value={oracleText}
+                onChange={(e) => onOracleTextChange(e.target.value)}
+              />
+              <span id={`${oracleId}-hint`} className="arena-filter-oracle-hint">{t('decks', 'filter_oracle_hint')}</span>
             </div>
-          </div>
+          )}
+          <div className="adv-row adv-dd-row">
+            <FilterDropdown
+              label={t('decks', 'filter_rarity')}
+              active={rarityFilter.size > 0}
+              testId="filter-rarity"
+              summary={rarityFilter.size === 0 ? t('decks', 'filter_any') : RARITIES.filter((r) => rarityFilter.has(r)).map((r) => t('decks', RARITY_LABEL_KEYS[r])).join(', ')}
+              multiple
+              selectedValues={RARITIES.filter((r) => rarityFilter.has(r))}
+              onChange={onToggleRarity}
+              options={RARITIES.map((r) => ({ value: r, label: t('decks', RARITY_LABEL_KEYS[r]), className: `rarity-option rarity-${r}` }))}
+            />
 
-          <div className="adv-row adv-keywords-row">
-            <span className="arena-chip-label">{t('decks', 'filter_keyword')}</span>
-            <div className="arena-filter-chips keyword-chips">
-              {(moreKeywords ? [...KEYWORDS_PRIMARY, ...KEYWORDS_EXTRA] : [...KEYWORDS_PRIMARY]).map((kw) => {
-                const active = keywordFilter.has(kw)
-                return (
-                  <ChipButton size="sm" pill active={active} key={kw} onClick={() => onToggleKeyword(kw)} title={kw}>
-                    {keywordDisplayName(keywordIdOfLabel(kw), kw, (k) => t('keywords', k))}
-                  </ChipButton>
-                )
-              })}
-              <ChipButton size="sm" pill onClick={() => setMoreKeywords((v) => !v)}>
-                {moreKeywords ? t('decks', 'filter_less') : t('decks', 'filter_more')} {moreKeywords ? '▴' : '▾'}
-              </ChipButton>
-            </div>
+            <FilterDropdown
+              label={t('decks', 'filter_keyword')}
+              active={keywordFilter.size > 0}
+              testId="filter-keyword"
+              summary={keywordFilter.size === 0
+                ? t('decks', 'filter_any')
+                : `${keywordLabel([...keywordFilter][0])}${keywordFilter.size > 1 ? ` +${keywordFilter.size - 1}` : ''}`}
+              multiple
+              selectedValues={[...keywordFilter]}
+              onChange={onToggleKeyword}
+              options={keywordOptions.map((kw) => ({ value: kw, label: keywordLabel(kw) }))}
+              search={{
+                query: keywordQuery,
+                onQueryChange: setKeywordQuery,
+                label: t('decks', 'filter_keyword_search'),
+                placeholder: t('decks', 'filter_keyword_search'),
+              }}
+            />
+
+            <FilterDropdown
+              label={t('decks', 'filter_set')}
+              active={!!setFilter}
+              testId="filter-set"
+              summary={setFilter ? <span title={sets.find((s) => s.code === setFilter)?.name}>{setFilter.toUpperCase()}</span> : t('decks', 'filter_any')}
+              value={setFilter ?? ''}
+              onChange={(code) => onSetChange(code || null)}
+              options={[
+                { value: '', label: t('decks', 'filter_any') },
+                ...shownSets.map((s) => ({
+                  value: s.code,
+                  label: <><span className="arena-filter-dd-code">{s.code.toUpperCase()}</span><span className="arena-filter-dd-name">{s.name}</span></>,
+                  text: `${s.code} ${s.name}`,
+                })),
+              ]}
+              search={{
+                query: setQuery,
+                onQueryChange: setSetQuery,
+                label: t('decks', 'filter_set_placeholder'),
+                placeholder: t('decks', 'filter_set_placeholder'),
+                onEnter: (typed) => {
+                  onSetChange(setCodeFor(typed, sets))
+                  return true
+                },
+                empty: sets.length > 0 && setQuery.trim() !== '' && shownSets.length === 0,
+              }}
+            />
           </div>
 
           <div className="adv-row adv-stats-row">
             <div className="stat-filter-group">
-              <span className="arena-chip-label">{t('decks', 'filter_power')}</span>
-              <select
-                className="stat-op-select"
+              <FilterDropdown
+                label={t('decks', 'filter_power')}
+                active={!!powerFilter}
+                testId="filter-power-op"
+                summary={STAT_OP_LABEL[powerFilter?.op ?? powerOp]}
                 value={powerFilter?.op ?? powerOp}
-                aria-label={t('decks', 'filter_power')}
-                onChange={(e) => {
-                  const op = e.target.value as StatOp
+                onChange={(op) => {
                   setPowerOp(op)
                   if (powerFilter) onPowerChange({ op, value: powerFilter.value })
                 }}
-              >
-                <option value=">=">≥</option>
-                <option value="=">=</option>
-                <option value="<=">≤</option>
-                <option value=">">&gt;</option>
-                <option value="<">&lt;</option>
-              </select>
+                options={STAT_OPS.map((op) => ({ value: op, label: STAT_OP_LABEL[op] }))}
+              />
               <input
                 className="stat-num-input"
                 type="number"
@@ -383,23 +439,18 @@ export function ArenaFilterBar({
             </div>
 
             <div className="stat-filter-group">
-              <span className="arena-chip-label">{t('decks', 'filter_toughness')}</span>
-              <select
-                className="stat-op-select"
+              <FilterDropdown
+                label={t('decks', 'filter_toughness')}
+                active={!!toughnessFilter}
+                testId="filter-toughness-op"
+                summary={STAT_OP_LABEL[toughnessFilter?.op ?? toughnessOp]}
                 value={toughnessFilter?.op ?? toughnessOp}
-                aria-label={t('decks', 'filter_toughness')}
-                onChange={(e) => {
-                  const op = e.target.value as StatOp
+                onChange={(op) => {
                   setToughnessOp(op)
                   if (toughnessFilter) onToughnessChange({ op, value: toughnessFilter.value })
                 }}
-              >
-                <option value=">=">≥</option>
-                <option value="=">=</option>
-                <option value="<=">≤</option>
-                <option value=">">&gt;</option>
-                <option value="<">&lt;</option>
-              </select>
+                options={STAT_OPS.map((op) => ({ value: op, label: STAT_OP_LABEL[op] }))}
+              />
               <input
                 className="stat-num-input"
                 type="number"
@@ -419,34 +470,6 @@ export function ArenaFilterBar({
               {toughnessFilter && (
                 <CloseButton variant="danger" size="sm" label={t('common', 'clear')} onClick={() => onToughnessChange(null)} />
               )}
-            </div>
-
-            <div className="stat-filter-group set-filter-group">
-              <span className="arena-chip-label">{t('decks', 'filter_set')}</span>
-              <input
-                className="set-input"
-                type="text"
-                placeholder={t('decks', 'filter_set_placeholder')}
-                value={setInput}
-                onChange={(e) => setSetInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSetSubmit()
-                }}
-                onBlur={handleSetSubmit}
-              />
-              {setFilter && (
-                <CloseButton variant="danger" size="sm" label={t('common', 'clear')} onClick={() => { setSetInput(''); onSetChange(null) }} />
-              )}
-            </div>
-          </div>
-
-          <div className="adv-row adv-sets-row">
-            <div className="arena-filter-chips">
-              {QUICK_SETS.map((s) => (
-                <ChipButton size="sm" activeTone="gold" active={setFilter === s} key={s} onClick={() => onSetChange(setFilter === s ? null : s)}>
-                  {s.toUpperCase()}
-                </ChipButton>
-              ))}
             </div>
           </div>
         </div>

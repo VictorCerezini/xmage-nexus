@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from '../i18n'
 import Button from '../ui/Button'
-import { BOARD_RELAYOUT_EVENT } from './useBandFit'
+import { BOARD_RELAYOUT_EVENT } from './layout/relayout'
 import { clampTableView, leftButtonDrags, panTableView, TABLE_VIEW_FIT, wheelScrollsContent, zoomTableView, type TableView } from './tableView'
 import './TableZoom.css'
 

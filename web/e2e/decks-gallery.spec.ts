@@ -97,6 +97,29 @@ test.describe('Decks Gallery', () => {
       await expect(page.locator('.decks-gallery')).toBeVisible({ timeout: 8000 })
     })
   })
+  test('DCK-27: a new deck left without cards is not kept @decks', async ({ page }) => {
+    await withFakeServer(decksGalleryScenario, async () => {
+      await page.goto(`/?proxyPort=${proxyPort()}`)
+      await dismissSetupWizard(page)
+      await page.getByPlaceholder(/Usuario|Username/i).fill(`draft_${String(Date.now()).slice(-8)}`)
+      await page.getByPlaceholder(/Contraseña|Password/i).fill('pass')
+      await page.getByRole('button', { name: /Conectar/i }).click()
+      await expect(page.getByRole('button', { name: /Mesas/ })).toBeVisible({ timeout: 15000 })
+      await page.getByRole('button', { name: /Mis Mazos|Mazos/i }).click()
+      const boxes = page.locator('.deck-box:not(.deck-box-create)')
+      await expect(page.locator('.deck-box-create')).toBeVisible({ timeout: 8000 })
+      await expect(boxes.first()).toBeVisible()
+      const before = await boxes.count()
+
+      await page.locator('.deck-box-create').click()
+      await expect(page.locator('.deck-editor-name')).toBeVisible({ timeout: 8000 })
+      await page.locator('.builder-back').click()
+      await expect(page.locator('.decks-gallery')).toBeVisible({ timeout: 8000 })
+      await expect(page.locator('.deck-box-create')).toBeVisible()
+      await expect(boxes).toHaveCount(before)
+    })
+  })
+
   test('precon: Abrir clona el mazo y abre el editor (regresión "Cargando...") @decks', async ({ page }) => {
     await withFakeServer(decksGalleryScenario, async () => {
       await page.goto(`/?proxyPort=${proxyPort()}`)
@@ -133,7 +156,8 @@ test.describe('Decks Gallery', () => {
       await showDeckListView(page)
 
       // Formato Commander sin comandante: slot vacío, no la primera carta
-      await page.locator('.deck-editor-format').selectOption('Commander')
+      await page.locator('.deck-editor-format').click()
+      await page.getByRole('option', { name: 'Commander', exact: true }).click()
       await expect(page.getByText(/Designa una carta legendaria como comandante/)).toBeVisible()
 
       // Importar un mazo con una carta en main: NO debe aparecer como comandante
@@ -205,7 +229,8 @@ test.describe('Decks Gallery', () => {
       await page.locator('.deck-box-create').click()
       await expect(page.locator('.deck-builder-body')).toBeVisible({ timeout: 8000 })
       await showDeckListView(page)
-      await page.locator('.deck-editor-format').selectOption('Commander')
+      await page.locator('.deck-editor-format').click()
+      await page.getByRole('option', { name: 'Commander', exact: true }).click()
 
       await page.getByRole('button', { name: /Importar Mazo/i }).click()
       await page.locator('.deck-import-textarea').fill("1 [PC2:1] Sidar Kondo of Jamuraa\n1 [C16:56] Tana, the Bloodsower\n20 [M10:234] Mountain")
@@ -314,10 +339,11 @@ test.describe('Decks Gallery', () => {
       await showDeckListView(page)
 
       // U6-1: sort select with 6 orders + direction toggle
-      const sortSelect = page.locator('.arena-sort-select')
-      await expect(sortSelect).toBeVisible()
-      await expect(sortSelect.locator('option')).toHaveCount(6)
-      await sortSelect.selectOption('name')
+      const sortTrigger = page.locator('.arena-search-panel [data-testid="arena-sort"] .arena-filter-dd-trigger')
+      await expect(sortTrigger).toBeVisible()
+      await sortTrigger.click()
+      await expect(page.getByTestId('arena-sort-panel').getByRole('option')).toHaveCount(6)
+      await page.getByTestId('arena-sort-panel').getByRole('option', { name: /^(Nombre|Name)$/ }).click()
       await expect(page.getByTestId('arena-sort-dir-btn')).toBeVisible()
       await page.getByTestId('arena-sort-dir-btn').click()
       await expect(page.getByTestId('arena-sort-dir-btn')).toHaveText('↓')
@@ -430,6 +456,38 @@ test.describe('Decks Gallery', () => {
     })
   })
 
+  test('DCK-23: the format label never sits under the quick actions of a deck tile @decks', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await withFakeServer(decksGalleryScenario, async () => {
+      await page.goto(`/?proxyPort=${proxyPort()}`)
+      await dismissSetupWizard(page)
+      await page.getByPlaceholder(/Usuario|Username/i).fill(`deck_lbl_${String(Date.now()).slice(-5)}`)
+      await page.getByPlaceholder(/Contraseña|Password/i).fill('pass')
+      await page.getByRole('button', { name: /Conectar/i }).click()
+      await expect(page.getByRole('button', { name: /Mesas/ })).toBeVisible({ timeout: 15000 })
+      await page.getByRole('button', { name: /Mis Mazos|Mazos/i }).click()
+      await expect(page.locator('.deck-box').nth(1)).toBeVisible({ timeout: 8000 })
+      await page.locator('[data-testid="deckbox-quick-clone"]').first().click({ force: true })
+      await expect(page.locator('[data-testid="deckbox-quick-fav"]').first()).toBeAttached({ timeout: 8000 })
+
+      for (const density of [/cómoda|comfortable/i, /compacta|compact/i]) {
+        await page.getByRole('button', { name: density }).click()
+        const tile = page.locator('.deck-box', { has: page.locator('[data-testid="deckbox-quick-fav"]') }).first()
+        await tile.hover()
+        await page.waitForTimeout(300)
+        const clash = await tile.evaluate((el) => {
+          const actions = el.querySelector('.deck-box-actions')!.getBoundingClientRect()
+          const badge = el.querySelector('.deck-box-format-badge')!.getBoundingClientRect()
+          const box = el.getBoundingClientRect()
+          const overlaps = badge.left < actions.right && badge.right > actions.left && badge.top < actions.bottom && badge.bottom > actions.top
+          const inside = badge.left >= box.left && badge.right <= box.right && badge.top >= box.top && badge.bottom <= box.bottom
+          return { overlaps, inside }
+        })
+        expect(clash).toEqual({ overlaps: false, inside: true })
+      }
+    })
+  })
+
   test('U8: suggestions panel filters, sorts and shares the card size @decks', async ({ page }) => {
     await withFakeServer(decksGalleryScenario, async () => {
       await blockLocalizedEnrich(page)
@@ -469,15 +527,18 @@ test.describe('Decks Gallery', () => {
         'Commander\n1 Test Commander\nDeck\n1 Sol Ring\n1 Arcane Signet\n1 Llanowar Elves\n',
       )
       await page.locator('[data-testid="import-submit-btn"]').click()
-      await page.locator('.deck-editor-format').selectOption('Commander')
+      await page.locator('.deck-editor-format').click()
+      await page.getByRole('option', { name: 'Commander', exact: true }).click()
 
       // El fake sirve la página de EDHREC y el stub resuelve las cartas por nombre
       await page.getByRole('tab', { name: /Sugerencias|Suggestions/ }).click()
       await expect(page.locator('.sg-panel .arena-filter-bar')).toBeVisible({ timeout: 8000 })
       await expect(page.locator('.sg-tile')).toHaveCount(3)
 
-      // Chip de tipo: solo criaturas
-      await page.locator('.sg-panel').getByRole('button', { name: /^(Criatura|Creature)$/ }).click()
+      // Type dropdown: creatures only
+      await page.locator('.sg-panel [data-testid="filter-type"] .arena-filter-dd-trigger').click()
+      await page.getByTestId('filter-type-panel').getByRole('option', { name: /(Criatura|Creature)$/ }).click()
+      await page.keyboard.press('Escape')
       await expect(page.locator('.sg-tile')).toHaveCount(1)
       await expect(page.locator('.sg-tile img[alt="Llanowar Elves"]')).toBeVisible()
       await expect(page.locator('.sg-tile img[alt="Sol Ring"]')).toHaveCount(0)
@@ -489,7 +550,8 @@ test.describe('Decks Gallery', () => {
       await expect(page.locator('.sg-tile')).toHaveCount(3)
 
       // Orden por nombre dentro de la sección
-      await page.locator('.sg-panel .arena-sort-select').selectOption('name')
+      await page.locator('.sg-panel [data-testid="arena-sort"] .arena-filter-dd-trigger').click()
+      await page.getByTestId('arena-sort-panel').getByRole('option', { name: /^(Nombre|Name)$/ }).click()
       await expect(page.locator('.sg-section').first().locator('img').first()).toHaveAttribute('alt', 'Arcane Signet')
 
       // El tamaño de carta se comparte con la pestaña Buscar

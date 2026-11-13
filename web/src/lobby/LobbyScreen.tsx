@@ -61,6 +61,10 @@ export default function LobbyScreen() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [activeTab, setActiveTab] = useState<LobbyTab>('tables')
   const [deckBuilderId, setDeckBuilderId] = useState<string | null>(null)
+  const changeTab = (tab: LobbyTab) => {
+    setDeckBuilderId(null)
+    setActiveTab(tab)
+  }
   const [createKind, setCreateKind] = useState<CreateKind | null>(null)
   const [showAbout, setShowAbout] = useState(false)
   const [showWiki, setShowWiki] = useState(false)
@@ -166,11 +170,11 @@ export default function LobbyScreen() {
         onOpenReport={() => setShowReport(true)}
         onOpenProfile={openProfile}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={changeTab}
         tableCount={tables.length}
         activeTableCount={myActiveTables.length}
         onGoToActiveTable={() => {
-          setActiveTab('tables')
+          changeTab('tables')
           if (myActiveTables.length === 1) {
             const only = myActiveTables[0]
             if (only.tableState === 'DUELING' || only.tableState === 'SIDEBOARDING') {
@@ -239,6 +243,7 @@ export default function LobbyScreen() {
                           size="md"
                           align="end"
                           className="tables-create-menu"
+                          menuClassName="tables-create-panel"
                           data-testid="create-menu"
                           label={<><Icon name="plus" size={14} /> {t('lobby', 'create_menu')}</>}
                         >
@@ -402,7 +407,7 @@ export default function LobbyScreen() {
           onSelectUser={setSelectedUser}
           onOpenRanking={() => {
             setMobileChatOpen(false)
-            setActiveTab('ranking')
+            changeTab('ranking')
           }}
           open={mobileChatOpen}
           onOpenChange={setMobileChatOpen}
@@ -410,7 +415,7 @@ export default function LobbyScreen() {
 
         <LobbyMobileNav
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={changeTab}
           mobileChatOpen={mobileChatOpen}
           onToggleChat={() => setMobileChatOpen((v) => !v)}
           onCloseChat={() => setMobileChatOpen(false)}

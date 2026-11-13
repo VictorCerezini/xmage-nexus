@@ -16,6 +16,12 @@ proxy over a JSON WebSocket and contains **no XMage/Java code**.
 - `npm install` (once)
 - `npm run dev` — Vite dev server (port 5173)
 - `npm run test` / `test:coverage` — vitest (pure logic)
+- The engine guards (`engineViewCoverage.test.ts`, `hintCoverage.test.ts`) read the XMage
+  fork, not this repo. Their baselines were generated from the `nexus-1.4.63` checkout, so
+  point them at it: `export NEXUS_FORK_DIR=<path to a checkout of nexus-1.4.63>` (e.g.
+  `git -C ../xmage-fork worktree add ../xmage-fork-1.4.63 nexus-1.4.63`). Without it,
+  `../xmage-fork` is used, and any other branch there fails these four tests for reasons
+  unrelated to the change.
 - `npm run typecheck` — `tsc -b --noEmit`
 - `npm run lint` — oxlint (`.oxlintrc.json`): fails on the rules of hooks, the correctness set and `any` in shipped code; missing effect dependencies are warnings ratcheted per file by `src/lintRatchet.test.ts` (lower the baseline with `UPDATE_LINT_BASELINE=1 npx vitest run src/lintRatchet.test.ts`)
 - `npm run build` — `tsc -b && vite build`
@@ -53,7 +59,8 @@ proxy over a JSON WebSocket and contains **no XMage/Java code**.
   Última verif.) and mirror only `yes/partial/no` into `site/content.json`.
 - **Every request to `api.scryfall.com` goes through `web/src/cards/scryfallClient.ts`**
   (`scryfallFetch` / `scryfallJson`, or `fetchCardJson` in `scryfallCards.ts` for cards):
-  one global queue (150 ms spacing, 3 in flight, common pause + `Retry-After` on 429),
+  one global queue (150 ms spacing, 500 ms on the endpoints Scryfall limits to 2/s: search, named,
+  random, collection; 3 in flight; common pause on 429 for `Retry-After` or 30 s, retry on 503),
   in-memory + IndexedDB cache. The queue clock and the 429 pause are shared across tabs
   over a `BroadcastChannel` (`xmage-scryfall-budget`), because Scryfall's limit is per IP,
   not per tab. Anything that resolves card art or JSON must use the cache-backed
