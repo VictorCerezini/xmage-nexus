@@ -134,6 +134,24 @@ def test_start_uses_the_zen_provider_without_extra_model_entries(fake_local, mon
     assert cmd[cmd.index("--variant") + 1] == "low"
 
 
+@pytest.mark.parametrize("free_model", ["hy4-flash-free", "mimo-v2.6-flash-free", "big-pickle"])
+def test_free_models_are_offered_the_read_tool_that_reads_nothing(fake_local, monkeypatch, free_model):
+    # Zen's free models refuse a player without OpenCode's read tool ("Free usage limit reached").
+    launched = {}
+    monkeypatch.setattr(opencode_client, "launch", lambda *args: launched.update(config=args[3]))
+    opencode_zen_client.start("play", None, None, "http://127.0.0.1:1/mcp", model=free_model)
+    config = launched["config"]
+    assert config["tools"] == {**opencode_client.TOOL_SWITCHES, "read": True}
+    assert config["permission"] == {**opencode_client.PERMISSIONS, "read": opencode_client.READ_NOTHING}
+    assert config["agent"]["mage"]["tools"] == config["tools"]
+    assert config["agent"]["mage"]["permission"] == config["permission"]
+
+
+def test_paid_models_are_not_offered_the_read_tool():
+    assert not opencode_zen_client.is_free("deepseek-v4.1-flash")
+    assert not opencode_zen_client.is_free("free-form-model")
+
+
 def test_default_effort_passes_no_variant(fake_local, monkeypatch):
     launched = {}
     monkeypatch.setattr(opencode_client, "launch", lambda *args: launched.update(cmd=args[4]))

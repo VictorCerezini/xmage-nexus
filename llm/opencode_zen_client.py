@@ -19,8 +19,16 @@ MODEL = "deepseek-v4.1-flash"
 BALANCE_WORDS = ("balance", "credit", "insufficient", "payment")
 
 
+def is_free(model):
+    """Zen's free models: Big Pickle and the ones whose ID ends in -free."""
+    return model == "big-pickle" or model.endswith("-free")
+
+
 def start(prompt, stdout, stderr, mcp_url=None, *, model=MODEL, reasoning=DEFAULT_EFFORT, tool_timeout_seconds=180):
-    game_config = opencode_client.config(mcp_url, OPENCODE_PROVIDER, tool_timeout_seconds=tool_timeout_seconds)
+    # Free models only answer a player that offers OpenCode's read tool; it reads nothing (see opencode_client).
+    game_config = opencode_client.config(
+        mcp_url, OPENCODE_PROVIDER, tool_timeout_seconds=tool_timeout_seconds, offer_read=is_free(model)
+    )
     cmd = opencode_client.command(OPENCODE_PROVIDER, model, reasoning)
     return opencode_client.launch(prompt, stdout, stderr, game_config, cmd)
 

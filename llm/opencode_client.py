@@ -52,10 +52,27 @@ CREDENTIAL_OVERRIDES = {
 # allowed because repeating an identical pass_priority call is normal play.
 TOOL_SWITCHES = {"*": False, GAME_TOOL_PREFIX + "*": True}
 PERMISSIONS = {"*": "deny", GAME_TOOL_PREFIX + "*": "allow", "doom_loop": "allow"}
+# OpenCode Zen's free models answer only requests that offer OpenCode's read tool (without it they say "Free
+# usage limit reached. Free models work in OpenCode"). For them read is offered, but it may only open a file
+# that never exists, so every real read is refused, like reads outside the player's folder.
+UNREADABLE = "__xmage_nexus_reads_nothing__"
+READ_NOTHING = {"*": "deny", UNREADABLE: "allow"}
+
+
+def session_permissions(permission):
+    """The game's permission rules as OpenCode 2 session rules, a tool's own path rules after its catch-all."""
+    rules = []
+    for action, effect in permission.items():
+        for resource, value in effect.items() if isinstance(effect, dict) else [("*", effect)]:
+            rules.append({"action": action, "resource": resource, "effect": value})
+    return rules
+
+
 # OpenCode 2 appends rules of its own after every agent's (for its browser), and the last rule naming a tool
 # decides whether the model is offered it, so its skill tool stayed offered. Rules given to the session come
 # after those, so the game's rules are repeated there.
-SESSION_PERMISSIONS = [{"action": action, "resource": "*", "effect": effect} for action, effect in PERMISSIONS.items()]
+SESSION_PERMISSIONS = session_permissions(PERMISSIONS)
+
 # A named session saves OpenCode 2 a model request to give it a title.
 SESSION_TITLE = "XMage game"
 SERVER_START_SECONDS = 60
@@ -94,11 +111,14 @@ def clean_env():
     return env
 
 
-def config(mcp_url, provider, models=None, tool_timeout_seconds=180):
+def config(mcp_url, provider, models=None, tool_timeout_seconds=180, *, offer_read=False):
     """Inline OpenCode config for one game; nothing from the user's own OpenCode setup is loaded.
 
-    models registers model entries OpenCode's catalog may not have yet, keyed by model ID.
+    models registers model entries OpenCode's catalog may not have yet, keyed by model ID. offer_read offers
+    the read tool that reads nothing (see READ_NOTHING).
     """
+    tools = {**TOOL_SWITCHES, "read": True} if offer_read else TOOL_SWITCHES
+    permission = {**PERMISSIONS, "read": dict(READ_NOTHING)} if offer_read else PERMISSIONS
     result = {
         "$schema": "https://opencode.ai/config.json",
         "username": "player",
@@ -110,11 +130,9 @@ def config(mcp_url, provider, models=None, tool_timeout_seconds=180):
         "plugin": [],
         "instructions": [],
         "enabled_providers": [provider],
-        "tools": TOOL_SWITCHES,
-        "permission": PERMISSIONS,
-        "agent": {
-            "mage": {"mode": "primary", "prompt": SYSTEM_PROMPT, "tools": TOOL_SWITCHES, "permission": PERMISSIONS}
-        },
+        "tools": tools,
+        "permission": permission,
+        "agent": {"mage": {"mode": "primary", "prompt": SYSTEM_PROMPT, "tools": tools, "permission": permission}},
     }
     if models:
         result["provider"] = {provider: {"models": models}}
@@ -188,7 +206,13 @@ def launch(prompt, stdout, stderr, game_config, cmd):
     env["OPENCODE_CONFIG_CONTENT"] = json.dumps(game_config)
     server = None
     if served(cmd[0]):
-        server, url, session = start_server(cmd[0], env, stderr, wait_for_tools="mcp" in game_config)
+        server, url, session = start_server(
+            cmd[0],
+            env,
+            stderr,
+            wait_for_tools="mcp" in game_config,
+            permissions=session_permissions(game_config.get("permission", PERMISSIONS)),
+        )
         cmd = [*cmd[:2], "--server", url, "--session", session, *cmd[2:]]
     try:
         proc = subprocess.Popen(
@@ -231,7 +255,7 @@ def api(exe, url, env, method, path, body=None):
         return None
 
 
-def start_server(exe, env, stderr, *, wait_for_tools=True):
+def start_server(exe, env, stderr, *, wait_for_tools=True, permissions=None):
     """OpenCode 2's private server for one player, with its session ready: (server process, url, session id).
 
     It listens only on this computer, behind a random password that env now carries for run and api. The
@@ -252,7 +276,7 @@ def start_server(exe, env, stderr, *, wait_for_tools=True):
     )
     try:
         wait_for_server(exe, url, env, server, game_tools=wait_for_tools)
-        body = {"title": SESSION_TITLE, "permissions": SESSION_PERMISSIONS}
+        body = {"title": SESSION_TITLE, "permissions": SESSION_PERMISSIONS if permissions is None else permissions}
         session = ((api(exe, url, env, "POST", "/api/session", body) or {}).get("data") or {}).get("id")
         if not session:
             raise RuntimeError("OpenCode's server did not open a game session")
@@ -301,12 +325,18 @@ def stop_after(run, server):
     threading.Thread(target=watch, name="opencode-server", daemon=False).start()
 
 
+def refused(part):
+    """Whether OpenCode refused this tool call by permission, so nothing ran (the read that reads nothing)."""
+    state = part.get("state") or {}
+    return state.get("status") == "error" and str(state.get("error", "")).startswith("Permission denied")
+
+
 def require_game_only_events(events):
     for event in events:
         part = event.get("part") or {}
         if part.get("type") == "tool":
             name = part.get("tool", "")
-            if not name.startswith(GAME_TOOL_PREFIX) and name not in HARMLESS_TOOLS:
+            if not name.startswith(GAME_TOOL_PREFIX) and name not in HARMLESS_TOOLS and not refused(part):
                 raise RuntimeError("Information boundary violation: the player used a non-game tool")
 
 

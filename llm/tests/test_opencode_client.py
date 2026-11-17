@@ -123,6 +123,31 @@ def test_non_game_tools_are_rejected(name):
         opencode_client.require_game_only_events([tool_event(name, "error")])
 
 
+def test_a_read_that_opencode_refused_is_accepted_but_one_that_ran_is_not():
+    refused = tool_event("read", "error")
+    refused["part"]["state"]["error"] = "Permission denied: read"
+    outside = tool_event("read", "error")
+    outside["part"]["state"]["error"] = "Permission denied: external_directory"
+    opencode_client.require_game_only_events([refused, outside])
+    with pytest.raises(RuntimeError, match="boundary"):
+        opencode_client.require_game_only_events([refused, tool_event("read", "completed")])
+
+
+def test_the_read_tool_that_reads_nothing_denies_every_path():
+    config = opencode_client.config(None, "opencode", offer_read=True)
+    assert config["tools"]["read"] is True
+    assert config["permission"]["read"] == {"*": "deny", opencode_client.UNREADABLE: "allow"}
+    # Without offer_read the shared settings are untouched.
+    assert opencode_client.config(None, "opencode")["permission"] == opencode_client.PERMISSIONS
+    assert "read" not in opencode_client.PERMISSIONS
+    # OpenCode 2's session gets the read rules after its catch-all, so read stays offered and every path is denied.
+    assert opencode_client.session_permissions(config["permission"]) == [
+        *opencode_client.SESSION_PERMISSIONS,
+        {"action": "read", "resource": "*", "effect": "deny"},
+        {"action": "read", "resource": opencode_client.UNREADABLE, "effect": "allow"},
+    ]
+
+
 def test_usage_totals_step_finish_events():
     step = {
         "type": "step-finish",
@@ -310,8 +335,9 @@ def test_opencode2_launch_attaches_the_run_to_its_server(opencode2, monkeypatch)
     monkeypatch.setattr(
         opencode_client,
         "start_server",
-        lambda _exe, env, _stderr, wait_for_tools: (
-            started.update(wait=wait_for_tools, env=env) or (server, "http://127.0.0.1:5", "ses_test")
+        lambda _exe, env, _stderr, wait_for_tools, permissions: (
+            started.update(wait=wait_for_tools, env=env, permissions=permissions)
+            or (server, "http://127.0.0.1:5", "ses_test")
         ),
     )
     tied = []
@@ -324,7 +350,10 @@ def test_opencode2_launch_attaches_the_run_to_its_server(opencode2, monkeypatch)
         return SimpleNamespace(stdin=SimpleNamespace(write=written.append, close=lambda: None))
 
     monkeypatch.setattr(opencode_client.subprocess, "Popen", popen)
-    proc = opencode_client.launch("play", None, None, {"mcp": {}}, [str(opencode2), "run", "--format", "json"])
+    # The session gets the game's own rules, here those of a free Zen model with the read tool that reads nothing.
+    permission = opencode_client.config(None, "opencode", offer_read=True)["permission"]
+    game_config = {"mcp": {}, "permission": permission}
+    proc = opencode_client.launch("play", None, None, game_config, [str(opencode2), "run", "--format", "json"])
     assert launched["cmd"] == [
         str(opencode2),
         "run",
@@ -337,6 +366,7 @@ def test_opencode2_launch_attaches_the_run_to_its_server(opencode2, monkeypatch)
     ]
     assert launched["env"] is started["env"]
     assert started["wait"] is True
+    assert started["permissions"] == opencode_client.session_permissions(permission)
     assert written == [b"play"]
     # The server is stopped once the run ends.
     assert tied == [(proc, server)]
