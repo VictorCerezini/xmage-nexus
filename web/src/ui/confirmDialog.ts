@@ -31,6 +31,11 @@ export function subscribeConfirm(fn: Listener): () => void {
   }
 }
 
+/** Whether a ConfirmHost is on screen to show the questions (it is not after the app crashed). */
+export function hasConfirmHost(): boolean {
+  return listeners.size > 0
+}
+
 export function getConfirmQueue(): ConfirmRequest[] {
   return queue
 }

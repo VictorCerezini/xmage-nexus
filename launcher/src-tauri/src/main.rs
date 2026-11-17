@@ -7,6 +7,7 @@ use std::fs::OpenOptions;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -85,6 +86,15 @@ struct Processes {
     proxy_xdhs: Mutex<Option<Child>>,
     proxy_friends: Mutex<Option<Child>>,
 }
+
+/// Whether closing the main window asks first. The web app turns it on once it can ask (its own
+/// confirm dialog); until then, or if the page never loaded, the close button closes at once.
+struct CloseGuard {
+    armed: AtomicBool,
+}
+
+/// The DOM event the main window's web app answers by asking whether to close.
+const CLOSE_REQUESTED_JS: &str = "window.dispatchEvent(new Event('nexus-close-requested'))";
 
 struct Bootstrap {
     running: Mutex<bool>,
@@ -806,8 +816,16 @@ fn apply_update(app: AppHandle) {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    // already answered: the windows closing on the way out don't ask again
+    app.state::<CloseGuard>().armed.store(false, Ordering::SeqCst);
     kill_all(&app.state::<Processes>());
     app.exit(0);
+}
+
+/// The web app can ask before the main window closes: from now on its close button asks first.
+#[tauri::command]
+fn ask_before_close(app: AppHandle) {
+    app.state::<CloseGuard>().armed.store(true, Ordering::SeqCst);
 }
 
 /// The idle time limits the tray offers, in seconds: how long a player with a pending decision
@@ -882,6 +900,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             "quit" => {
+                app.state::<CloseGuard>().armed.store(false, Ordering::SeqCst);
                 kill_all(&app.state::<Processes>());
                 app.exit(0);
             }
@@ -924,6 +943,9 @@ fn main() {
             proxy_friends: Mutex::new(None),
         })
         .manage(Bootstrap::initial())
+        .manage(CloseGuard {
+            armed: AtomicBool::new(false),
+        })
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let shown = app
                 .get_webview_window("main")
@@ -950,7 +972,8 @@ fn main() {
             retry_bootstrap,
             apply_update,
             skip_update,
-            quit_app
+            quit_app,
+            ask_before_close
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -960,8 +983,18 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { .. } = event {
-                    kill_all(&window.state::<Processes>());
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // The web app asks; "Close" there quits through quit_app.
+                    let asking = window.state::<CloseGuard>().armed.load(Ordering::SeqCst)
+                        && window
+                            .app_handle()
+                            .get_webview_window("main")
+                            .is_some_and(|main| main.eval(CLOSE_REQUESTED_JS).is_ok());
+                    if asking {
+                        api.prevent_close();
+                    } else {
+                        kill_all(&window.state::<Processes>());
+                    }
                 }
             }
         })
