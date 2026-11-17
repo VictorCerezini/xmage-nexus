@@ -139,14 +139,21 @@ export function clearStackHold() {
 export function useDisplayedStack(game: { stack?: Stack } | null, gameId: string | null): Stack {
   const prevRef = useRef<Stack>(EMPTY)
   const gameIdRef = useRef<string | null>(gameId)
+  // The store takes the next game's id on START_GAME, before that game's first view: until that
+  // view comes, the view on screen is the last one of the game before (the next game of a match).
+  // Its stack is not this game's, or its spells would be held as resolving once the new view
+  // comes, and no resolution plays across two games to let them go.
+  const viewBeforeRef = useRef<object | null>(null)
   const next = game?.stack ?? EMPTY
   useMemo(() => {
     if (!game || gameIdRef.current !== gameId) {
+      viewBeforeRef.current = gameIdRef.current !== gameId ? game : null
       gameIdRef.current = gameId
       prevRef.current = EMPTY
       resetStackHold()
     }
-    if (!game) return
+    if (!game || game === viewBeforeRef.current) return
+    viewBeforeRef.current = null
     syncStackHold(prevRef.current, next)
     prevRef.current = next
   }, [game, next, gameId])

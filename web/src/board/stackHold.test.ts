@@ -63,6 +63,23 @@ describe('useDisplayedStack', () => {
     rerender({ game: { stack: {} }, id: 'g2' })
     expect(Object.keys(result.current)).toEqual([])
   })
+
+  it('FX-7: the next game of a match starts with an empty stack, though the game before ended with spells on it', () => {
+    type Props = { game: { stack?: Record<string, CardView> } | null; id: string | null }
+    const lastOfGame1 = { stack: stackOf('a', 'b') }
+    const { result, rerender } = renderHook(({ game, id }: Props) => useDisplayedStack(game, id), {
+      initialProps: { game: lastOfGame1, id: 'g1' } as Props,
+    })
+    expect(Object.keys(result.current)).toEqual(['a', 'b'])
+    // START_GAME: the id is the next game's, the view still the last one of the game before
+    rerender({ game: lastOfGame1, id: 'g2' })
+    expect(Object.keys(result.current)).toEqual([])
+    // GAME_INIT: the next game's first view
+    rerender({ game: { stack: {} }, id: 'g2' })
+    expect(Object.keys(result.current)).toEqual([])
+    rerender({ game: { stack: stackOf('c') }, id: 'g2' })
+    expect(Object.keys(result.current)).toEqual(['c'])
+  })
 })
 
 describe('enqueueStackResolve', () => {
