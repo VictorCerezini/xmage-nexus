@@ -3,6 +3,8 @@ package mage.client.bridge.processor;
 import mage.client.bridge.PendingAction;
 import mage.client.bridge.tools.ChooseActionTool;
 import mage.interfaces.callback.ClientCallbackMethod;
+import mage.view.CardView;
+import mage.view.CombatGroupView;
 import mage.view.GameClientMessage;
 
 import java.io.Serializable;
@@ -52,6 +54,7 @@ public final class BridgeChooseActionFlow {
     private final List<Map<String, Object>> batchFailed = new ArrayList<>();
     private int batchIndex = 0;
     private boolean batchResultFinalized = false;
+    private boolean undoingMovedBlock = false;
 
     public BridgeChooseActionFlow(BridgeChooseActionFlowContext context, BridgeChooseActionInput input) {
         this.context = context;
@@ -331,6 +334,16 @@ public final class BridgeChooseActionFlow {
             }
 
             BridgeChooseActionBlockerAssignment assignment = blockerAssignments.get(batchIndex);
+            if (action.method() == ClientCallbackMethod.GAME_TARGET && undoingMovedBlock) {
+                // taking the block back asked for an attacker after all: leave it as the engine made it
+                undoingMovedBlock = false;
+                context.clearPendingActionIfCurrent(action);
+                context.sendBooleanOrDie(action.gameId(), false, "batchBlock:cancel_undo");
+                batchIndex++;
+                batchPhase = BatchPhase.BLOCKERS_WAITING_FOR_BLOCKER_SELECT;
+                phase = Phase.WAITING_FOR_BATCH_CALLBACK;
+                return;
+            }
             if (action.method() == ClientCallbackMethod.GAME_TARGET) {
                 if (!handleBatchBlockerTarget(action, assignment)) {
                     phase = Phase.WAITING_FOR_BATCH_CALLBACK;
@@ -340,7 +353,14 @@ public final class BridgeChooseActionFlow {
             }
 
             if (action.method() == ClientCallbackMethod.GAME_SELECT) {
-                batchDeclared.add(Map.of("id", assignment.id(), "blocks", assignment.blocks()));
+                if (undoingMovedBlock) {
+                    // the moved block was taken back; its failure is already recorded
+                    undoingMovedBlock = false;
+                } else if (takeBackMovedBlock(action, assignment)) {
+                    return;
+                } else {
+                    batchDeclared.add(Map.of("id", assignment.id(), "blocks", assignment.blocks()));
+                }
                 batchIndex++;
                 batchPhase = BatchPhase.BLOCKERS_WAITING_FOR_BLOCKER_SELECT;
                 phase = Phase.WAITING_FOR_BATCH_CALLBACK;
@@ -367,8 +387,10 @@ public final class BridgeChooseActionFlow {
 
         Set<UUID> validTargets = context.validTargets(action);
         if (validTargets == null || !validTargets.contains(attackerUuid)) {
+            String canBlock = validTargets == null ? "" : attackerNames(action, validTargets);
             batchFailed.add(Map.of("id", assignment.id(), "reason",
-                "attacker " + assignment.blocks() + " is not a valid block target"));
+                "attacker " + assignment.blocks() + " is not a valid block target"
+                    + (canBlock.isEmpty() ? "" : " (it can block: " + canBlock + ")")));
             context.clearPendingActionIfCurrent(action);
             context.sendBooleanOrDie(action.gameId(), false, "batchBlock:cancel_invalid_target");
             batchIndex++;
@@ -382,6 +404,81 @@ public final class BridgeChooseActionFlow {
         batchIndex++;
         batchPhase = BatchPhase.BLOCKERS_WAITING_FOR_BLOCKER_SELECT;
         return false;
+    }
+
+    /**
+     * A blocker that can block only one of the attackers is put on it by the engine without asking
+     * (HumanPlayer.selectCombatGroup), whatever attacker the model named. Such a block is taken
+     * back, by choosing the blocker again, and reported as failed with the attacker it could block.
+     */
+    private boolean takeBackMovedBlock(PendingAction action, BridgeChooseActionBlockerAssignment assignment) {
+        UUID blockerUuid = tryResolveShortId(assignment.id());
+        UUID wantedUuid = tryResolveShortId(assignment.blocks());
+        if (blockerUuid == null || wantedUuid == null) {
+            return false;
+        }
+        List<CombatGroupView> blocked = groupsBlockedBy(action, blockerUuid);
+        if (blocked.isEmpty() || blocked.stream().anyMatch(group -> group.getAttackers().containsKey(wantedUuid))) {
+            return false;
+        }
+        batchFailed.add(Map.of("id", assignment.id(), "reason",
+            "it can only block " + String.join(", ", attackerNamesOf(blocked.get(0)))
+                + ", not " + assignment.blocks() + ", so no block was declared for it"));
+        undoingMovedBlock = true;
+        context.clearPendingActionIfCurrent(action);
+        context.sendUuidOrDie(action.gameId(), blockerUuid, "batchBlock:take_back_moved_block");
+        phase = Phase.WAITING_FOR_BATCH_CALLBACK;
+        return true;
+    }
+
+    private UUID tryResolveShortId(String shortId) {
+        try {
+            return context.resolveShortId(shortId);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static List<CombatGroupView> combatOf(PendingAction action) {
+        if (!(action.data() instanceof GameClientMessage message) || message.getGameView() == null
+            || message.getGameView().getCombat() == null) {
+            return Collections.emptyList();
+        }
+        return message.getGameView().getCombat();
+    }
+
+    private static List<CombatGroupView> groupsBlockedBy(PendingAction action, UUID blockerId) {
+        var groups = new ArrayList<CombatGroupView>();
+        for (CombatGroupView group : combatOf(action)) {
+            if (group.getBlockers() != null && group.getBlockers().containsKey(blockerId)
+                && group.getAttackers() != null) {
+                groups.add(group);
+            }
+        }
+        return groups;
+    }
+
+    private static List<String> attackerNamesOf(CombatGroupView group) {
+        var names = new ArrayList<String>();
+        for (CardView attacker : group.getAttackers().values()) {
+            names.add(attacker.getName());
+        }
+        return names;
+    }
+
+    private static String attackerNames(PendingAction action, Set<UUID> attackerIds) {
+        var names = new ArrayList<String>();
+        for (CombatGroupView group : combatOf(action)) {
+            if (group.getAttackers() == null) {
+                continue;
+            }
+            for (Map.Entry<UUID, CardView> attacker : group.getAttackers().entrySet()) {
+                if (attackerIds.contains(attacker.getKey())) {
+                    names.add(attacker.getValue().getName());
+                }
+            }
+        }
+        return String.join(", ", names);
     }
 
     private void transitionBatchToNextDecision(boolean interrupted) {
@@ -398,6 +495,7 @@ public final class BridgeChooseActionFlow {
         batchFailed.clear();
         batchIndex = 0;
         batchResultFinalized = false;
+        undoingMovedBlock = false;
     }
 
     private void finalizeBatchResult(boolean interrupted) {

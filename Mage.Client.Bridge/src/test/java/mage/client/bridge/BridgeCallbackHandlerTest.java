@@ -47,6 +47,7 @@ import mage.util.SubTypes;
 import mage.view.AbilityPickerView;
 import mage.view.CardView;
 import mage.view.CardsView;
+import mage.view.CombatGroupView;
 import mage.view.GameClientMessage;
 import mage.view.GameView;
 import mage.view.LookedAtView;
@@ -1714,6 +1715,106 @@ class BridgeCallbackHandlerTest {
         assertThat(result.declared).containsExactly(Map.of("id", "p5", "blocks", "p1"));
         assertThat(result.action_pending).isTrue();
         assertThat(result.game_seq).isEqualTo(51);
+    }
+
+    @Test
+    void batchBlockTakesBackABlockTheEngineMovedToAnotherAttacker() throws Exception {
+        // Orc Army can block only Archpriest (Sheoldred has swampwalk): the engine puts it there without
+        // asking which attacker, though the model named Sheoldred
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+
+        UUID gameId = UUID.randomUUID();
+        UUID blockerUuid = UUID.randomUUID();
+        UUID archpriestUuid = UUID.randomUUID();
+        UUID sheoldredUuid = UUID.randomUUID();
+        AtomicInteger sendPlayerUuidCalls = new AtomicInteger();
+        AtomicInteger sendPlayerBooleanCalls = new AtomicInteger();
+        GameView combatView = gameView(60);
+        GameView movedView = gameView(61);
+        setField(movedView, "combat", List.of(
+            combatGroup(cardView(archpriestUuid, "p6", "Archpriest of Shadows"), cardView(blockerUuid, "p42", "Orc Army")),
+            combatGroup(cardView(sheoldredUuid, "p9", "Sheoldred, Whispering One"), null)
+        ));
+        GameView takenBackView = gameView(62);
+        GameView nextDecisionView = gameView(63);
+
+        registerShortId(handler, blockerUuid, "p42");
+        registerShortId(handler, archpriestUuid, "p6");
+        registerShortId(handler, sheoldredUuid, "p9");
+
+        var combatOptions = new LinkedHashMap<String, Serializable>();
+        combatOptions.put("possibleBlockers", new ArrayList<>(List.of(blockerUuid)));
+        GameClientMessage combatMessage = new GameClientMessage(combatView, combatOptions, "Declare blockers");
+        GameClientMessage movedMessage = new GameClientMessage(movedView, combatOptions, "Declare blockers");
+        GameClientMessage takenBackMessage = new GameClientMessage(takenBackView, combatOptions, "Declare blockers");
+        GameClientMessage nextDecisionMessage = new GameClientMessage(
+            nextDecisionView,
+            Collections.<String, Serializable>emptyMap(),
+            "Play spells and abilities"
+        );
+
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                switch (method.getName()) {
+                    case "sendPlayerUUID" -> {
+                        int call = sendPlayerUuidCalls.incrementAndGet();
+                        assertThat(args[1]).isEqualTo(blockerUuid);
+                        enqueueCallback(handler, ClientCallbackMethod.GAME_SELECT, gameId,
+                            call == 1 ? movedMessage : takenBackMessage);
+                        return true;
+                    }
+                    case "sendPlayerBoolean" -> {
+                        sendPlayerBooleanCalls.incrementAndGet();
+                        assertThat(args[1]).isEqualTo(true);
+                        enqueueCallback(handler, ClientCallbackMethod.GAME_SELECT, gameId, nextDecisionMessage);
+                        return true;
+                    }
+                    default -> {
+                        return defaultReturnValue(method.getReturnType());
+                    }
+                }
+            }
+        ));
+
+        addActiveGame(handler, gameId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", combatView);
+        setField(handler, "pendingAction", new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_SELECT,
+            combatMessage,
+            "Declare blockers",
+            60
+        ));
+
+        ChooseActionTool.Result result = handler.chooseAction(
+            null, null, null, null, null, null, null, null, null, null, new String[]{"p42:p9"}
+        );
+
+        // chosen once to block, once more to take the block back, then the blocks are confirmed
+        assertThat(sendPlayerUuidCalls.get()).isEqualTo(2);
+        assertThat(sendPlayerBooleanCalls.get()).isEqualTo(1);
+        assertThat(result.success).isFalse();
+        assertThat(result.declared).isEmpty();
+        assertThat(result.failed).containsExactly(Map.of("id", "p42", "reason",
+            "it can only block Archpriest of Shadows, not p9, so no block was declared for it"));
+        assertThat(result.game_seq).isEqualTo(63);
+    }
+
+    private static CombatGroupView combatGroup(CardView attacker, CardView blocker) throws Exception {
+        CombatGroupView group = (CombatGroupView) UNSAFE.allocateInstance(CombatGroupView.class);
+        CardsView attackers = new CardsView();
+        attackers.put(attacker.getId(), attacker);
+        CardsView blockers = new CardsView();
+        if (blocker != null) {
+            blockers.put(blocker.getId(), blocker);
+        }
+        setField(group, "attackers", attackers);
+        setField(group, "blockers", blockers);
+        return group;
     }
 
     @Test

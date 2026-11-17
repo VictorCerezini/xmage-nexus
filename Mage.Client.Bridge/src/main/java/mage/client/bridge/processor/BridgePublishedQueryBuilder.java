@@ -402,20 +402,25 @@ public final class BridgePublishedQueryBuilder {
 
                 if (cardView != null) {
                     choiceEntry.put("name", processorServices.cardFormatter().safeDisplayName(cardView));
-                    if (isOnBattlefield) {
-                        choiceEntry.put("action", "activate");
-                        var manaNameSet = new HashSet<>(stats.getAllManaAbilityNames());
-                        var nonManaAbilities = new ArrayList<String>();
-                        for (String name : abilityNames) {
-                            if (!manaNameSet.contains(name)) {
-                                nonManaAbilities.add(name);
-                            }
+                    var manaNameSet = new HashSet<>(manaNames);
+                    var nonManaAbilities = new ArrayList<String>();
+                    for (String name : abilityNames) {
+                        if (!manaNameSet.contains(name)) {
+                            nonManaAbilities.add(name);
                         }
+                    }
+                    String action = playableAction(nonManaAbilities, isOnBattlefield, cardView.isLand());
+                    choiceEntry.put("action", action);
+                    if ("activate".equals(action)) {
                         if (!nonManaAbilities.isEmpty()) {
                             choiceEntry.put("playable_abilities", nonManaAbilities);
                         }
                     } else {
-                        choiceEntry.put("action", cardView.isLand() ? "land" : "cast");
+                        // a land that can also be cycled, a spell with an ability from hand: choosing it
+                        // asks which one, so the model sees them all
+                        if (nonManaAbilities.size() > 1) {
+                            choiceEntry.put("playable_abilities", nonManaAbilities);
+                        }
                         String manaCost = cardView.getManaCostStr();
                         if (manaCost != null && !manaCost.isEmpty()) {
                             choiceEntry.put("mana_cost", manaCost);
@@ -567,6 +572,31 @@ public final class BridgePublishedQueryBuilder {
         result.response_type = "boolean";
         result.respond_with = "choice=yes (confirm) or choice=no (pass)";
         return List.of();
+    }
+
+    /**
+     * What choosing a playable object does, from the abilities the engine says it can use right now
+     * (PlayLandAbility is named "Play <card>", a spell "Cast <card>", anything else its rules text).
+     * The card type alone is not enough: a land with a trigger on the stack can only be cycled, and
+     * the land side of a double-faced card has an id of its own, off the hand.
+     */
+    static String playableAction(List<String> nonManaAbilityNames, boolean offHandAndStack, boolean isLand) {
+        boolean play = false;
+        boolean cast = false;
+        for (String name : nonManaAbilityNames) {
+            play |= name.startsWith("Play ");
+            cast |= name.startsWith("Cast ");
+        }
+        if (play) {
+            return "land";
+        }
+        if (cast) {
+            return "cast";
+        }
+        if (offHandAndStack || !nonManaAbilityNames.isEmpty()) {
+            return "activate";
+        }
+        return isLand ? "land" : "cast";
     }
 
     private List<Object> buildManaChoices(ActionResult result, Object data, GameView gameView) {
