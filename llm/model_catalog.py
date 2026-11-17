@@ -7,7 +7,7 @@ import threading
 
 from llm import paths, subscription_client
 
-GUI_MODELS = {"gpt-6-astra", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra"}
+GUI_MODELS = {"gpt-6.2-astra", "gpt-6-luna", "gpt-6.2-sol", "gpt-6.1-terra"}
 
 
 class CatalogClient:
@@ -114,7 +114,7 @@ def read_catalog(call):
         seen.add(cursor)
     if not models:
         raise RuntimeError(
-            "No GPT-6 Astra, GPT-6 Luna, GPT-6.1 Sol or GPT-6.1 Terra model is available through this ChatGPT sign-in"
+            "No GPT-6.2 Astra, GPT-6 Luna, GPT-6.2 Sol or GPT-6.1 Terra model is available through this ChatGPT sign-in"
         )
     return {
         "id": "chatgpt_subscription",
@@ -133,7 +133,7 @@ def discover():
 def validate_selection(catalog, model, reasoning):
     if model not in GUI_MODELS:
         raise ValueError(
-            f"{model} is not offered for model seats; choose GPT-6 Astra, GPT-6 Luna, GPT-6.1 Sol or GPT-6.1 Terra"
+            f"{model} is not offered for model seats; choose GPT-6.2 Astra, GPT-6 Luna, GPT-6.2 Sol or GPT-6.1 Terra"
         )
     for item in catalog["models"]:
         if item["id"] == model:

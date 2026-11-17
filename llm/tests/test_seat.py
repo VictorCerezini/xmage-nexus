@@ -42,7 +42,7 @@ def harness(tmp_path, monkeypatch):
                     {
                         "id": "chatgpt_subscription",
                         "models": [
-                            {"id": "gpt-6-astra", "efforts": ["medium", "high"]},
+                            {"id": "gpt-6.2-astra", "efforts": ["medium", "high"]},
                             {"id": "gpt-6.1-terra", "efforts": ["medium"]},
                         ],
                     },
@@ -62,7 +62,7 @@ def harness(tmp_path, monkeypatch):
         "server_port": 18171,
         "catalog": str(catalog),
         "deck": str(deck),
-        "model": "gpt-6-astra",
+        "model": "gpt-6.2-astra",
         "reasoning": "high",
         "seat": 2,
         "game_type": "Two Player Duel",
@@ -147,7 +147,7 @@ def test_selection_reaches_player_only_after_game_starts(harness, monkeypatch, p
 
     def start(prompt, out, _err, _url, *, model, reasoning, tool_timeout_seconds):
         assert waiting == [False, False, True]
-        assert (model, reasoning) == ("gpt-6-astra", "high")
+        assert (model, reasoning) == ("gpt-6.2-astra", "high")
         assert tool_timeout_seconds == seat.MAX_SECONDS + 60
         assert "opponent's deck" in prompt
         assert request["game_type"] in prompt
@@ -283,7 +283,7 @@ def test_a_player_stopped_by_a_busy_model_is_replaced_and_finishes_the_game(unde
     run = Path(request["run"])
     manifest = json.loads((run / "manifest.json").read_text())
     assert manifest["status"] == "completed"
-    assert manifest["recoveries"] == [{"game": 1, "attempt": 1, "reason": CAPACITY, "model": "gpt-6-astra"}]
+    assert manifest["recoveries"] == [{"game": 1, "attempt": 1, "reason": CAPACITY, "model": "gpt-6.2-astra"}]
     assert "model_switch" not in manifest
     assert "model" not in manifest["games"][0]
     assert manifest["games"][0]["player_restarts"] == 1
@@ -335,7 +335,7 @@ def test_a_model_still_failing_after_every_retry_hands_the_game_to_the_backup(un
 
     def start(_prompt, out, *_args, model, reasoning, **_kwargs):
         models.append((model, reasoning))
-        if model == "gpt-6-astra":
+        if model == "gpt-6.2-astra":
             return codex_failure(out, CAPACITY)
         game_over()
         return SimpleNamespace(poll=lambda: 0, returncode=0)
@@ -343,17 +343,17 @@ def test_a_model_still_failing_after_every_retry_hands_the_game_to_the_backup(un
     assert seat.run_player(request, runtime=runtime, start_player=start) == 0
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     tries = len(seat.RETRY_DELAYS) + 1
-    assert models == [("gpt-6-astra", "high")] * tries + [("gpt-6.1-terra", "medium")]
+    assert models == [("gpt-6.2-astra", "high")] * tries + [("gpt-6.1-terra", "medium")]
     assert manifest["status"] == "completed"
     assert manifest["model_switch"] == {
         "game": 1,
-        "from": "chatgpt_subscription gpt-6-astra",
+        "from": "chatgpt_subscription gpt-6.2-astra",
         "to": "chatgpt_subscription gpt-6.1-terra",
         "reason": CAPACITY,
     }
     assert manifest["games"][0]["model"] == "chatgpt_subscription gpt-6.1-terra"
     assert manifest["games"][0]["player_restarts"] == tries
-    assert {entry["model"] for entry in manifest["recoveries"]} == {"gpt-6-astra"}
+    assert {entry["model"] for entry in manifest["recoveries"]} == {"gpt-6.2-astra"}
 
 
 def test_a_usage_limit_hands_the_game_to_another_providers_backup_at_once(undecided, monkeypatch):
@@ -388,11 +388,11 @@ def test_a_usage_limit_hands_the_game_to_another_providers_backup_at_once(undeci
     assert manifest["provider"] == "chatgpt_subscription"
     assert manifest["model_switch"] == {
         "game": 1,
-        "from": "chatgpt_subscription gpt-6-astra",
+        "from": "chatgpt_subscription gpt-6.2-astra",
         "to": "claude_subscription claude-opus-5-5",
         "reason": USAGE_LIMIT,
     }
-    assert manifest["recoveries"] == [{"game": 1, "attempt": 1, "reason": USAGE_LIMIT, "model": "gpt-6-astra"}]
+    assert manifest["recoveries"] == [{"game": 1, "attempt": 1, "reason": USAGE_LIMIT, "model": "gpt-6.2-astra"}]
     assert manifest["games"][0]["model"] == "claude_subscription claude-opus-5-5"
     # Each player's trace is read by its own provider: Codex's reader finds nothing in Claude's.
     assert [entry["input_tokens"] for entry in manifest["usage"]] == [7]
@@ -414,7 +414,7 @@ def test_a_backup_that_fails_too_gets_its_own_retries_then_the_seat_gives_up(und
     assert seat.run_player(request, runtime=runtime, start_player=start) == 1
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     tries = len(seat.RETRY_DELAYS) + 1
-    assert models == ["gpt-6-astra"] * tries + ["gpt-6.1-terra"] * tries
+    assert models == ["gpt-6.2-astra"] * tries + ["gpt-6.1-terra"] * tries
     assert "at capacity" in manifest["error"]
 
 
@@ -429,7 +429,7 @@ def test_a_backup_on_the_same_limited_plan_stops_the_seat_after_one_try(undecide
 
     assert seat.run_player(request, runtime=runtime, start_player=start) == 1
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
-    assert models == ["gpt-6-astra", "gpt-6.1-terra"]
+    assert models == ["gpt-6.2-astra", "gpt-6.1-terra"]
     assert "usage limit" in manifest["error"]
 
 
@@ -529,7 +529,7 @@ def test_a_rate_limited_free_model_still_gets_every_retry(undecided):
 @pytest.mark.parametrize(
     ("backup", "error"),
     [
-        ({"backup_model": "gpt-6-astra", "backup_reasoning": "high"}, "must differ"),
+        ({"backup_model": "gpt-6.2-astra", "backup_reasoning": "high"}, "must differ"),
         ({"backup_model": "gpt-6.1-terra", "backup_reasoning": "high"}, "reasoning level high"),
         (
             {"backup_provider": "claude_subscription", "backup_model": "claude-opus-5-5", "backup_reasoning": "high"},

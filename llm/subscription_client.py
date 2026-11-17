@@ -7,7 +7,7 @@ import subprocess
 from llm import paths
 
 PLAYER_CWD = paths.PLAYER_CWD
-MODEL = "gpt-6-astra"
+MODEL = "gpt-6.2-astra"
 TOOLS = [
     "get_game_state",
     "get_action_choices",

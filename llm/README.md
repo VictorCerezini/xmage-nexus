@@ -83,9 +83,10 @@ The CLIs are not bundled: Codex, Claude Code and OpenCode come from the
 machine. OpenCode 1 (npm `opencode-ai`) and OpenCode 2 (npm `@opencode/cli`) both
 work. OpenCode 2 plays through a private, password-protected server for each
 seat, never its background service. It keeps keys in its own store, and imports
-the keys OpenCode 1 saved when it first opens the isolated OpenCode home. An older Codex lists fewer ChatGPT models (0.153 offers only
-`gpt-6-astra`; 0.163 also offers `gpt-6-luna` and `gpt-6.1-sol`; 0.164 adds
-`gpt-6.1-terra`).
+the keys OpenCode 1 saved when it first opens the isolated OpenCode home. Model seats offer the ChatGPT models
+`gpt-6.2-astra`, `gpt-6.2-sol`, `gpt-6-luna` and `gpt-6.1-terra`. An older Codex
+lists fewer of them (0.153 offers only `gpt-6-astra`, which seats no longer
+offer; Codex 0.169 lists all four).
 
 ## Commands
 

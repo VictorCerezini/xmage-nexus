@@ -109,7 +109,12 @@ def test_catalog_requires_subscription_login_and_saves_no_identity():
         }
     )
     assert catalog["id"] == "claude_subscription"
-    assert [item["id"] for item in catalog["models"]] == ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]
+    assert [item["id"] for item in catalog["models"]] == [
+        "claude-fable-5-2",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+    ]
     assert sum(item["isDefault"] for item in catalog["models"]) == 1
     assert "private" not in json.dumps(catalog)
 

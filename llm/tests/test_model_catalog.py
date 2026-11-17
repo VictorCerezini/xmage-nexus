@@ -28,24 +28,26 @@ def test_catalog_paginates_and_excludes_identity_hidden_and_unwanted_models():
             return {"account": {"type": "chatgpt", "email": "private@example.invalid", "planType": "private-plan"}}
         if params["cursor"] is None:
             return {
-                "data": [model("gpt-6-astra", ["low", "high"]), model("gpt-5.6-sol", ["low"])],
+                "data": [model("gpt-6.2-astra", ["low", "high"]), model("gpt-5.6-sol", ["low"])],
                 "nextCursor": "second-page",
             }
         return {
             "data": [
                 model("gpt-6-luna", ["medium"]),
-                model("gpt-6.1-sol", ["high"]),
+                model("gpt-6.2-sol", ["high"]),
                 model("gpt-6.1-terra", ["low", "ultra"]),
                 model("gpt-5.6-terra", ["medium"]),
                 model("gpt-6-sol", ["low"]),
                 model("gpt-5.6-astra", ["high"]),
-                model("gpt-6-astra", ["low"], hidden=True),
+                model("gpt-6.2-astra", ["low"], hidden=True),
+                model("gpt-6-astra", ["low"]),
+                model("gpt-6.1-sol", ["low"]),
             ],
             "nextCursor": None,
         }
 
     catalog = read_catalog(call)
-    assert [item["id"] for item in catalog["models"]] == ["gpt-6-astra", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra"]
+    assert [item["id"] for item in catalog["models"]] == ["gpt-6.2-astra", "gpt-6-luna", "gpt-6.2-sol", "gpt-6.1-terra"]
     assert catalog["models"][0]["efforts"] == ["low", "high"]
     assert "private" not in json.dumps(catalog)
     assert [method for method, _ in calls] == ["account/read", "model/list", "model/list"]
@@ -61,10 +63,12 @@ def test_catalog_rejects_other_authentication_modes(account):
     "selection",
     [
         ("missing", "low"),
-        ("gpt-6-astra", "ultra"),
+        ("gpt-6.2-astra", "ultra"),
         ("gpt-6-luna", "medium"),
         ("gpt-5.6-sol", "high"),
         ("gpt-6-sol", "high"),
+        ("gpt-6-astra", "low"),
+        ("gpt-6.1-sol", "low"),
     ],
 )
 def test_unavailable_model_or_effort_is_rejected(selection):
@@ -73,7 +77,8 @@ def test_unavailable_model_or_effort_is_rejected(selection):
         validate_selection(
             {
                 "models": [
-                    {"id": name, "efforts": ["low", "high"]} for name in ("gpt-6-astra", "gpt-5.6-sol", "gpt-6-sol")
+                    {"id": name, "efforts": ["low", "high"]}
+                    for name in ("gpt-6.2-astra", "gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-6-sol")
                 ]
             },
             *selection,
@@ -81,7 +86,7 @@ def test_unavailable_model_or_effort_is_rejected(selection):
 
 
 def test_valid_model_specific_effort_is_accepted():
-    validate_selection({"models": [{"id": "gpt-6-astra", "efforts": ["low", "high"]}]}, "gpt-6-astra", "high")
+    validate_selection({"models": [{"id": "gpt-6.2-astra", "efforts": ["low", "high"]}]}, "gpt-6.2-astra", "high")
 
 
 def test_empty_requested_model_intersection_reports_missing_access():
@@ -90,7 +95,7 @@ def test_empty_requested_model_intersection_reports_missing_access():
             return {"account": {"type": "chatgpt"}}
         return {"data": [model("gpt-5.6-sol", ["high"])], "nextCursor": None}
 
-    with pytest.raises(RuntimeError, match="No GPT-6 Astra"):
+    with pytest.raises(RuntimeError, match=r"No GPT-6\.2 Astra"):
         read_catalog(call)
 
 
