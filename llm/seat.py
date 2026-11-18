@@ -30,6 +30,10 @@ REPORT_GRACE_SECONDS = 120
 # dropped connection); a reached plan limit is not retried. A plan limit, or a model still failing after the
 # last wait, hands the seat to its backup model when it has one, which gets the same retries.
 RETRY_DELAYS = (15, 30, 60, 120, 120)
+# A player with no game tool call open and nothing new in its event log for this long has stopped answering
+# (a stuck request to its provider), so another player takes over the game like after a stop. A player waiting
+# inside a tool call (pass_priority while the others think) is never quiet.
+QUIET_SECONDS = 300
 TABLE_PASSWORD_ENV = "XMAGE_BRIDGE_TABLE_PASSWORD"  # noqa: S105 - an environment variable name, not a password
 PROMPT = (
     "You are {username}, playing a live Magic: The Gathering game with a human and possibly other players in XMage. "
@@ -320,6 +324,9 @@ def run_player(request, *, start_player=None, runtime=None):
         save_status("playing")
         ended_at = None
         stopped_after_report = False
+        went_quiet = False
+        events_size = None
+        active_at = time.monotonic()
         while agent.poll() is None:
             check_session(owner, created, run)
             # Read after polling: a bridge that logged the result and then left at match end is not a failure.
@@ -343,6 +350,16 @@ def run_player(request, *, start_player=None, runtime=None):
                 local.stop_tree(agent)
                 stopped_after_report = True
                 break
+            if ended_at is None:
+                now = time.monotonic()
+                size = events.stat().st_size if events.is_file() else 0
+                if size != events_size:
+                    events_size, active_at = size, now
+                idle_since = gateway.idle_since
+                if idle_since is not None and now - max(active_at, idle_since) > QUIET_SECONDS:
+                    local.stop_tree(agent)
+                    went_quiet = True
+                    break
             time.sleep(0.5)
         trace = read_complete_events(events)
         player.require_game_only_events(trace)
@@ -351,8 +368,10 @@ def run_player(request, *, start_player=None, runtime=None):
         if terminal_reason is None and ended_at is not None:
             # A rollback brought the player back while it was reporting the elimination.
             terminal_reason = "player_eliminated"
-        if terminal_reason is not None and (stopped_after_report or agent.returncode == 0):
+        if terminal_reason is not None and (stopped_after_report or went_quiet or agent.returncode == 0):
             return terminal_reason, None, False
+        if went_quiet:
+            return None, f"the model sent nothing for {QUIET_SECONDS} seconds", False
         reason = player.failure_reason(trace) or f"see {events.name}"
         if terminal_reason is not None:
             # The game is over, so another player would have nothing left to play.

@@ -140,6 +140,10 @@ class GameToolGateway:
         self.end_question_asked = False
         # The last game calls, saved with a report so it shows what the model was looking at.
         self.recent_calls = deque(maxlen=RECENT_CALLS)
+        # Requests the model has open, and when the last one ended (None while one is open): a model with no
+        # request open is deciding its next move, while one waiting in pass_priority is waiting for the others.
+        self.open_requests = 0
+        self.idle_since = time.monotonic()
         gateway = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -155,9 +159,13 @@ class GameToolGateway:
                 self.end_headers()
 
             def do_POST(self):
-                payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
-                with gateway.operation_lock:
-                    self.exchange(payload)
+                gateway.request_opened()
+                try:
+                    payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+                    with gateway.operation_lock:
+                        self.exchange(payload)
+                finally:
+                    gateway.request_closed()
 
             def exchange(self, payload):
                 method = payload.get("method")
@@ -414,6 +422,17 @@ class GameToolGateway:
             "upstream_response_bytes": self.upstream_response_bytes,
             "model_response_bytes": self.model_response_bytes,
         }
+
+    def request_opened(self):
+        with self.lock:
+            self.open_requests += 1
+            self.idle_since = None
+
+    def request_closed(self):
+        with self.lock:
+            self.open_requests -= 1
+            if not self.open_requests:
+                self.idle_since = time.monotonic()
 
     def new_player(self):
         """Another model process takes over this game (the previous one stopped mid-game)."""

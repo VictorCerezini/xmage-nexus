@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -102,6 +103,32 @@ def test_call_budget_is_enforced_before_forwarding(gateway):
     assert "result" in post("tools/call", {"name": "get_game_state"})
     assert "error" in post("tools/call", {"name": "get_game_state"})
     assert len(received) == 1
+
+
+def test_the_gateway_is_idle_only_while_no_request_is_open(tmp_path):
+    seen = []
+
+    class Upstream:
+        def forward(self, payload, _timeout):
+            seen.append(proxy.idle_since)
+            return 200, json.dumps({"jsonrpc": "2.0", "id": payload["id"], "result": {"ok": True}}).encode()
+
+    proxy = GameToolGateway(Upstream(), ["get_game_state"], tmp_path / "trace.jsonl")
+    try:
+        assert proxy.idle_since is not None
+        request = urllib.request.Request(
+            proxy.url, data=json.dumps({"id": 1, "method": "tools/call", "params": {"name": "get_game_state"}}).encode()
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert json.loads(response.read())["result"] == {"ok": True}
+        assert seen == [None]
+        deadline = time.monotonic() + 3
+        while proxy.idle_since is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert proxy.idle_since is not None
+        assert proxy.open_requests == 0
+    finally:
+        proxy.close()
 
 
 @pytest.mark.parametrize("url", ["file:///private/data", "https://example.com/mcp", "http://192.0.2.1/mcp"])

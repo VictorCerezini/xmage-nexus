@@ -98,6 +98,7 @@ def harness(tmp_path, monkeypatch):
         violations=[],
         call_count=0,
         fatal_error=None,
+        idle_since=None,
         close=lambda: None,
         finish_game=lambda: None,
         new_player=lambda: None,
@@ -292,6 +293,58 @@ def test_a_player_stopped_by_a_busy_model_is_replaced_and_finishes_the_game(unde
     assert prompts[1].endswith(seat.RESUME_PROMPT)
     assert (run / "codex-events-retry1.jsonl").exists()
     assert (run / "player-prompt-retry1.txt").read_text(encoding="utf-8") == prompts[1]
+
+
+def test_a_player_that_stops_answering_is_replaced_and_the_next_one_finishes_the_game(undecided, monkeypatch):
+    request, runtime, stopped, gateway, game_over = undecided
+    monkeypatch.setattr(seat, "QUIET_SECONDS", 0)
+    gateway.idle_since = 0.0  # no game tool call open: the model is deciding
+    prompts, agents = [], []
+
+    def start(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            agent = SimpleNamespace(poll=lambda: None, returncode=None)
+        else:
+            game_over()
+            agent = SimpleNamespace(poll=lambda: 0, returncode=0)
+        agents.append(agent)
+        return agent
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["recoveries"] == [
+        {"game": 1, "attempt": 1, "reason": "the model sent nothing for 0 seconds", "model": "gpt-6.2-astra"}
+    ]
+    assert agents[0] in stopped
+    assert prompts[1].endswith(seat.RESUME_PROMPT)
+
+
+@pytest.mark.parametrize("busy", ["waiting_in_a_tool_call", "writing_events"])
+def test_a_player_waiting_in_a_tool_call_or_still_writing_is_not_quiet(undecided, monkeypatch, busy):
+    request, runtime, _stopped, gateway, game_over = undecided
+    monkeypatch.setattr(seat, "QUIET_SECONDS", 0)
+    gateway.idle_since = None if busy == "waiting_in_a_tool_call" else 0.0
+    polls = []
+
+    def start(_prompt, out, *_args, **_kwargs):
+        def poll():
+            polls.append(True)
+            if busy == "writing_events":
+                out.write(json.dumps({"type": "item.started"}) + "\n")
+                out.flush()
+            if len(polls) < 20:
+                return None
+            game_over()
+            return 0
+
+        return SimpleNamespace(poll=poll, returncode=0)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert "recoveries" not in manifest
 
 
 def test_a_reached_usage_limit_is_not_retried(undecided):
@@ -944,6 +997,7 @@ def match(harness, monkeypatch):
             violations=[],
             call_count=3,
             fatal_error=None,
+            idle_since=None,
             finished=[],
             close=lambda: None,
             optimization_stats=lambda: {"policy": "gui-efficient-v2", "auto_passes": 2},
