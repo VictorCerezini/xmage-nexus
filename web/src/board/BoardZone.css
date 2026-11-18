@@ -647,7 +647,7 @@
 }
 
 .board-zone .stack-group.land-group.untapped-pile > .card-slot + .card-slot.tapped {
-  margin-left: calc(-1 * var(--card-w, 100px) * 0.72);
+  margin-left: calc(-1 * var(--card-w) * 0.72);
 }
 
 .board-zone.card-style-compact .stack-group.land-group.untapped-pile > .card-slot + .card-slot.tapped {
