@@ -636,6 +636,34 @@
   margin-left: calc(-1 * var(--card-w) * 0.725);
 }
 
+/* A land tapped while its untapped pile is held (heldLandTaps) turns in place but keeps
+   the untapped spacing, so tapping it never shifts the pile or the rest of the row. */
+.board-zone .stack-group.land-group.untapped-pile > .card-slot.tapped {
+  margin-right: 0;
+}
+
+.board-zone .stack-group.land-group.untapped-pile > .card-slot.tapped:first-child {
+  margin-left: 0;
+}
+
+.board-zone .stack-group.land-group.untapped-pile > .card-slot + .card-slot.tapped {
+  margin-left: calc(-1 * var(--card-w, 100px) * 0.72);
+}
+
+.board-zone.card-style-compact .stack-group.land-group.untapped-pile > .card-slot + .card-slot.tapped {
+  margin-left: calc(-1 * var(--card-w) * 0.86);
+}
+
+/* The turned land is wider than the gap to its neighbours: keep it under the lands still
+   to tap (even while hovered), so it never covers the next one the player clicks. */
+.board-zone .stack-group.land-group.untapped-pile > .card-slot.tapped {
+  z-index: 0;
+}
+
+.board-zone .stack-group.land-group.untapped-pile > .card-slot:not(.tapped):not(:hover) {
+  z-index: 1;
+}
+
 .board-zone .stack-group.token-pile {
   --pile-edge: var(--sp-1h);
 }

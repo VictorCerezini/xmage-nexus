@@ -16,6 +16,8 @@ export interface StackGroup {
 
 export interface GroupStackablesOpts {
   excludeIds?: Set<string>
+  /** The tapped state to group each permanent by in place of its own, while its pile is held (heldLandTaps). */
+  groupTapped?: ReadonlyMap<string, boolean>
 }
 
 function hasCounters(perm: PermanentView): boolean {
@@ -32,8 +34,8 @@ function hasAlteredFace(perm: PermanentView): boolean {
   )
 }
 
-function tappedFlag(perm: PermanentView): string {
-  return perm.tapped === true ? 't' : 'u'
+function tappedFlag(perm: PermanentView, heldTapped?: boolean): string {
+  return (heldTapped ?? perm.tapped === true) ? 't' : 'u'
 }
 
 export function stackGroupKeyOf(
@@ -41,12 +43,13 @@ export function stackGroupKeyOf(
   perm: PermanentView,
   kind: 'creatures' | 'lands' | 'other',
   excludeIds?: Set<string>,
+  heldTapped?: boolean,
 ): { key: string; name: string; groupKind: StackGroupKind } | null {
   const name = perm.name || 'Card'
   if (excludeIds?.has(id)) return null
   if ((perm.attachments ?? []).length > 0 || perm.mutated === true) return null
   if (kind === 'lands') {
-    return { key: `land:${name}:${tappedFlag(perm)}`, name, groupKind: 'land' }
+    return { key: `land:${name}:${tappedFlag(perm, heldTapped)}`, name, groupKind: 'land' }
   }
   if (!isTokenCard(perm)) return null
   if (hasAlteredFace(perm)) return null
@@ -77,7 +80,7 @@ export function groupStackables(
   const byKey = new Map<string, StackGroup>()
   const order: StackGroup[] = []
   for (const [id, perm] of entries) {
-    const slot = stackGroupKeyOf(id, perm, kind, opts.excludeIds)
+    const slot = stackGroupKeyOf(id, perm, kind, opts.excludeIds, opts.groupTapped?.get(id))
     if (!slot) continue
     let group = byKey.get(slot.key)
     if (!group) {
@@ -91,4 +94,23 @@ export function groupStackables(
   const groupedIds = new Set<string>()
   for (const g of groups) for (const [id] of g.items) groupedIds.add(id)
   return { groups, solos: entries.filter(([id]) => !groupedIds.has(id)) }
+}
+
+/**
+ * Holds the land piles while the player taps lands by hand: each land is grouped by the tapped state it had
+ * when the hold began, so a land tapped meanwhile turns in place instead of jumping to another pile (and
+ * pulling the rest of the row along). `held` keeps those states across renders; once the hold ends it is
+ * cleared and the piles regroup by the lands' real state.
+ */
+export function heldLandTaps(
+  held: Map<string, boolean>,
+  lands: [string, PermanentView][],
+  holding: boolean,
+): ReadonlyMap<string, boolean> | undefined {
+  if (!holding) {
+    held.clear()
+    return undefined
+  }
+  for (const [id, perm] of lands) if (!held.has(id)) held.set(id, perm.tapped === true)
+  return held
 }

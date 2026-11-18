@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CardView, CardsView, PermanentView, PlayerView } from '../net/types'
 import CardSlot from './CardSlot'
@@ -21,7 +21,7 @@ import { switchedHandCards, switchableHandKeys } from './handSwitch'
 import { useTranslation } from '../i18n'
 import Icon from '../ui/Icon'
 import { setState, setSwitchedHandKey, useStore } from '../state/store'
-import { groupStackables, TOKEN_PILE_FAN_DELAY_MS } from './stackGroups'
+import { groupStackables, heldLandTaps, TOKEN_PILE_FAN_DELAY_MS } from './stackGroups'
 import type { StackGroup } from './stackGroups'
 import StackPile from './StackPile'
 import { isMarqueePermanent } from './marquee'
@@ -221,6 +221,11 @@ export default function BoardZone({
     return busy
   }, [combatSelectableSet, combatChosenSet, attackingSet, blockingSet])
   const stackExcludedIds = useMemo(() => new Set([...busyIds, ...targetIds]), [busyIds, targetIds])
+  // Lands are held in their piles while the pointer is over the row (tapping them one by one) or while this
+  // player pays a mana cost, so a tapped land turns in place instead of moving to the tapped pile.
+  const [pointerOnPermanents, setPointerOnPermanents] = useState(false)
+  const payingMana = useStore((s) => s.feedback?.method === 'GAME_PLAY_MANA' || s.feedback?.method === 'GAME_PLAY_XMANA')
+  const heldLandTapsRef = useRef(new Map<string, boolean>())
 
   const finalHand = useMemo((): CardsView => {
     if (!player) return {}
@@ -510,17 +515,21 @@ export default function BoardZone({
     )
   }
 
-  const { groups: landGroups, solos: landSolos } = groupStackables(lands, 'lands', { excludeIds: stackExcludedIds })
+  const groupTapped = heldLandTaps(heldLandTapsRef.current, lands, pointerOnPermanents || (effectiveControlled && payingMana))
+  const { groups: landGroups, solos: landSolos } = groupStackables(lands, 'lands', { excludeIds: stackExcludedIds, groupTapped })
   const { groups: tokenGroups, solos: otherSolos } = groupStackables(restOthers, 'other', { excludeIds: stackExcludedIds })
   const { groups: creatureTokenGroups, solos: creatureSolos } = groupStackables(creatures, 'creatures', { excludeIds: stackExcludedIds })
 
   const renderStackGroup = (group: StackGroup, isCreature: boolean) => {
     const isLand = group.kind === 'land'
     const noPreview = !isLand && fannedTokenPile === group.key
+    const [firstId, firstPerm] = group.items[0]
+    // Every land in a pile is grouped by the same tapped state, so the first one tells the pile's.
+    const untappedPile = isLand && !(groupTapped?.get(firstId) ?? firstPerm.tapped === true)
     return (
       <StackPile
         key={`sg-${group.key}`}
-        className={`stack-group${isLand ? ' land-group' : ' token-pile'} stack-group--${group.kind}`}
+        className={`stack-group${isLand ? ' land-group' : ' token-pile'} stack-group--${group.kind}${untappedPile ? ' untapped-pile' : ''}`}
         name={group.name}
         count={group.items.length}
         cardIds={group.items.map(([id]) => id)}
@@ -718,6 +727,8 @@ export default function BoardZone({
       key="permanents-row"
       ref={setPermanentsRowEl}
       className={`bz-row bz-permanents-row oz-permanents-row pz-permanents-row${permanentsRowTargeted ? ' target-zone' : ''}${pileCornerReach ? ' pile-corner-reach' : ''}`}
+      onPointerEnter={() => setPointerOnPermanents(true)}
+      onPointerLeave={() => setPointerOnPermanents(false)}
     >
       {kindColumns ? (
         <>

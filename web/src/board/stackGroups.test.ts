@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PermanentView } from '../net/types'
-import { groupStackables, STACK_GROUP_MIN, stackGroupKeyOf } from './stackGroups'
+import { groupStackables, heldLandTaps, STACK_GROUP_MIN, stackGroupKeyOf } from './stackGroups'
 
 function land(name: string, extra: Partial<PermanentView> = {}): PermanentView {
   return { name, cardTypes: ['Land'], manaValue: 0, expansionSetCode: 'T', cardNumber: '0', ...extra }
@@ -194,5 +194,37 @@ describe('groupStackables', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0].items).toHaveLength(4)
     expect(solos.map(([, p]) => p.attachments)).toEqual([['sword']])
+  })
+})
+
+describe('heldLandTaps', () => {
+  it('a land tapped while its pile is held stays in the untapped pile, and regroups once the hold ends', () => {
+    const held = new Map<string, boolean>()
+    const forests = entries([land('Forest'), land('Forest'), land('Forest'), land('Forest')])
+    let groupTapped = heldLandTaps(held, forests, true)
+    expect(groupStackables(forests, 'lands', { groupTapped }).groups.map((g) => g.items.length)).toEqual([4])
+
+    const tappedOne = forests.map(([id, perm]): [string, PermanentView] => [id, id === 'c1' ? { ...perm, tapped: true } : perm])
+    groupTapped = heldLandTaps(held, tappedOne, true)
+    const whileHeld = groupStackables(tappedOne, 'lands', { groupTapped })
+    expect(whileHeld.groups).toHaveLength(1)
+    expect(whileHeld.groups[0].key).toBe('land:Forest:u')
+    expect(whileHeld.groups[0].items.map(([id]) => id)).toEqual(['c0', 'c1', 'c2', 'c3'])
+    expect(whileHeld.solos).toEqual([])
+
+    groupTapped = heldLandTaps(held, tappedOne, false)
+    expect(groupTapped).toBeUndefined()
+    expect(held.size).toBe(0)
+    const released = groupStackables(tappedOne, 'lands', { groupTapped })
+    expect(released.groups[0].items.map(([id]) => id)).toEqual(['c0', 'c2', 'c3'])
+    expect(released.solos.map(([id]) => id)).toEqual(['c1'])
+  })
+
+  it('a land that enters during the hold is grouped by the state it entered with', () => {
+    const held = new Map<string, boolean>()
+    heldLandTaps(held, entries([land('Forest')]), true)
+    const groupTapped = heldLandTaps(held, [...entries([land('Forest')]), ['new', land('Forest', { tapped: true })]], true)
+    expect(groupTapped?.get('c0')).toBe(false)
+    expect(groupTapped?.get('new')).toBe(true)
   })
 })

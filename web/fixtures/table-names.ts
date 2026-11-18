@@ -48,6 +48,7 @@ export const TABLE = {
   tokens: 'tokens-test',
   landFan: 'land-fan-test',
   manaStack: 'mana-stack-test',
+  manualTap: 'manual-tap-test',
   stackTarget: 'stack-target-test',
   thoughtseize: 'thoughtseize-test',
   voting: 'voting-test',
