@@ -46,8 +46,10 @@ public final class TheBalrogOfMoria extends CardImpl {
         this.addAbility(HasteAbility.getInstance());
 
         // When The Balrog of Moria dies, you may exile it. When you do, for each opponent, exile up to one target creature that player controls.
+        // The adjuster makes one target per opponent, so the exile needs all of them, not only the first.
         ReflexiveTriggeredAbility reflexiveAbility = new ReflexiveTriggeredAbility(
             new ExileTargetEffect()
+                .setTargetPointer(new EachTargetPointer())
                 .setText("for each opponent, exile up to one target creature that player controls."),
             false
         );
@@ -59,7 +61,7 @@ public final class TheBalrogOfMoria extends CardImpl {
                 reflexiveAbility,
                 new ExileSourceFromGraveCost().setText("exile it"),
                 "Exile {this}?"
-            ).setTargetPointer(new EachTargetPointer())
+            )
         ));
 
         // Cycling {3}{R}
