@@ -536,6 +536,19 @@ describe('persistence', () => {
       expect(loaded.keywordIcons).toBe('coins')
       expect(loaded.keywordAura).toBe('subtle')
     })
+
+    it('BRD-32: a player who had chosen the retired emoji icon set gets the coins back', () => {
+      mockStorage['mage-web-appearance'] = JSON.stringify({
+        sleeveId: 'classic', boardLayout: 'standard', uiScale: 1, cjkBoost: true,
+        ptBadgeMode: 'changed', sicknessStyle: 'veil', keywordIcons: 'emoji', keywordAura: 'vivid',
+      })
+      const loaded = loadAppearanceSettings()
+      expect(loaded.keywordIcons).toBe('coins')
+      // the rest of the blob is untouched: only the retired value is replaced
+      expect(loaded.ptBadgeMode).toBe('changed')
+      expect(loaded.sicknessStyle).toBe('veil')
+      expect(loaded.keywordAura).toBe('vivid')
+    })
   })
 
   describe('card preview size persistence', () => {
@@ -645,6 +658,21 @@ describe('persistence', () => {
     it('defaults to adaptive music on at a modest volume', () => {
       expect(loadMusicSettings()).toEqual(DEFAULT_MUSIC_SETTINGS)
       expect(DEFAULT_MUSIC_SETTINGS.musicEnabled).toBe(true)
+    })
+
+    it('SET-12: a player who had sound effects off keeps the music off once, then chooses freely', () => {
+      mockStorage['mage-web-audio'] = JSON.stringify({ ...DEFAULT_AUDIO_SETTINGS, soundEnabled: false })
+      mockStorage['mage-web-music'] = JSON.stringify({ musicEnabled: true, musicVolume: 0.6 })
+      expect(loadMusicSettings()).toEqual({ musicEnabled: false, musicVolume: 0.6 })
+      saveMusicSettings({ musicEnabled: true, musicVolume: 0.6 })
+      expect(loadMusicSettings()).toEqual({ musicEnabled: true, musicVolume: 0.6 })
+    })
+
+    it('SET-12: the split leaves the music alone when sound effects were on or never stored', () => {
+      mockStorage['mage-web-audio'] = JSON.stringify({ ...DEFAULT_AUDIO_SETTINGS, soundEnabled: true })
+      expect(loadMusicSettings()).toEqual(DEFAULT_MUSIC_SETTINGS)
+      for (const k of Object.keys(mockStorage)) delete mockStorage[k]
+      expect(loadMusicSettings()).toEqual(DEFAULT_MUSIC_SETTINGS)
     })
 
     it('round-trips and clamps the music volume', () => {

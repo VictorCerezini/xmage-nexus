@@ -128,3 +128,45 @@ next card with the same id. Switching between Board tabs plays only the button c
   between them, or coming back to them, made `CardSlot` treat each miniature as a card that moved,
   so a flight started and `play_card` sounded on top of the click (report of 2026-10-28).
 - Guard: `src/board/CardSlot.flight.test.tsx`
+
+### SET-11 · Phase stops are one setting, shared by Settings and the board
+The phase stops in Settings are the stops of every game: the phase bar, the phase dial and the ⋯
+menu show and edit that same setting (`phaseStops`, stored under `mage-web-phase-stops`), with no
+per-game copy. A game shows the Settings stops however it was entered, a fresh start or a rejoin
+after a reload or a reconnect that brings back only the last game update and no `GAME_INIT`.
+Changing a stop on the board saves it in Settings, and changing it in Settings during a game
+updates the board; either way the change reaches the running game's server player at once.
+Every push to the server carries the stops and the "confirm empty mana pool" choice together,
+because XMage replaces the whole `UserData` on each update.
+
+- Why: the board read a per-game copy that started with every stop on and was only seeded from
+  Settings by `GAME_INIT`; with all stops off in Settings, a rejoined game showed all 14 on, and a
+  stop changed on the board was lost at the next game. Separately, toggling the empty-pool
+  confirmation in a game reset the server stops to the engine defaults, and every stops push
+  turned that confirmation back on (report of 2026-11-11).
+- Guard: `src/state/store.test.ts` · `e2e/phase-stops.spec.ts`
+
+### SET-12 · Sound effects and music have their own switches
+The "Sound effects" switch mutes the game and interface sounds (effects, interface and the priority
+sound) and nothing else. The music has its own switch and volume, which stay adjustable while the
+effects are off, and the master volume governs both. A player who had sound effects off before the
+split keeps a silent app: the first load after it turns their music off once, and from then on the
+two switches are independent.
+
+- Why: the effects switch was the master mute, so turning it off also silenced the music and greyed
+  out its controls, and there was no way to play with music and without effects (report of
+  2026-11-11).
+- Guard: `src/settings/SoundFxControls.test.tsx` · `src/audio/soundManager.test.ts` · `src/state/persistence.test.ts`
+
+### SET-13 · The setup wizard lays out the settings it borrows so they fit
+The setup wizard reuses the settings sections, and they adapt to the wizard's box the same way they
+adapt to the settings dialog: below 820 px of width the board preview leaves the side and, in the
+wizard, goes under the options; below 640 px a picker with four or more options that pair up shows
+two per row; below 520 px the narrow rules of the dialog apply. Every step opens at its top, not at
+the scroll the previous step was left at.
+
+- Why: the wizard did not declare itself a settings container, so none of those rules applied in a
+  640 px wizard: the four layout cards were 53 px columns (22 px on a phone) with their text one word
+  per line, the 300 px preview took half the width and overflowed on a phone, and the Sound and
+  gameplay step opened scrolled to the middle (report of 2026-11-13).
+- Guard: `src/setup/SetupWizard.test.tsx` · `src/settings/settingsUi.test.tsx` · `e2e/setup-wizard.spec.ts`

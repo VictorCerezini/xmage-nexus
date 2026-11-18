@@ -45,7 +45,7 @@ triage. See `web/INTERACTION_COVERAGE.md`.
   the proxy; `build.mjs` stops it on its own) — afterwards `node scripts/ctl.mjs restart proxy`
 - Full build (server + plugins + proxy): `node scripts/build.mjs` (engine
   steps run inside the fork checkout; the proxy builds standalone in this repo)
-- XMage version: **1.4.63-V1** (upstream magefree/mage; merge of tag `xmage_1.4.63V1`).
+- XMage version: **1.4.63-V2** (upstream magefree/mage; merge of tag `xmage_1.4.63V2`).
   Proxy jar: `Mage.Proxy/target/mage-proxy-1.4.63.jar`. A second proxy flavor is built against the
   **XDHS fork** (xenohedron/mage, tag `1.6.1-XDHS-r2`) for `mage.xdhs.net`:
   `mage-proxy-1.6.1.jar` + `patches/xdhs/*.patch` + `-Dmage.version=1.6.1`
@@ -90,7 +90,7 @@ triage. See `web/INTERACTION_COVERAGE.md`.
 The goal is a client that works against `beta.xmage.today`, but the public server is shared, latency-prone
 and not reproducible. So the **oracle for
 "real protocol" in CI is the local XMage server** (`node scripts/ctl.mjs restart all` →
-`localhost:17171`, same 1.4.63-V1 fork). The recorder captures real frames and the fake-mode tests
+`localhost:17171`, same 1.4.63-V2 fork). The recorder captures real frames and the fake-mode tests
 replay them, giving drift detection without depending on beta:
 
 - `scripts/rec-lib.mjs` + `scripts/record.mjs <mechanic|all>` — a single WS recorder that drives a
@@ -126,7 +126,7 @@ This repo has three independent concerns, each developable on its own:
   this repo. Resolution order (`scripts/lib.mjs` `forkDir()`):
   `NEXUS_FORK_DIR` env → `../xmage-fork` → error with instructions. Clone it
   once: `git clone https://github.com/Adamychen/xmage-nexus.git -b nexus ../xmage-fork`
-  (branch `nexus` = upstream tag `xmage_1.4.63V1` + our test-mode/view patches;
+  (branch `nexus` = upstream tag `xmage_1.4.63V2` + our test-mode/view patches;
   upstream releases merge cleanly there). Rebuild only when the XMage version
   changes or the test-mode patches change.
 
@@ -282,7 +282,7 @@ game per test. Common libraries in `web/e2e/support/`
 `web/fixtures/scenarios/` (mini-engine `humanGame.ts`). Tags by
 domain: `@spells`, `@targeting`, `@combat`, `@fullflow`, `@board`, `@site` (scripts
 `test:e2e:spells|targeting|combat|fullflow|board|site`). Every spec runs in fake
-(no stack; ~440 tests, ~12 min locally with 4 workers, 4 shards in CI) and can run in real; the
+(no stack; ~440 tests, ~12 min locally with 4 workers, 6 shards in CI plus 2 for the heavy lane) and can run in real; the
 nightly real-mode job covers the eleven protocol-sensitive specs (`deckvalidation`, `multi-user`,
 `priority-stop-real`, `skips`, `full-flow`, `reconnect-real`, `smart-mana-real`, `smart-stops-real`,
 `xmage-catalog-real`, `learn-real`, `draft-real-reload`) plus the `verify` layer, not all of them
@@ -297,7 +297,11 @@ createTable (draft, tournament). **Specs whose verdict depends on wall-clock tim
 ordering carry the `@timing` tag** and `retryTimingSpecInCi()`: CI runs them in their own
 `e2e-timing` job and the shards run `--grep-invert @timing`. **Keep single tests short**: the
 suite is `fullyParallel`, so one 4-minute test (the old one-test gallery sweep) sets the floor of
-the whole run; split loops into blocks generated at describe level.
+the whole run; split loops into blocks generated at describe level. **A whole spec file can pin a
+shard the same way**: Playwright balances shards by test count, so the costliest files per test
+(`HEAVY_SPECS` in `web/playwright.config.ts`) run in their own `e2e-fake-heavy` lane via `E2E_LANE`,
+and `e2e-fake` takes the rest. `scripts/workflows.test.mjs` checks the two lanes stay the
+complement of each other; a local run with no `E2E_LANE` is the whole suite as always.
 **The helper does NOT answer the mulligan** (the web's auto-keep already does it;
 a second false breaks the test window).
 
@@ -318,6 +322,13 @@ for `mechanics.spec.ts`, so a fixture change must be checked against every spec 
   the translation locales (`web/src/i18n/locales/*`) and quoted server output.
   Existing Spanish prose is migrated to English as its file is touched; do not
   do unrelated mass rewrites.
+- **A push to `master` does not deploy**: production (`.github/workflows/deploy.yml`, self-hosted
+  runner) goes out only on the commit that raises the version in `web/package.json`, or on a manual
+  `workflow_dispatch`. Work that should reach players carries the bump in its own PR, together with
+  its `## What's new in <version>` section of `readme.md`: the deploy publishes that section as the
+  GitHub release of the version, and that release is what the news bell shows. The section is the
+  only place those notes live; `scripts/release-notes.mjs` reads it and its test fails a bump that
+  forgets it (`docs/deployment.md`, "Production deploy").
 - **Before changing how the client behaves**, read the spec of that area in
   `docs/specs/`. A change to a rule goes in the same commit as the code: edit
   the rule and its `Why:`, then the tests named after it. A new decision gets a
@@ -332,9 +343,14 @@ for `mechanics.spec.ts`, so a fixture change must be checked against every spec 
   (`npx playwright test e2e/<spec>.spec.ts`); the full fake e2e (`node scripts/test.mjs e2e`) when touching `e2e/support/`, `fixtures/`
   or the FakeServer; the stack layers (`self-test`, `human-test`, `verify`) with the stack up when the proxy
   or the protocol changed — **and the remote CI green afterwards** (`gh run list -R Adamychen/xmage-nexus -L 5`),
-  which runs the whole fake e2e sharded on every push. `Web client CI` once sat red on
+  which runs the whole fake e2e sharded on every PR and on every push to `master`. `Web client CI` once sat red on
   `master` for a week while the local suite was 9/9, because CI's Maven cache held old `org.mage` artifacts.
   If the fork is touched, publish `origin/nexus` first: CI and `release.yml` build from there.
+  The one check to mark as required (branch protection, merge queue) is **`ci-ok`**: it needs every
+  other job and reports with `always()`, so the shards can be resplit without touching the repo
+  settings. For the same reason `web-ci.yml` carries no `paths` filter: a workflow skipped by path
+  filtering leaves a required check pending and blocks merging. It also answers `merge_group`,
+  which is what a merge queue dispatches; without that trigger the queue waits forever.
 - **Restart the stack right before** (`node scripts/ctl.mjs restart all`): a server that accumulated orphan
   sessions and matches degrades the callback channel and makes `warmup`/`self-test`/`human-test` flaky
   (`WATCHGAME` never arrives, `GAME_PLAY_MANA` expires). On a freshly restarted, warm stack: self-test

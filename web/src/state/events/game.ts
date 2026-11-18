@@ -3,9 +3,9 @@ import type { GameEndInfo, GameView } from '../../net/types'
 import { parseFeedback } from '../../game/feedback'
 import { manaPaymentActions } from '../../game/manaPayment'
 import { serverAutoAnswerActions } from '../../game/autoAnswers'
-import { clonePhaseStops, serverPhaseStops } from '../../game/phaseStops'
+import { pushServerPreferences } from '../serverPreferences'
 import { getState, setState, addLog } from '../state'
-import { sniffDungeonEntry, sniffSpeedLevel, sniffRoomDoor, enterTableChat, exitTableChat, armRollbackPending, disarmRollbackPending, releaseAutoPassHold, sniffElimination } from '../actions'
+import { sniffDungeonEntry, sniffSpeedLevel, sniffRoomDoor, enterTableChat, exitTableChat, armRollbackPending, disarmRollbackPending, releaseAutoPassHold, sniffElimination, sniffOutReason } from '../actions'
 import { ingestRollbackServerMessage } from '../rollbackVote'
 import { undoPreviewApplied, undoPreviewFailed } from '../undoPreview'
 import { t as tStatic } from '../../i18n'
@@ -115,6 +115,7 @@ export function handleGameUpdate(method: string, objectId: string | null, data: 
     sniffSpeedLevel(informMessage, objectId ?? s.gameId)
     sniffRoomDoor(informMessage, objectId ?? s.gameId)
     sniffElimination(informMessage, objectId ?? s.gameId)
+    sniffOutReason(informMessage, objectId ?? s.gameId)
     sniffRollbackAnnounce(informMessage, objectId ?? s.gameId)
     sniffShuffle(informMessage, objectId ?? s.gameId)
   }
@@ -142,14 +143,11 @@ export function handleGameUpdate(method: string, objectId: string | null, data: 
         for (const action of manaPaymentActions(getState().settings.manaPayment)) {
           void cmds.sendManaPaymentMode(action, objectId)
         }
-        void cmds.updateManaConfirmPreference(getState().settings.manaPayment.confirmEmptyPool)
         // respuestas Sí/No recordadas: las aplica el HumanPlayer de XMage
         for (const { action, data } of serverAutoAnswerActions(getState().settings.autoAnswers ?? [])) {
           void cmds.sendPlayerAction(action, objectId, data)
         }
-        const sessionStops = clonePhaseStops(getState().settings.phaseStops)
-        patch.phaseStops = sessionStops
-        void cmds.updatePreferences(serverPhaseStops(getState().settings.smartStops, sessionStops))
+        pushServerPreferences()
       }
     }
     if (method === 'GAME_SELECT') {
@@ -210,6 +208,7 @@ export function handleGameInform(data: unknown, objectId: string | null): void {
     sniffSpeedLevel(msg, objectId ?? getState().gameId)
     sniffRoomDoor(msg, objectId ?? getState().gameId)
     sniffElimination(msg, objectId ?? getState().gameId)
+    sniffOutReason(msg, objectId ?? getState().gameId)
     sniffRollbackAnnounce(msg, objectId ?? getState().gameId)
     addLog('partida', msg, objectId ?? undefined)
   }

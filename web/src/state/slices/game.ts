@@ -1,7 +1,6 @@
+import type { OutReason } from '../../board/outReason'
 import type { CardView, DeckCardEntry, DeckJson, GameEndInfo, GameView, PermanentView } from '../../net/types'
 import type { FeedbackPrompt, FeedbackCard } from '../../game/feedback'
-import type { PhaseStops } from '../../net/commands'
-import { DEFAULT_PHASE_STOPS, clonePhaseStops } from '../../game/phaseStops'
 import { loadActiveDeck } from '../persistence'
 import type { TurnRecap } from '../../game/turnRecap'
 import type { RollbackVote } from '../rollbackVote'
@@ -107,13 +106,14 @@ export interface GameSlice {
   viewer: CardViewerState | null
   playerMenu: PlayerMenuState | null
   inspectedCard: CardView | PermanentView | null
-  phaseStops: PhaseStops
   /** Dungeon room progress by `dungeonProgressKey(gameId, dungeon)` (visit order). */
   dungeonProgress: Record<string, string[]>
   /** Speed level 1-4 by `speedLevelKey(gameId, player)` (chat sniff, engine field not in DTO). */
   speedLevels: Record<string, number>
   /** Unlocked Room doors by `roomDoorKey(gameId, cardName)` (chat sniff, engine fields not in DTO). */
   roomDoors: Record<string, { left: boolean; right: boolean }>
+  /** Why each player left the game by `outReasonKey(gameId, player)` (log sniff, the view only has `hasLeft`). */
+  outReasons: Record<string, OutReason>
   turnRecap: TurnRecap | null
   enteredThisTurn: Record<string, true>
   priorityRequest: GameView | null
@@ -150,10 +150,10 @@ export const initialGame: GameSlice = {
   dungeonProgress: {},
   speedLevels: {},
   roomDoors: {},
+  outReasons: {},
   turnRecap: null,
   enteredThisTurn: {},
   priorityRequest: null,
   waitingFor: null,
   elimination: null,
-  phaseStops: clonePhaseStops(DEFAULT_PHASE_STOPS),
 }

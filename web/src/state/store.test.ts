@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { joinGame, sendManaPaymentMode, sendPlayerAction, sendPlayerBoolean, sendPlayerUUID, updateManaConfirmPreference, updatePreferences } from '../net/commands'
-import { makeCard, makeGameView, makePermanent, makePlayer, minimalGameView } from '../__fixtures__/gameViews'
+import { joinGame, sendManaPaymentMode, sendPlayerAction, sendPlayerBoolean, sendPlayerUUID, updatePreferences } from '../net/commands'
+import { makeCard, makeGameView, makePermanent, makePlayer, minimalGameView, playerGameView } from '../__fixtures__/gameViews'
 import { DEFAULT_PHASE_STOPS, clonePhaseStops, togglePhaseStop } from '../game/phaseStops'
 import { getState, setState, addLog } from './state'
 import { applyGameplayPreset, handleMessage, maybeAutoPass, reset, setSetting, returnToLobby, enterTableChat, exitTableChat, openStagingTable, leaveStagingTable, enterTournamentChat, exitTournamentChat } from './store'
 import { handleWatchGame } from './events/game'
 import { getTableChatId, getTournamentChatId, joinChat, leaveChat } from '../net/commands'
-import { loadActiveGame, loadGameplayPreset, saveGameplayPreset } from './persistence'
+import { loadActiveGame, loadGameplayPreset, loadPhaseStops, saveGameplayPreset } from './persistence'
 
 vi.mock('../net/commands', () => ({
   setGateway: vi.fn(),
@@ -42,7 +42,6 @@ vi.mock('../net/commands', () => ({
   sendPlayerString: vi.fn(),
   sendPlayerUUID: vi.fn(),
   sendManaPaymentMode: vi.fn(),
-  updateManaConfirmPreference: vi.fn(),
 }))
 
 describe('handleMessage', () => {
@@ -101,15 +100,59 @@ describe('handleMessage', () => {
     expect(getState().game?.stack?.['s-1']?.controllerName).toBe('Alice')
   })
 
-  it('GAME_INIT seeds session phase stops from the lobby defaults and pushes them to the server', () => {
+  it('SET-11: GAME_INIT pushes the Settings stops to the server and keeps no per-game copy', () => {
     const custom = clonePhaseStops(DEFAULT_PHASE_STOPS)
     custom.opponentTurn.main1 = false
     setSetting('phaseStops', custom)
     const me = makePlayer({ playerId: 'p-me', name: 'Me', controlled: true })
     const game = makeGameView({ players: [me] })
     handleMessage({ type: 'event', method: 'GAME_INIT', messageId: 1, objectId: 'g-stops', data: game })
-    expect(getState().phaseStops).toEqual(custom)
-    expect(updatePreferences).toHaveBeenCalledWith(custom)
+    expect(getState().settings.phaseStops).toEqual(custom)
+    expect('phaseStops' in getState()).toBe(false)
+    expect(updatePreferences).toHaveBeenCalledWith({ phases: custom, confirmEmptyManaPool: getState().settings.manaPayment.confirmEmptyPool })
+    setSetting('phaseStops', clonePhaseStops(DEFAULT_PHASE_STOPS))
+  })
+
+  it('SET-11: a game rejoined without GAME_INIT still runs on the Settings stops', () => {
+    const none = { yourTurn: {}, opponentTurn: {} } as ReturnType<typeof clonePhaseStops>
+    for (const k of Object.keys(DEFAULT_PHASE_STOPS.yourTurn)) {
+      none.yourTurn[k] = false
+      none.opponentTurn[k] = false
+    }
+    setSetting('phaseStops', none)
+    const me = makePlayer({ playerId: 'p-me', name: 'Me', controlled: true })
+    setState({ resumingGameId: 'g-rejoin' })
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 7, objectId: 'g-rejoin', data: makeGameView({ players: [me], turn: 4 }) })
+    expect(getState().phase).toBe('game')
+    expect(getState().settings.phaseStops).toEqual(none)
+    setSetting('phaseStops', clonePhaseStops(DEFAULT_PHASE_STOPS))
+  })
+
+  it('SET-11: changing a stop mid-game saves it in Settings and pushes it to the running game', () => {
+    const me = makePlayer({ playerId: 'p-me', name: 'Me', controlled: true })
+    handleMessage({ type: 'event', method: 'GAME_INIT', messageId: 1, objectId: 'g-live', data: makeGameView({ players: [me] }) })
+    vi.mocked(updatePreferences).mockClear()
+    const next = togglePhaseStop(getState().settings.phaseStops, 'yourTurn', 'upkeep')
+    setSetting('phaseStops', next)
+    expect(loadPhaseStops().yourTurn.upkeep).toBe(false)
+    expect(updatePreferences).toHaveBeenCalledWith({ phases: next, confirmEmptyManaPool: getState().settings.manaPayment.confirmEmptyPool })
+    setSetting('phaseStops', clonePhaseStops(DEFAULT_PHASE_STOPS))
+  })
+
+  it('SET-11: every push carries the stops and the empty-pool confirmation together', () => {
+    // XMage replaces the whole UserData: a push with one of them alone resets the other
+    const me = makePlayer({ playerId: 'p-me', name: 'Me', controlled: true })
+    handleMessage({ type: 'event', method: 'GAME_INIT', messageId: 1, objectId: 'g-both', data: makeGameView({ players: [me] }) })
+    const stops = togglePhaseStop(clonePhaseStops(DEFAULT_PHASE_STOPS), 'opponentTurn', 'draw')
+    setSetting('phaseStops', stops)
+    vi.mocked(updatePreferences).mockClear()
+    setSetting('manaPayment', { ...getState().settings.manaPayment, confirmEmptyPool: false })
+    expect(updatePreferences).toHaveBeenCalledWith({ phases: stops, confirmEmptyManaPool: false })
+    vi.mocked(updatePreferences).mockClear()
+    const more = togglePhaseStop(stops, 'yourTurn', 'endStep')
+    setSetting('phaseStops', more)
+    expect(updatePreferences).toHaveBeenCalledWith({ phases: more, confirmEmptyManaPool: false })
+    setSetting('manaPayment', { ...getState().settings.manaPayment, confirmEmptyPool: true })
     setSetting('phaseStops', clonePhaseStops(DEFAULT_PHASE_STOPS))
   })
 
@@ -321,7 +364,7 @@ describe('handleMessage', () => {
     expect(lastLog.text).toBe('hi there')
   })
 
-  it('GAME_ASK with a mulligan question auto-keeps the hand via sendPlayerBoolean(false)', () => {
+  it('PRM-16: a spectator, who has no seat to answer with, gets the mulligan kept for them', () => {
     handleMessage({
       type: 'event',
       method: 'GAME_ASK',
@@ -330,6 +373,47 @@ describe('handleMessage', () => {
       data: { question: 'Do you want to keep your hand? (Mulligan)', options: ['Keep hand', 'Mulligan'], gameId: 'g-1' },
     })
     expect(sendPlayerBoolean).toHaveBeenCalledWith(false, 'g-1')
+    expect(getState().feedback).toBeNull()
+  })
+
+  it('PRM-16: the opening hand is asked to the player who sits at the table, whatever the automation says', () => {
+    setSetting('autoStartingPlayer', true)
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 1, objectId: 'g-1', data: playerGameView })
+    handleMessage({
+      type: 'event',
+      method: 'GAME_ASK',
+      messageId: 2,
+      objectId: 'g-1',
+      data: { question: 'Do you want to keep your hand? (Mulligan)', options: ['Keep hand', 'Mulligan'], gameId: 'g-1' },
+    })
+    expect(sendPlayerBoolean).not.toHaveBeenCalled()
+    expect(getState().feedback?.method).toBe('GAME_ASK')
+  })
+
+  it('PRM-16: with the setting on, the starting player prompt is answered with the first option the server offers', () => {
+    setSetting('autoStartingPlayer', true)
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 1, objectId: 'g-1', data: playerGameView })
+    handleMessage({
+      type: 'event',
+      method: 'GAME_TARGET',
+      messageId: 2,
+      objectId: 'g-1',
+      data: { message: 'Select a starting player', targets: ['p1', 'p2'] },
+    })
+    expect(sendPlayerUUID).toHaveBeenCalledWith('p1', 'g-1')
+  })
+
+  it('PRM-16: with the setting off, the player at the table answers the starting player prompt themselves', () => {
+    handleMessage({ type: 'event', method: 'GAME_UPDATE', messageId: 1, objectId: 'g-1', data: playerGameView })
+    handleMessage({
+      type: 'event',
+      method: 'GAME_TARGET',
+      messageId: 2,
+      objectId: 'g-1',
+      data: { message: 'Select a starting player', targets: ['p1', 'p2'] },
+    })
+    expect(sendPlayerUUID).not.toHaveBeenCalled()
+    expect(getState().feedback?.method).toBe('GAME_TARGET')
   })
 
   it('GAME_ASK with a non-mulligan question does not auto-answer', () => {
@@ -355,7 +439,7 @@ describe('handleMessage', () => {
     // booleanos en la ventana del sorteo (respuesta inválida para un ask de
     // target → el servidor re-dispara y acaba la partida)
     expect(getState().feedback?.method).toBe('GAME_TARGET')
-    // el ask del mulligan (auto-keep) cierra el prompt
+    // el ask del mulligan (espectador) cierra el prompt
     handleMessage({
       type: 'event',
       method: 'GAME_ASK',
@@ -366,8 +450,7 @@ describe('handleMessage', () => {
     expect(getState().feedback).toBeNull()
   })
 
-  it('GAME_ASK respects the autoKeepMulligan setting', () => {
-    setSetting('autoKeepMulligan', false)
+  it('an ask with no game to answer in sends nothing', () => {
     handleMessage({
       type: 'event',
       method: 'GAME_ASK',
@@ -426,7 +509,7 @@ describe('maybeAutoPass with smart stops', () => {
     vi.clearAllMocks()
     setSetting('smartStops', true)
     handleMessage({ type: 'event', method: 'START_GAME', messageId: 1, objectId: 'g-1', data: { gameId: 'g-1' } })
-    setState({ phaseStops: { yourTurn: {}, opponentTurn: {} } })
+    setState({ settings: { ...getState().settings, phaseStops: { yourTurn: {}, opponentTurn: {} } } })
   })
 
   it('passes a window where only mana sources are available when no stop is set', () => {
@@ -441,7 +524,7 @@ describe('maybeAutoPass with smart stops', () => {
   })
 
   it('holds an empty window on a step the player marked as a stop', () => {
-    setState({ phaseStops: { yourTurn: { upkeep: true }, opponentTurn: {} } })
+    setState({ settings: { ...getState().settings, phaseStops: { yourTurn: { upkeep: true }, opponentTurn: {} } } })
     maybeAutoPass(select(makeGameView({ step: 'UPKEEP', players: [me(true)], canPlayObjects: { objects: { mountain: mana } } })))
     expect(sendPlayerBoolean).not.toHaveBeenCalled()
   })
@@ -497,6 +580,19 @@ describe('maybeAutoPass with smart stops', () => {
     maybeAutoPass(select(makeGameView({ players: [me()] })))
     setState({ combat: null, feedback: { method: 'GAME_ASK', gameId: 'g-1', title: '', message: 'Pay?', mode: 'boolean', options: [], min: 0, max: 0 } })
     maybeAutoPass(select(makeGameView({ players: [me()] })))
+    expect(sendPlayerBoolean).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { kind: 'attackers', step: 'DECLARE_ATTACKERS', active: true, options: { possibleAttackers: [], queryType: 'SELECT' }, group: { attackers: { gob: {} } } },
+    { kind: 'blockers', step: 'DECLARE_BLOCKERS', active: false, options: { possibleBlockers: [], queryType: 'SELECT' }, group: { attackers: { foe: {} }, blockers: { gob: {} } } },
+  ])('CMB-12: a declaration of $kind with nobody left to pick stays open for the player to confirm', ({ step, active, options, group }) => {
+    setState({ combat: null })
+    const view = makeGameView({ step, players: [me(active)], combat: [group] as unknown as ReturnType<typeof makeGameView>['combat'] })
+    handleMessage({ type: 'event', method: 'GAME_SELECT', messageId: 2, objectId: 'g-1', data: { gameView: view, message: 'Select', options } })
+    expect(getState().feedback?.mode).toBe('combat')
+    expect(getState().combat?.chosen).toEqual(['gob'])
+    maybeAutoPass(getState().game!)
     expect(sendPlayerBoolean).not.toHaveBeenCalled()
   })
 
@@ -820,7 +916,7 @@ describe('phaseStops', () => {
   })
 
   it('has every default phase stop enabled', () => {
-    const stops = getState().phaseStops
+    const stops = getState().settings.phaseStops
     for (const key of ['upkeep', 'draw', 'main1', 'beginCombat', 'endCombat', 'main2', 'endStep']) {
       expect(stops.yourTurn[key]).toBe(true)
       expect(stops.opponentTurn[key]).toBe(true)
@@ -828,7 +924,7 @@ describe('phaseStops', () => {
   })
 
   it('default phase stops are independent for your turn and opponent turn', () => {
-    const stops = getState().phaseStops
+    const stops = getState().settings.phaseStops
     const toggled = togglePhaseStop(stops, 'opponentTurn', 'main1')
     expect(toggled.opponentTurn.main1).toBe(false)
     expect(toggled.yourTurn.main1).toBe(true)
@@ -1544,11 +1640,11 @@ describe('applyGameplayPreset', () => {
     expect(sendManaPaymentMode).toHaveBeenCalledWith('MANA_AUTO_PAYMENT_ON', 'g-1')
     expect(sendManaPaymentMode).toHaveBeenCalledWith('MANA_AUTO_PAYMENT_RESTRICTED_OFF', 'g-1')
     expect(sendManaPaymentMode).toHaveBeenCalledWith('USE_FIRST_MANA_ABILITY_OFF', 'g-1')
-    expect(updateManaConfirmPreference).toHaveBeenCalledWith(false)
     expect(s.phaseStops.yourTurn.main1).toBe(false)
-    expect(updatePreferences).toHaveBeenCalledWith(
-      expect.objectContaining({ yourTurn: expect.objectContaining({ main1: true }) }),
-    )
+    expect(updatePreferences).toHaveBeenCalledWith({
+      phases: expect.objectContaining({ yourTurn: expect.objectContaining({ main1: true }) }),
+      confirmEmptyManaPool: false,
+    })
     expect(sendPlayerAction).toHaveBeenCalledWith('UNHOLD_PRIORITY', 'g-1')
     expect(loadGameplayPreset()).toBe('simple')
   })
@@ -1578,9 +1674,9 @@ describe('applyGameplayPreset', () => {
     expect(getState().settings.smartStops).toBe(false)
   })
 
-  it('never touches the auto-keep mulligan preference', () => {
-    setSetting('autoKeepMulligan', true)
+  it('never touches the starting player preference', () => {
+    setSetting('autoStartingPlayer', true)
     applyGameplayPreset('simple')
-    expect(getState().settings.autoKeepMulligan).toBe(true)
+    expect(getState().settings.autoStartingPlayer).toBe(true)
   })
 })

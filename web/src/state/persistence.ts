@@ -424,25 +424,6 @@ export function loadConstructSelection(tableId: string): ConstructSelection | nu
 }
 
 const ACTIVE_DECK_KEY = 'mage-web-active-deck'
-const EQUIPPED_DECK_ID_KEY = 'mage-web-equipped-deck-id'
-
-/** Recuerda el id (catálogo de mazos) del mazo equipado, para poder marcarlo
- *  aunque se renombre (comparar por nombre fallaba). */
-export function rememberEquippedDeckId(id: string | null | undefined) {
-  try {
-    const storage = getStorage()
-    if (id) storage.setItem(EQUIPPED_DECK_ID_KEY, id)
-    else storage.removeItem(EQUIPPED_DECK_ID_KEY)
-  } catch {}
-}
-
-export function equippedDeckId(): string | null {
-  try {
-    return getStorage().getItem(EQUIPPED_DECK_ID_KEY)
-  } catch {
-    return null
-  }
-}
 
 export function saveActiveDeck(deck: DeckJson | null) {
   if (deck) writeJson(ACTIVE_DECK_KEY, deck)
@@ -833,7 +814,20 @@ export interface MusicSettings {
 export const MUSIC_SETTINGS_KEY = 'mage-web-music'
 export const DEFAULT_MUSIC_SETTINGS: MusicSettings = { musicEnabled: true, musicVolume: 0.35 }
 
+export const SOUND_MUSIC_SPLIT_KEY = 'mage-web-sound-music-split'
+
+function migrateSoundMusicSplit(): void {
+  if (readJson<boolean>(SOUND_MUSIC_SPLIT_KEY)) return
+  const audio = readJson<Partial<AudioSettings>>(AUDIO_SETTINGS_KEY)
+  if (audio?.soundEnabled === false) {
+    const music = readJson<Partial<MusicSettings>>(MUSIC_SETTINGS_KEY)
+    writeJson(MUSIC_SETTINGS_KEY, { ...DEFAULT_MUSIC_SETTINGS, ...music, musicEnabled: false })
+  }
+  writeJson(SOUND_MUSIC_SPLIT_KEY, true)
+}
+
 export function loadMusicSettings(): MusicSettings {
+  migrateSoundMusicSplit()
   const parsed = readJson<Partial<MusicSettings>>(MUSIC_SETTINGS_KEY)
   if (parsed) {
     return {

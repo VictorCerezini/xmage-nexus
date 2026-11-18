@@ -135,6 +135,7 @@ describe('parseFeedback', () => {
         toughness: undefined,
         color: null,
         rules: ['Whenever another creature enters the battlefield, you gain 1 life.'],
+        sourceCard: { id: 'src-1', name: 'Soul Warden', displayName: 'Soul Warden', expansionSetCode: 'TMP', cardNumber: '35' },
         faceDown: false,
       },
       {
@@ -149,6 +150,7 @@ describe('parseFeedback', () => {
         toughness: undefined,
         color: null,
         rules: ['Whenever Blood Artist or another creature dies, target player loses 1 life.'],
+        sourceCard: { id: 'src-2', name: 'Blood Artist', displayName: 'Blood Artist', expansionSetCode: 'AVR', cardNumber: '82' },
         faceDown: false,
       },
     ])
@@ -298,6 +300,25 @@ describe('parseFeedback', () => {
     expect(blockers?.mode).toBe('combat')
     expect(blockers?.isDeclaringAttackers).toBeUndefined()
     expect(blockers?.special).toBe(false)
+  })
+
+  it('CMB-12: a declaration window with no creature left to pick is still a combat prompt, not a priority pass', () => {
+    const attackers = parseFeedback('GAME_SELECT', 'game-cmb12', {
+      message: 'Select attackers',
+      options: { possibleAttackers: [], queryType: 'SELECT' },
+    })
+    expect(attackers?.mode).toBe('combat')
+    expect(attackers?.isDeclaringAttackers).toBe(true)
+    expect(attackers?.special).toBe(false)
+
+    const blockers = parseFeedback('GAME_SELECT', 'game-cmb12', {
+      message: 'Select blockers',
+      options: { possibleBlockers: [], queryType: 'SELECT' },
+    })
+    expect(blockers?.mode).toBe('combat')
+    expect(blockers?.isDeclaringAttackers).toBeUndefined()
+
+    expect(parseFeedback('GAME_SELECT', 'game-cmb12', { message: 'Pass priority', options: { queryType: 'SELECT' } })).toBeNull()
   })
 
   it('keeps sourceName undefined when the ability/pile/X/multi-amount payload carries no source (no fabrication)', () => {

@@ -1,3 +1,4 @@
+import { mergeOutReason, outReasonKey, parseOutReason } from '../board/outReason'
 import { getState, setState } from './state'
 import * as cmds from '../net/commands'
 import { cleanMageText } from '../game/gameEventParser'
@@ -5,12 +6,12 @@ import type { ChatMessageEvent, DeckJson, GameView } from '../net/types'
 import { advanceProgress, dungeonProgressKey, findDungeonGraph, parseDungeonEntry } from '../game/dungeons'
 import { parseRoomDoor, roomDoorKey, mergeRoomDoor } from '../game/rooms'
 import { parseSpeedLevel, speedLevelKey } from '../game/speed'
-import { serverPhaseStops } from '../game/phaseStops'
+import { pushServerPreferences } from './serverPreferences'
 import { decideStop } from '../game/stopPolicy'
 import { manaPaymentActions } from '../game/manaPayment'
 import { serverAutoAnswerActions } from '../game/autoAnswers'
 import { gameplayPreset, PRESET_OWNED_KEYS, type GameplayPresetId } from '../settings/gameplayPresets'
-import { clearActiveGame, saveSmartStops, saveDeckStacksScale, loadDeckStacksScale, DECK_STACKS_SCALE_KEY, saveDeckEditorView, loadDeckEditorView, DECK_EDITOR_VIEW_KEY, saveDeckStacksGroup, loadDeckStacksGroup, DECK_STACKS_GROUP_KEY, saveDeckStacksSort, loadDeckStacksSort, DECK_STACKS_SORT_KEY, saveDeckStacksCopies, loadDeckStacksCopies, DECK_STACKS_COPIES_KEY, saveDeckEditorDrawer, loadDeckEditorDrawer, DECK_EDITOR_DRAWER_KEY, saveDeckStacksSeparateCreatures, loadDeckStacksSeparateCreatures, DECK_STACKS_SEPARATE_CREATURES_KEY, saveActiveDeck, saveFxSettings, saveAudioSettings, saveMusicSettings, saveAppearanceSettings, saveAutoAnswers, saveChoiceMemory, saveManaPayment, savePhaseStops, saveGameplayPreset, applyAppearanceToDocument, rememberEquippedDeckId, APPEARANCE_KEY, FX_SETTINGS_KEY, AUDIO_SETTINGS_KEY, MUSIC_SETTINGS_KEY, AUTO_ANSWERS_KEY, CHOICE_MEMORY_KEY, MANA_PAYMENT_KEY, PHASE_STOPS_KEY, SMART_STOPS_KEY, loadFxSettings, loadAudioSettings, loadMusicSettings, loadAutoAnswers, loadChoiceMemory, loadManaPayment, loadPhaseStops, loadSmartStops } from './persistence'
+import { clearActiveGame, saveSmartStops, saveDeckStacksScale, loadDeckStacksScale, DECK_STACKS_SCALE_KEY, saveDeckEditorView, loadDeckEditorView, DECK_EDITOR_VIEW_KEY, saveDeckStacksGroup, loadDeckStacksGroup, DECK_STACKS_GROUP_KEY, saveDeckStacksSort, loadDeckStacksSort, DECK_STACKS_SORT_KEY, saveDeckStacksCopies, loadDeckStacksCopies, DECK_STACKS_COPIES_KEY, saveDeckEditorDrawer, loadDeckEditorDrawer, DECK_EDITOR_DRAWER_KEY, saveDeckStacksSeparateCreatures, loadDeckStacksSeparateCreatures, DECK_STACKS_SEPARATE_CREATURES_KEY, saveActiveDeck, saveFxSettings, saveAudioSettings, saveMusicSettings, saveAppearanceSettings, saveAutoAnswers, saveChoiceMemory, saveManaPayment, savePhaseStops, saveGameplayPreset, applyAppearanceToDocument, APPEARANCE_KEY, FX_SETTINGS_KEY, AUDIO_SETTINGS_KEY, MUSIC_SETTINGS_KEY, AUTO_ANSWERS_KEY, CHOICE_MEMORY_KEY, MANA_PAYMENT_KEY, PHASE_STOPS_KEY, SMART_STOPS_KEY, loadFxSettings, loadAudioSettings, loadMusicSettings, loadAutoAnswers, loadChoiceMemory, loadManaPayment, loadPhaseStops, loadSmartStops } from './persistence'
 import { loadAppearanceSlice } from './slices/settings'
 import { getLanguage } from '../i18n'
 import { translateError } from '../i18n'
@@ -75,6 +76,22 @@ export function sniffSpeedLevel(message: string, gameId: string | null) {
   setState({ speedLevels: { ...getState().speedLevels, [key]: hit.level } })
 }
 
+/** Sniff why a player left the game (BRD-30): conceded, quit or died. A message about a player the
+ *  current view already shows out (a dead player who then closes the table) changes nothing. */
+export function sniffOutReason(message: string, gameId: string | null | undefined) {
+  if (!gameId) return
+  const hit = parseOutReason(message)
+  if (!hit) return
+  const s = getState()
+  const named = hit.player.toLowerCase()
+  const key = outReasonKey(gameId, hit.player)
+  const current = s.outReasons[key]
+  const alreadyOut = s.gameId === gameId && s.game?.players?.some((p) => p.hasLeft && p.name.trim().toLowerCase() === named)
+  if (alreadyOut && current) return
+  const next = mergeOutReason(current, hit.reason)
+  if (next !== current) setState({ outReasons: { ...s.outReasons, [key]: next } })
+}
+
 /** Sniff server Room-door broadcasts (`PermanentImpl.unlockDoor`). */
 export function sniffRoomDoor(message: string, gameId: string | null) {
   if (!gameId) return
@@ -128,7 +145,6 @@ export function dismissElimination(): void {
 
 export function setMyDeck(deck: DeckJson | null) {
   saveActiveDeck(deck)
-  rememberEquippedDeckId((deck as { id?: string } | null)?.id ?? null)
   setState({ myDeck: deck, sideboard: deck?.sideboard ?? [] })
 }
 
@@ -524,11 +540,11 @@ export function setSetting<K extends keyof AppState['settings']>(key: K, value: 
   setState({ settings: next })
   persistClientSettings(next, prev)
   if (key === 'autoAnswers') syncAutoAnswersToServer()
-  if (key === 'smartStops') {
+  // One set of stops (SET-11): a change from Settings or from the board reaches the
+  // running game's HumanPlayer right away, not on the next game.
+  if (key === 'smartStops' || key === 'phaseStops' || key === 'manaPayment') {
     const gameId = getState().gameId
-    if (gameId && (getState().game?.players ?? []).some((p) => p.controlled)) {
-      void cmds.updatePreferences(serverPhaseStops(next.smartStops, getState().phaseStops))
-    }
+    if (gameId && (getState().game?.players ?? []).some((p) => p.controlled)) pushServerPreferences(next)
   }
 }
 
@@ -554,8 +570,7 @@ export function applyGameplayPreset(id: GameplayPresetId) {
   persistClientSettings(next, s.settings)
   if (!s.gameId) return
   for (const action of manaPaymentActions(next.manaPayment)) void cmds.sendManaPaymentMode(action, s.gameId)
-  void cmds.updateManaConfirmPreference(next.manaPayment.confirmEmptyPool)
-  void cmds.updatePreferences(serverPhaseStops(next.smartStops, next.phaseStops))
+  pushServerPreferences(next)
   void cmds.sendPlayerAction(next.holdPriority ? 'HOLD_PRIORITY' : 'UNHOLD_PRIORITY', s.gameId)
 }
 
@@ -607,7 +622,7 @@ export function maybeAutoPass(game: GameView) {
   if (!me?.hasPriority) return
   if (s.combat && s.combat.selectable.length > 0) return
   if (!request || s.game !== request || request === lastSmartAnswer) return
-  if (decideStop(game, s.phaseStops).action === 'stop') return
+  if (decideStop(game, s.settings.phaseStops).action === 'stop') return
   lastSmartAnswer = request
   void sendAutoPass(s.gameId)
 }

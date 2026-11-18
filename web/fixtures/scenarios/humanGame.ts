@@ -12,11 +12,11 @@ import { makeCard, makeGameView, makePlayer, makePermanent } from '../../src/__f
 import type { CardView, GameView, PermanentView, SeatView, TableView } from '../../src/net/types'
 import {
   GAME_ID, TABLE_ID, SIM_NAME, HUMAN_NAME, HUMAN_PLAYER_ID, SIM_PLAYER_ID,
-  BASIC_LANDS, type CastStep, type HumanGameOptions, type CastRuntime,
+  BASIC_LANDS, type ActivatedAbilityConfig, type CastStep, type HumanGameOptions, type CastRuntime,
 } from '../humanGameConstants'
 
 export { GAME_ID, TABLE_ID, SIM_NAME, HUMAN_NAME, HUMAN_PLAYER_ID, SIM_PLAYER_ID } from '../humanGameConstants'
-export type { CastStep, LandConfig, ResolveEffect, CrossZoneConfig, HumanGameOptions } from '../humanGameConstants'
+export type { ActivatedAbilityConfig, CastStep, LandConfig, ResolveEffect, CrossZoneConfig, HumanGameOptions } from '../humanGameConstants'
 
 export class HumanGame {
   readonly tableName: string
@@ -42,6 +42,7 @@ export class HumanGame {
   private combat: unknown[] = []
   private stage: 'lobby' | 'main' | 'cast' | 'attack' | 'block' | 'sim' | 'end' | 'discard' = 'lobby'
   private cast: CastRuntime | null = null
+  private activation: { config: ActivatedAbilityConfig; permanentId: string; steps: CastStep[]; tapped: PermanentView[] } | null = null
   private discarding = false
   private started = false
   private simPaused = false
@@ -239,6 +240,7 @@ export class HumanGame {
     const objects: Record<string, { basicCastAbilities?: { id: string; value: string }[]; other?: { id: string; value: string }[] }> = {}
     for (const id of playableIds) objects[id] = { basicCastAbilities: [{ id: `ability-${id}`, value: 'cast' }] }
     for (const id of crossZoneIds) objects[id] = { other: [{ id: `ability-${id}`, value: 'other' }] }
+    for (const { id, text } of this.activatableIds()) objects[id] = { other: [{ id: `ability-${id}`, value: text }] }
     return makeGameView({
       players: [human, sim],
       myPlayerId: HUMAN_PLAYER_ID,
@@ -261,6 +263,13 @@ export class HumanGame {
     return this.hand.filter((c) => names.includes(c.name)).map((c) => c.id)
   }
 
+  private activatableIds(): Array<{ id: string; text: string }> {
+    if (this.stage !== 'main') return []
+    return (this.options.abilities ?? [])
+      .filter((a) => !(a.tapSource && this.myBattle.find((p) => p.parentId === `my-${a.permanent}`)?.tapped))
+      .map((a) => ({ id: `my-${a.permanent}`, text: a.text }))
+  }
+
   private crossZoneIds(): string[] {
     if (this.stage !== 'main') return []
     return this.crossZone.map((cz) => cz.id)
@@ -278,6 +287,8 @@ export class HumanGame {
       if (card && BASIC_LANDS.has(card.name)) { this.playLand(card); return }
       if (card && this.playableIds().includes(value)) { this.startCast(); return }
       if (this.crossZone.find((cz) => cz.id === value)) { this.startCast(); return }
+      const ability = (this.options.abilities ?? []).find((a) => `my-${a.permanent}` === value)
+      if (ability) { this.startActivation(ability, value); return }
       return
     }
     if (this.stage === 'cast' && this.cast) this.onCastUUID(value)
@@ -291,13 +302,19 @@ export class HumanGame {
     if (this.stage === 'cast' && this.cast) {
       const step = this.castStep()
       if (step?.type === 'target' && step.required === false && value === false) {
+        // HumanPlayer.chooseTarget: a decline with the minimum already met lets the choice end;
+        // below it the target is not chosen and an activation is abandoned.
+        if (this.activation && (step.min ?? 1) > 0) { this.cancelActivation(); return }
         this.cast.index++
         this.emitCastStep()
+        return
       }
+      // The ability picker and the mana payment read any yes/no answer as cancel.
+      if (this.activation && value === false && (step?.type === 'ability' || step?.type === 'mana')) this.cancelActivation()
       return
     }
     if (this.stage !== 'main') return
-    if (this.playableIds().length > 0 || this.crossZoneIds().length > 0) return
+    if (this.playableIds().length > 0 || this.crossZoneIds().length > 0 || this.activatableIds().length > 0) return
     if (this.options.humanAttack && this.myBattle.length > 0) { this.startHumanAttack(); return }
     this.startSimTurn()
   }
@@ -321,7 +338,7 @@ export class HumanGame {
   // ============================ cast del humano ============================
 
   private castStep(): CastStep | undefined {
-    const steps = this.options.cast ?? []
+    const steps = this.activation?.steps ?? this.options.cast ?? []
     if (!this.cast) return undefined
     return steps[this.cast.index]
   }
@@ -338,7 +355,7 @@ export class HumanGame {
     const rt = this.cast
     if (!rt) return
     const step = this.castStep()
-    if (!step) return this.resolveCast()
+    if (!step) return this.activation ? this.resolveActivation() : this.resolveCast()
     switch (step.type) {
       case 'amount':
         this.emit('GAME_GET_AMOUNT', { message: step.message, min: step.min ?? 0, max: step.max ?? 10, gameView: this.view() })
@@ -352,7 +369,9 @@ export class HumanGame {
           flag: step.required === false ? false : undefined,
           targets: step.targets ?? [SIM_PLAYER_ID],
           options: {
-            secondMessage: this.lastPlayedName() ?? '',
+            // HumanPlayer.getOptions: "Done" once the chosen targets reach the minimum.
+            ...(step.min === 0 ? { 'UI.right.btn.text': 'Done' } : {}),
+            secondMessage: this.activation?.config.permanent ?? this.lastPlayedName() ?? '',
             possibleTargets: step.targets ?? [SIM_PLAYER_ID],
             ...(step.targetZone ? { targetZone: step.targetZone } : {}),
           },
@@ -389,6 +408,7 @@ export class HumanGame {
       const source = this.myBattle.find((p) => p.tapped !== true && p.parentId === value)
       if (!source) return
       source.tapped = true
+      this.activation?.tapped.push(source)
       rt.manaLeft--
       this.emitUpdate()
       if (rt.manaLeft > 0) {
@@ -399,6 +419,38 @@ export class HumanGame {
       }
       return
     }
+  }
+
+  private startActivation(config: ActivatedAbilityConfig, permanentId: string): void {
+    this.stage = 'cast'
+    this.cast = { index: 0, manaLeft: 0 }
+    const picker: CastStep = {
+      type: 'ability',
+      message: `Choose spell or ability to play<br>${config.permanent}`,
+      choices: [{ id: `ability-${permanentId}`, label: config.text }],
+    }
+    this.activation = { config, permanentId, steps: [picker, ...config.steps], tapped: [] }
+    this.emitCastStep()
+  }
+
+  /** PlayerImpl.activateAbility restores the bookmark: untapped sources, priority back. */
+  private cancelActivation(): void {
+    for (const source of this.activation?.tapped ?? []) source.tapped = false
+    this.activation = null
+    this.cast = null
+    this.stage = 'main'
+    this.emitUpdateAndSelect()
+  }
+
+  private resolveActivation(): void {
+    const config = this.activation?.config
+    const permanent = this.myBattle.find((p) => p.parentId === this.activation?.permanentId)
+    this.activation = null
+    this.cast = null
+    this.stage = 'main'
+    if (config?.tapSource && permanent) permanent.tapped = true
+    if (config?.damageToSim) this.simLife = Math.max(0, this.simLife - config.damageToSim)
+    this.emitUpdateAndSelect()
   }
 
   private resolveCast(): void {
@@ -565,11 +617,17 @@ export class HumanGame {
     this.emitAttackSelect()
   }
 
+  private myCreatures(): PermanentView[] {
+    return this.myBattle.filter((p) => !/^(Plains|Island|Swamp|Mountain|Forest)$/.test(p.name ?? ''))
+  }
+
   private emitAttackSelect(): void {
-    const ids = this.myBattle.map((p) => p.parentId ?? p.name)
+    // HumanPlayer.selectAttackers lists only creatures that canAttack: a declared attacker is
+    // tapped, so the server drops it from possibleAttackers while it stays clickable to remove.
+    const ids = this.myCreatures().filter((p) => p.tapped !== true).map((p) => p.parentId ?? p.name)
     this.emit('GAME_SELECT', {
       message: 'Select attackers',
-      options: { possibleAttackers: ids, specialButton: 'All attack' },
+      options: ids.length > 0 ? { possibleAttackers: ids, specialButton: 'All attack' } : { possibleAttackers: ids },
       gameView: this.view(),
     })
   }
@@ -587,7 +645,9 @@ export class HumanGame {
       const perm = this.myBattle.find((p) => (p.parentId ?? p.name) === id)
       if (perm) perm.tapped = false
     } else {
-      this.combat = [{ attackers: { [id]: {} } }]
+      this.combat = groups.length > 0
+        ? groups.map((g, i) => (i === 0 ? { ...g, attackers: { ...g.attackers, [id]: {} } } : g))
+        : [{ attackers: { [id]: {} } }]
       const perm = this.myBattle.find((p) => (p.parentId ?? p.name) === id)
       if (perm) perm.tapped = true
     }
@@ -620,8 +680,14 @@ export class HumanGame {
     this.emitBlockSelect()
   }
 
+  private blockerIds(): string[] {
+    return this.combat.flatMap((g) => Object.keys((g as Record<string, Record<string, unknown>>).blockers ?? {}))
+  }
+
   private emitBlockSelect(): void {
-    const ids = this.myBattle.map((p) => p.parentId ?? p.name)
+    // FilterCreatureForCombatBlock excludes a creature already blocking, as the real server does.
+    const blocking = new Set(this.blockerIds())
+    const ids = this.myCreatures().map((p) => p.parentId ?? p.name).filter((id) => !blocking.has(id))
     this.emit('GAME_SELECT', {
       message: 'Select blockers',
       options: { possibleBlockers: ids },
@@ -632,7 +698,18 @@ export class HumanGame {
   private onBlockUUID(value: string): void {
     const perm = this.myBattle.find((p) => (p.parentId ?? p.name) === value)
     if (!perm) return
-    this.blockingId = perm.parentId ?? perm.name
+    const id = perm.parentId ?? perm.name
+    if (this.blockerIds().includes(id)) {
+      this.combat = this.combat.map((g) => {
+        const blockers = { ...((g as Record<string, Record<string, unknown>>).blockers ?? {}) }
+        delete blockers[id]
+        return { ...(g as Record<string, unknown>), blockers }
+      })
+      this.emitUpdate()
+      this.emitBlockSelect()
+      return
+    }
+    this.blockingId = id
     const attackerIds = Object.keys((this.combat[0] as Record<string, Record<string, unknown>> | undefined)?.attackers ?? {})
     if (attackerIds.length === 1) { this.assignBlocker(attackerIds[0]); return }
     this.emit('GAME_TARGET', {
@@ -650,7 +727,7 @@ export class HumanGame {
   private assignBlocker(_attackerId: string): void {
     if (!this.blockingId) return
     const group = this.combat[0] as Record<string, Record<string, unknown>>
-    if (group) group.blockers = { [this.blockingId]: {} }
+    if (group) group.blockers = { ...(group.blockers ?? {}), [this.blockingId]: {} }
     this.blockingId = null
     this.emitUpdate()
     this.emitBlockSelect()

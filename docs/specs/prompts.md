@@ -63,7 +63,8 @@ as chosen. The grid never collects several targets behind a Confirm button.
 
 ### PRM-7 · A required prompt has no cancel
 A required prompt shows no cancel button, in a card grid or on the targeting bar; an optional one
-shows a finish button instead of cancel.
+shows a finish button instead of cancel, unless declining it backs out of the spell or ability being
+played, where the same button says Cancel (PRM-13).
 
 - Why: answering a required prompt with "cancel" makes the server ask again, so the button looked
   broken.
@@ -116,3 +117,84 @@ inside the dialog box: a long list of lands (30 cards) scrolls the list, never t
   panel and the player had to scroll the dialog to find "Finish selection", which read as a forced
   pick of two lands (reported 2026-10-30, on the "up to two" land prompt).
 - Guard: `e2e/card-grid-footer.spec.ts`
+
+### PRM-13 · A spell or ability being played can always be backed out of
+While the player is playing a spell or an activated ability, every step the server lets them back
+out of offers Cancel, and Escape does the same: the ability picker ("Choose spell or ability to
+play", including the planeswalker one), an activation's target, a cost picked on the board or in a
+card grid, and the mana payment. Cancel answers `sendPlayerBoolean(false)`, which the engine reads as
+abandoning the activation and rolls the game back to the state before it (nothing tapped, nothing
+paid, priority back). A target says Cancel while the server sends it optional with no "Done" label
+(`options['UI.right.btn.text']`) and Finish once it sends one, as the desktop client labels its
+button. A mode picker that already lists the server's own Cancel entry gets no second one; Escape
+picks that entry. Escape never cancels while another layer is open, while typing in a text field, or
+when another handler (rewind, a menu) already used the key.
+
+- Why: the engine never suppresses the ability picker for a non-mana activated ability
+  (`HumanPlayer.suppressAbilityPicker`), and the web sent it as a required choice with no way out, so
+  a player who clicked a permanent by mistake was stuck in the dialog; the activation's target said
+  "Finish" where the desktop client says "Cancel", and Escape did nothing on any of these steps. The
+  desktop client always adds Cancel to its ability picker and cancels it with the keyboard
+  (`AbilityPicker.show`, `tryChoiceCancel`).
+- Guard: `src/game/promptCancel.test.tsx` · `e2e/activated-ability-cancel.spec.ts`
+
+### PRM-14 · Every trigger to order shows its source and the card it points at
+In the trigger order dialog each row shows the card the trigger comes from and, when the trigger
+points at objects (`CardView.targets`: its chosen targets or the card its effect follows, like
+Tergrid's "that card"), each of those cards next to it, named with the zone it is in now ("in
+Rival's graveyard"). The cards are looked up in the current game, so a card that already went to a
+graveyard, exile or the stack is still shown; the source is the live permanent when it is still in
+play. Every one of those cards has the same preview as the board: pointing at it or focusing it shows
+the floating preview, a touch shows it without placing the trigger and keeps it until the next touch,
+and a right click, a long press or Enter opens the card inspector. Rows of the same source repeat
+the same rule, so their object comes first and their rule takes one line. The server's "Related
+objects" line is shown only when one of the objects is not in the view. Remembering an order (always
+first or last, by card or by text) is unchanged.
+
+- Why: with Tergrid, God of Fright and several opponents discarding at once, the dialog listed three
+  identical Tergrid rows whose only difference was a card name in small print, and that card, already
+  in a graveyard, could not be looked at (reported 2026-11-11). The Swing client shows the trigger as
+  a card and repeats the related object only as text.
+- Guard: `src/game/TriggerOrderDialog.test.tsx` · `src/game/triggerOrder.test.ts` · `e2e/trigger-order.spec.ts`
+
+### PRM-15 · Every card a prompt shows can be looked at without choosing it
+Every card shown inside a prompt can be seen enlarged, as on the board, and looking at it never answers
+the prompt: the card grid (scry, surveil, searching a library, looking at the top cards, picking from a
+list, choosing targets), the library order dialog, the piles to choose from, the London mulligan's bottom
+pick, the revealed and looked-at cards inside a prompt, and the revealed, looked-at and zone viewers. A
+card that only shows (library order, piles, a revealed card nobody can play) is itself the preview
+control: pointing at it or focusing it shows the floating preview, a touch shows it and keeps it until the
+next touch (ACC-9), and a right click, a long press or Enter opens the card inspector. A card that is
+chosen or played by a click keeps that click, on a tap too; pointing at it with a mouse or reaching it
+with the keyboard shows the preview, and a zoom button in its corner, named "Zoom" and the card name,
+shows the preview on a touch and opens the inspector on a click, Enter or Space. A card the prompt does not
+accept (the full list of a grid) can still be looked at. A face-down card nobody may see has no zoom.
+
+- Why: the dialogs that show cards to choose from had no preview on a phone and none at all in the card
+  grid and the library order dialog, so a player searching a library or scrying could not read the cards
+  (reported 2026-11-12). A tap on a grid card already answers the prompt, so on a touch screen the preview
+  needs its own control; the mouse and the keyboard reach the preview without one, as on the board.
+- Guard: `src/game/promptCardZoom.test.tsx`
+
+### PRM-16 · The only decision the client answers for you at the start of a game is who plays first
+The "Auto starting player" setting (`autoStartingPlayer`, Gameplay › Automation) answers the
+starting player prompt by sending the first option the server offers, and nothing else: the opening
+hand is always asked, so keeping it or taking a mulligan is the player's decision whatever the
+setting says. A spectator is a separate path, not a setting: having no seat, they cannot answer, so
+both prompts are answered for them and never shown.
+
+- Why: one setting did two unrelated things and its text said so ("keeps your opening hand and
+  picks who plays first"); a player who wanted the coin toss out of the way lost the mulligan with
+  it (2026-11-13).
+- Guard: `src/state/store.test.ts` · `src/settings/settingsIndex.test.tsx`
+
+### PRM-17 · A target prompt takes one pick
+A click on a target (a card in the hand, on the board, on the stack, or a player) answers the open
+target prompt; further clicks on that same prompt are ignored until the server sends the next one
+or rejects the pick.
+
+- Why: discarding down to the hand size asks once per card. Two quick clicks both went out against
+  the first prompt; the server applied the second to the re-ask that followed and finished, but that
+  re-ask had arrived before the second acknowledgement, so PRM-9 kept it. The discard bar and the
+  highlighted hand stayed until a reload (reported 2026-11-16).
+- Guard: `src/game/useTargetPick.test.ts`

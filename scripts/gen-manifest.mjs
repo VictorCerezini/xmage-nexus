@@ -11,7 +11,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { XMAGE_VERSION } from './lib.mjs'
 
-export const XMAGE_RELEASE = `${XMAGE_VERSION}-V1`
+export const XMAGE_RELEASE = `${XMAGE_VERSION}-V2`
 
 const COMPONENTS = ['jre', 'server', 'proxy', 'proxy-xdhs', 'llm']
 const TARGETS = ['linux-x64', 'win-x64', 'mac-arm64']

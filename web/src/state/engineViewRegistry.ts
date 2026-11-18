@@ -79,6 +79,7 @@ export const ENGINE_VIEW_REGISTRY: EngineViewRegistryRow[] = [
   { id: 'PermanentView.topMutation', view: 'PermanentView', field: 'topMutation', impacto: 'nulo', decision: 'duplicado', causa: 'the top card of the mutate pile arrives in PermanentView.mutateView' },
   { id: 'PermanentView.transformCount', view: 'PermanentView', field: 'transformCount', impacto: 'nulo', decision: 'bookkeeping', causa: 'internal transform count' },
   { id: 'PermanentView.turnsOnBattlefield', view: 'PermanentView', field: 'turnsOnBattlefield', impacto: 'nulo', decision: 'bookkeeping', causa: 'internal count of turns on the battlefield' },
+  { id: 'PermanentView.zeroLoyaltyRuleApplies', view: 'PermanentView', field: 'zeroLoyaltyRuleApplies', impacto: 'bajo', decision: 'bookkeeping', causa: 'flag of the zero-loyalty state-based action (GameImpl.checkStateBasedActions, rule 704.5i); the effect that turns it off arrives as text in rules' },
   { id: 'PlayerView.abilities', view: 'PlayerView', field: 'abilities', impacto: 'medio', decision: 'accepted', causa: 'player abilities (emblems/effects); the DTO has no channel for them' },
   { id: 'PlayerView.abort', view: 'PlayerView', field: 'abort', impacto: 'nulo', decision: 'bookkeeping', causa: 'abort flag of the game thread' },
   { id: 'PlayerView.alternativeSourceCosts', view: 'PlayerView', field: 'alternativeSourceCosts', impacto: 'bajo', decision: 'accepted', causa: 'the playable options arrive through canPlayObjects/GAME_CHOOSE_ABILITY' },

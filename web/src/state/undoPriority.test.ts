@@ -217,7 +217,7 @@ describe('KEY-13 smart stops and going back', () => {
     vi.clearAllMocks()
     setSetting('smartStops', true)
     handleMessage({ type: 'event', method: 'START_GAME', messageId: 1, objectId: GAME, data: { gameId: GAME } })
-    setState({ phaseStops: { yourTurn: {}, opponentTurn: {} } })
+    setSetting('phaseStops', { yourTurn: {}, opponentTurn: {} })
   })
 
   it('KEY-13: where going back works, the smart-stops pass is marked as automatic', () => {

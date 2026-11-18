@@ -65,7 +65,7 @@ stacks screen is gone. The editor has a top bar and a toolbar. The top bar holds
 to My decks, the cover thumbnail, the editable name, and under it the format selector, the legality
 chip ("Legal in <format>" or what is wrong; clicking it opens today's issue list), the main and
 sideboard counts and the save state (saving, saved, failed with retry); then Import, Export, Sample
-hand, Equip and Done. The toolbar holds the catalogue toggle (DCK-12), View (Piles | List), Group and
+hand and Done. The toolbar holds the catalogue toggle (DCK-12), View (Piles | List), Group and
 Sort (List view groups too, DCK-25), and in Piles view Copies and Card size (DCK-1, DCK-6, DCK-8). List
 view is today's strip list with every strip action; Piles view is DCK-6 to DCK-11. Everything the old
 builder offered stays reachable in both views: server and XMage format issue banners with repair,
@@ -213,7 +213,7 @@ Cards are dragged in and out of it (DCK-9).
 
 ### DCK-14 · On a phone the editor shows the deck first
 Below 700 px of width the editor stacks: a top bar with back, the name, the format with counts and
-legality, and a "⋯" menu (Import, Export, Sample hand, Equip, card language); a Main | Sideboard
+legality, and a "⋯" menu (Import, Export, Sample hand, card language); a Main | Sideboard
 switch; the Group choices as a row of chips that scrolls sideways; the piles, which scroll
 sideways; and a bottom bar with "+ Add cards", which opens the catalogue as a full-screen sheet, and
 "Curve", which opens the numbers. Tapping a card opens an action sheet with the card, its counts and
@@ -347,16 +347,20 @@ dropdown that filters is highlighted and names what it filters by ("Creature +1"
   custom ones (reports of 2026-11-01 and 2026-11-06).
 - Guard: `src/decks/ArenaFilterBar.test.tsx` · `src/decks/filterQuery.test.ts`
 
-### DCK-23 · My decks equips a deck without opening it, and the label stays clear of the buttons
-The bottom bar of My decks has an Equip button for the selected deck, next to Open. It does what the
-editor's Equip does: the deck becomes the one used to join tables, the button turns into "✓ Equipped"
-and stays disabled, and the deck's tile says "✓ Equipped" under its name. Only one tile carries the mark.
-On a tile, the format label moves below the quick actions whenever they show (hover, focus, the selected
-tile, and always on touch screens), so the buttons never cover it.
+### DCK-23 · There is no equipped deck, and the tile label stays clear of the buttons
+Neither My decks nor the editor has an Equip button, and no tile carries an "Equipped" mark: the deck
+you play is the one you pick when you create a table, join one or change deck in the waiting room, and
+the lobby shows no "Playing with" badge. Selecting a deck in My decks only selects it. The last deck
+sent to a table is still kept as the deck in play, for the deck tracker, the mulligan help and the
+match history, and as the dialogs' starting suggestion. On a tile, the format label moves below the
+quick actions whenever they show (hover, focus, the selected tile, and always on touch screens), so
+the buttons never cover it.
 
-- Why: equipping meant opening the editor just to press one button, and the quick actions sat on top of
-  the format label on narrow tiles (report of 2026-11-06).
-- Guard: `src/decks/DecksGallery.test.tsx` · `e2e/decks-gallery.spec.ts`
+- Why: the server never reads an equipped deck (every join carries the deck picked in its dialog), so
+  equipping only changed which deck the dialogs preselected, and players who equipped one deck and
+  picked another believed they had played the wrong one (report of 2026-11-12). The quick actions sat
+  on top of the format label on narrow tiles (report of 2026-11-06).
+- Guard: `src/decks/DecksGallery.test.tsx` · `src/decks/DeckEditorTopBar.test.tsx` · `e2e/decks-gallery.spec.ts`
 
 ### DCK-24 · The editor's search can look for words in the rules text
 The advanced filters of the editor's search have a "Rules text" field. Each word typed there must appear
@@ -420,3 +424,75 @@ even if it is emptied later, and an empty deck that was not just created is neve
 - Why: opening "Create deck" only to check whether a card is implemented left an empty "Deck N" in My
   decks every time (report of 2026-10-31).
 - Guard: `src/decks/DecksGallery.test.tsx` · `src/decks/DeckBuilder.test.tsx` · `e2e/decks-gallery.spec.ts`
+
+### DCK-28 · In Freeform Commander any legendary card or any creature leads the deck
+In Freeform Commander the commander may be any legendary card, an artifact, an enchantment or a
+planeswalker included, or any creature, legendary or not, which is what
+`mage.deck.FreeformCommander.checkCommander` asks for. That rule is local and overrides the proxy's
+answer, which reports eligibility under Commander's narrower rule (`AbstractCommander.checkCommander`)
+and would refuse commanders this format takes. Everything else about a commander stays as it is in
+Commander: a pair still needs a legal Partner or Background.
+
+- Why: the proxy answers one eligibility per card name for every format at once, so without the override
+  the editor would grey out the commander icon on cards that the server then accepts at the table.
+- Guard: `src/decks/deckUtils.test.ts` · `src/decks/formatRules.test.ts` · `src/decks/useDeckMutations.test.ts`
+
+### DCK-29 · A catalogue deck names the cards the server will actually load
+Every entry of the deck catalogue (`web/src/decks/metaDeckCatalog.ts`), the starter decks among them,
+names the card the target server loads for that `(setCode, cardNumber)` pair. The pair is what counts:
+XMage resolves a deck entry strictly by set and collector number and ignores the name, so an entry
+with the wrong number is not a cosmetic slip, it puts another card in the deck. The pairs are checked
+against Scryfall by `scripts/check-deck-catalog.mjs`, which keeps the answers in
+`scripts/deck-catalog-printings.json`; the guard reads that table, so it needs no network, and an
+entry added or edited without refreshing the table fails as unverified.
+
+- Why: the three starter decks shipped with numbers that belong to other cards, so every member who
+  used them got the deck issues dialog on every join and played with Pacifism instead of Rest in Peace,
+  Kitesail Apprentice instead of Kor Firewalker, and, in Krenko, Orzhov Signet and Xathrid Necromancer,
+  two cards outside a mono-red Commander deck's colour identity (report of 2026-11-13). The audit found
+  28 such entries across 14 catalogue decks.
+- Guard: `scripts/check-deck-catalog.test.mjs`
+
+### DCK-30 · Repairing a deck before a table saves the repair (not in this fork)
+Upstream's pre-join issues dialog offers printing repairs ("Auto-resolve", a row's suggestion) and
+writes them back to the stored deck. This fork's dialog offers no repair: a printing the server lacks is
+swapped quietly when the deck is sent and the deck keeps its own printing as the card's art (DCK-17), so
+there is nothing to save. The helper that would save a repair (`web/src/decks/deckRepair.ts`) is kept
+from upstream but not used by the dialog.
+
+- Why: saving the swapped printing would replace the printing the player chose, which DCK-17 keeps as
+  the card's art.
+- Guard: `src/decks/deckRepair.test.ts` (the helper alone)
+
+### DCK-31 · Importing from the join dialog leaves a deck of the gallery
+The quick importer of the join dialog (`web/src/lobby/JoinTableDialog.tsx`) saves what it imports
+the same way the deck editor does: `loadDeckFromOnlineSource` builds the deck, with its own id, its
+format and the commander the list designates, and it is written to the player's storage
+(`getDeckStorage().put`). So a deck imported on the way into a table is a deck like any other,
+listed in the gallery, editable, and one whose repairs are saved (DCK-30). It also accepts a
+Moxfield or Archidekt link, which is what that loader does for the editor; a list with no cards is
+refused and nothing is saved.
+
+It used to call `saveCustomDecks`, which writes the old `mage_custom_decks` list. That deck was then
+read with the id `legacy:<name>`, never reached the gallery and could not be repaired. The one-off
+migration of those decks (`migrateIfNeeded`) had already run for most players, so decks imported
+here afterwards stayed out of reach for good: the migration now runs whenever anything is left in
+that list, moves it into storage and empties it, and it keeps the list untouched when the write
+fails.
+
+- Why: the player who imported a deck from the join dialog could not find it among their decks, and
+  from DCK-30 its repair could not be saved either, because its id resolves to nothing in storage.
+- Guard: `src/lobby/JoinTableDialog.test.tsx` · `src/decks/storage.idb.test.ts`
+
+### DCK-32 · Freeform Commander judges a deck by size, singleton and colour identity alone
+The deck editor offers Freeform Commander as a format of its own. It asks for 100 cards with a
+commander, no two alike, and every card inside the commander's colour identity, the same as Commander,
+but it checks no ban list and no set legality: XMage's `mage.deck.FreeformCommander` allows every set
+and clears its banned list, so a card whose set is not out yet is playable and is never reported. The
+XMage DeckValidator behind the proxy (DCK-19) still has the last word, under the deck type
+`Variant Magic - Freeform Commander`.
+
+- Why: the format exists to play with cards that are not legal anywhere else, so the local check against
+  Scryfall's legalities, which marks every card of an unreleased set as not legal, would report as
+  illegal the very decks the format is for.
+- Guard: `src/decks/formatRules.test.ts`
