@@ -19,6 +19,11 @@
   </tr>
 </table>
 
+## What's new in 0.9.2
+
+- **Caught up with the original XMage Nexus**: everything in its 0.9.0 and 0.9.1 (below) is in this version too, on the same XMage 1.4.63-V2 engine. This version's own fixes and features all stay.
+- **Deck issues before a table**: one difference from 0.9.0. A card printing the server lacks is still swapped quietly and your deck keeps its own printing as the card's art, so there is no repair to save.
+
 ## What's new in 0.9.1
 
 - **XMage 1.4.63-V2**: the server, the proxy and the desktop app's bundled engine move to the latest upstream XMage release.
