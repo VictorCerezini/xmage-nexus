@@ -20,6 +20,7 @@ import mage.abilities.costs.mana.AlternateManaPaymentAbility;
 import mage.abilities.costs.mana.ManaCost;
 import mage.abilities.costs.mana.ManaCosts;
 import mage.abilities.costs.mana.ManaCostsImpl;
+import mage.abilities.effects.AuraReplacementEffect;
 import mage.abilities.effects.RestrictionEffect;
 import mage.abilities.effects.RestrictionUntapNotMoreThanEffect;
 import mage.abilities.keyword.*;
@@ -233,6 +234,7 @@ public abstract class PlayerImpl implements Player, Serializable {
         this.loses = player.loses;
 
         this.library = player.library.copy();
+        this.startingDeckSize = player.startingDeckSize;
         this.sideboard = player.sideboard.copy();
         this.hand = player.hand.copy();
         this.graveyard = player.graveyard.copy();
@@ -619,7 +621,7 @@ public abstract class PlayerImpl implements Player, Serializable {
         game.informPlayers(getLogName() + " taken turn control of " + playerUnderControl.getLogName() + info);
         if (!playerUnderControlId.equals(this.getId())) {
             this.playersUnderYourControl.add(playerUnderControlId);
-            if (!playerUnderControl.hasLeft() && !playerUnderControl.hasLost()) {
+            if (playerUnderControl.isInGame()) {
                 playerUnderControl.setGameUnderYourControl(game, false);
             }
             // control will reset on start of the turn
@@ -717,7 +719,7 @@ public abstract class PlayerImpl implements Player, Serializable {
 
     @Override
     public boolean canBeTargetedBy(MageObject sourceObject, UUID sourceControllerId, Ability source, Game game) {
-        if (this.hasLost() || this.hasLeft()) {
+        if (!this.isInGame()) {
             return false;
         }
         if (sourceObject != null) {
@@ -810,14 +812,24 @@ public abstract class PlayerImpl implements Player, Serializable {
                     + " card" + (numDrawn > 1 ? "s" : "")
                     + (isDrawsFromBottom() ? " from the bottom of their library" : ""));
         }
+
         // if this method was called from a replacement event, pass the number of cards back through
-        // (uncomment conditions if correct ruling is to only count cards drawn by the same player)
-        if (event instanceof DrawCardEvent /* && event.getPlayerId().equals(getId()) */) {
+        //
+        // cards drawn by another player instead of you (Notion Thief, Alms Collector) are counted too
+        //
+        // Onslaught FAQ for "drawn this way": "However, it doesn't matter *who* drew the cards. ... Plagiarize
+        // could cause another player to draw cards from Read the Runes instead of you; that would not affect
+        // the number of cards you'd need to discard."
+        // (Onslaught FAQ, 2002-09-22)
+        //
+        // 614.11b excludes only an additional action on that card itself (e.g. reveal it), not a count of drawn cards
+        if (event instanceof DrawCardEvent) {
             ((DrawCardEvent) event).incrementCardsDrawn(numDrawn);
         }
-        if (event instanceof DrawTwoOrMoreCardsEvent /* && event.getPlayerId().equals(getId()) */) {
+        if (event instanceof DrawTwoOrMoreCardsEvent) {
             ((DrawTwoOrMoreCardsEvent) event).incrementCardsDrawn(numDrawn);
         }
+
         return numDrawn;
     }
 
@@ -1575,19 +1587,30 @@ public abstract class PlayerImpl implements Player, Serializable {
         // Don't generate a new id because it's not necessary and breaks mana events, see #14822
         // ability.newId();
         ability.setControllerId(playerId);
-        if (ability.activate(game, false) && ability.resolve(game)) {
-            if (ability.isUndoPossible()) {
-                if (storedBookmark == -1 || storedBookmark > bookmark) { // e.g. useful for undo Nykthos, Shrine to Nyx
-                    setStoredBookmark(bookmark);
+        if (ability.activate(game, false)) {
+            fireActivatedAbilityEvent(ability, game);
+            if (ability.resolve(game)) {
+                if (ability.isUndoPossible()) {
+                    if (storedBookmark == -1 || storedBookmark > bookmark) { // e.g. useful for undo Nykthos, Shrine to Nyx
+                        setStoredBookmark(bookmark);
+                    }
+                } else {
+                    resetStoredBookmark(game);
                 }
-            } else {
-                resetStoredBookmark(game);
+                return true;
             }
-            return true;
         }
         // 605.3b "An activated mana ability doesn't go on the stack"
         restoreStateKeepingStack(bookmark, ability.getRule(), game);
         return false;
+    }
+
+    /**
+     * Fire activated ability event for both normal abilities with stack and mana abilities without stack (602.2b + 601.2i, 605.3)
+     * Special actions aren't activated abilities and ignored here (116.1)
+     */
+    private void fireActivatedAbilityEvent(ActivatedAbility ability, Game game) {
+        game.fireEvent(GameEvent.getEvent(GameEvent.EventType.ACTIVATED_ABILITY, ability.getId(), ability, playerId));
     }
 
     protected boolean playAbility(ActivatedAbility ability, Game game) {
@@ -1600,8 +1623,7 @@ public abstract class PlayerImpl implements Player, Serializable {
             ability.setControllerId(playerId);
             game.getStack().push(game, new StackAbility(ability, playerId));
             if (ability.activate(game, false)) {
-                game.fireEvent(GameEvent.getEvent(GameEvent.EventType.ACTIVATED_ABILITY,
-                        ability.getId(), ability, playerId));
+                fireActivatedAbilityEvent(ability, game);
                 if (!game.isSimulation()) {
                     game.informPlayers(getLogName() + ability.getGameLogMessage(game));
                 }
@@ -1612,6 +1634,7 @@ public abstract class PlayerImpl implements Player, Serializable {
         } else {
             // resolve without stack
             if (ability.activate(game, false)) {
+                fireActivatedAbilityEvent(ability, game);
                 ability.resolve(game);
                 game.removeBookmark(bookmark);
                 resetStoredBookmark(game);
@@ -1888,19 +1911,6 @@ public abstract class PlayerImpl implements Player, Serializable {
         // collect and filter playable activated abilities
         // GUI: user clicks on card, but it must activate ability from ANY card's parts (main, left, right)
         Set<UUID> needIds = CardUtil.getObjectParts(object);
-        Card objectCard = object instanceof Card ? (Card) object : null;
-        Card mainCard = objectCard == null ? null : objectCard.getMainCard();
-        if (mainCard instanceof CardWithSpellOption) {
-            // Multipart cards decide which of their parts are casting options in their current state.
-            CardWithSpellOption card = (CardWithSpellOption) mainCard;
-            needIds = new HashSet<>(needIds);
-            if (!card.isMainCardCastOptionAvailable(game)) {
-                needIds.remove(card.getId());
-            }
-            if (!card.isSpellCardCastOptionAvailable(game)) {
-                needIds.remove(card.getSpellCard().getId());
-            }
-        }
 
         // workaround to find all abilities first and filter it for one object
         List<ActivatedAbility> allPlayable = getPlayable(game, true, zone, false);
@@ -2681,7 +2691,7 @@ public abstract class PlayerImpl implements Player, Serializable {
 
     @Override
     public void resetPassed() {
-        this.passed = this.loses || this.hasLeft();
+        this.passed = !this.isInGame();
     }
 
     @Override
@@ -3093,18 +3103,33 @@ public abstract class PlayerImpl implements Player, Serializable {
 
     @Override
     public boolean seekCard(FilterCard filter, Ability source, Game game) {
-        Set<Card> cards = this.getLibrary()
-                .getCards(game)
-                .stream()
-                .filter(card -> filter.match(card, getId(), source, game))
-                .collect(Collectors.toSet());
-        Card card = RandomUtil.randomFromCollection(cards);
-        if (card == null) {
-            return false;
+        return seekCards(Collections.singletonList(filter), source, game) > 0;
+    }
+
+    @Override
+    public int seekCards(List<FilterCard> filters, Ability source, Game game) {
+        Cards soughtCards = new CardsImpl();
+        for (FilterCard filter : filters) {
+            Set<Card> cards = this.getLibrary()
+                    .getCards(game)
+                    .stream()
+                    .filter(card -> !soughtCards.contains(card.getId()))
+                    .filter(card -> filter.match(card, getId(), source, game))
+                    .collect(Collectors.toSet());
+            Card card = RandomUtil.randomFromCollection(cards);
+            if (card != null) {
+                soughtCards.add(card);
+            }
         }
-        game.informPlayers(this.getLogName() + " seeks a card from their library");
-        this.moveCards(card, Zone.HAND, source, game);
-        return true;
+        if (soughtCards.isEmpty()) {
+            return 0;
+        }
+        game.informPlayers(this.getLogName() + " seeks " + CardUtil.numberToText(soughtCards.size(), "a")
+                + (soughtCards.size() > 1 ? " cards" : " card") + " from their library");
+        this.moveCards(soughtCards, Zone.HAND, source, game);
+        // one seek action is one event, whatever the number of sought cards
+        game.fireEvent(GameEvent.getEvent(GameEvent.EventType.SOUGHT, getId(), source, getId(), soughtCards.size()));
+        return soughtCards.size();
     }
 
     @Override
@@ -4242,12 +4267,8 @@ public abstract class PlayerImpl implements Player, Serializable {
         } else if (object instanceof CardWithSpellOption) {
             // adventure must use different card characteristics for different spells (main or adventure)
             CardWithSpellOption cardWithSpellOption = (CardWithSpellOption) object;
-            if (cardWithSpellOption.isSpellCardCastOptionAvailable(game)) {
-                getPlayableFromObjectSingle(game, fromZone, cardWithSpellOption.getSpellCard(), cardWithSpellOption.getSpellCard().getAbilities(game), availableMana, output);
-            }
-            if (cardWithSpellOption.isMainCardCastOptionAvailable(game)) {
-                getPlayableFromObjectSingle(game, fromZone, cardWithSpellOption, cardWithSpellOption.getSharedAbilities(game), availableMana, output);
-            }
+            getPlayableFromObjectSingle(game, fromZone, cardWithSpellOption.getSpellCard(), cardWithSpellOption.getSpellCard().getAbilities(game), availableMana, output);
+            getPlayableFromObjectSingle(game, fromZone, cardWithSpellOption, cardWithSpellOption.getSharedAbilities(game), availableMana, output);
         } else if (object instanceof Card) {
             getPlayableFromObjectSingle(game, fromZone, object, ((Card) object).getAbilities(game), availableMana, output);
         } else if (object instanceof StackObject) {
@@ -4393,16 +4414,6 @@ public abstract class PlayerImpl implements Player, Serializable {
                     if (ability.getZone().match(Zone.HAND)) {
                         boolean isPlaySpell = (ability instanceof SpellAbility);
                         boolean isPlayLand = (ability instanceof PlayLandAbility);
-
-                        if (isPlaySpell && card instanceof CardWithSpellOption) {
-                            CardWithSpellOption optionCard = (CardWithSpellOption) card;
-                            if ((ability.getSourceId().equals(optionCard.getId())
-                                    && !optionCard.isMainCardCastOptionAvailable(game))
-                                    || (ability.getSourceId().equals(optionCard.getSpellCard().getId())
-                                    && !optionCard.isSpellCardCastOptionAvailable(game))) {
-                                continue;
-                            }
-                        }
 
                         // ignore backside of TDFC
                         // TODO: maybe better way to ignore
@@ -5150,18 +5161,19 @@ public abstract class PlayerImpl implements Player, Serializable {
                     // 303.4g. If an Aura is entering the battlefield and there is no legal object or player for it to enchant,
                     // the Aura remains in its current zone, unless that zone is the stack. In that case, the Aura is put into
                     // its owner's graveyard instead of entering the battlefield. If the Aura is a token, it isn't created.
-                    if (card.hasSubtype(SubType.AURA, game) && !(source instanceof BestowAbility)) {
+                    Card auraCard = AuraReplacementEffect.findEnteringAura(game, card, faceDown);
+                    if (auraCard != null && !(source instanceof BestowAbility)) {
                         SpellAbility auraSpellAbility;
-                        if (source instanceof SpellAbility && card.getAbilities(game).contains(source)) {
+                        if (source instanceof SpellAbility && auraCard.getAbilities(game).contains(source)) {
                             // cast aura - use source ability
                             auraSpellAbility = (SpellAbility) source;
                         } else {
                             // put to battlefield by another effect - use default spell
-                            auraSpellAbility = card.getSpellAbility();
+                            auraSpellAbility = auraCard.getSpellAbility();
                         }
                         if (auraSpellAbility != null) {
                             if (auraSpellAbility.getTargets().isEmpty()) {
-                                throw new IllegalArgumentException("Something wrong, found etb aura with empty spell ability or without any targets: " + card + ", source: " + source);
+                                throw new IllegalArgumentException("Something wrong, found etb aura with empty spell ability or without any targets: " + auraCard + ", source: " + source);
                             }
                             if (!auraSpellAbility.getTargets().get(0).copy().withNotTarget(true).canChooseOrAlreadyChosen(byOwner ? card.getOwnerId() : getId(), source, game)) {
                                 continue;
@@ -5660,6 +5672,11 @@ public abstract class PlayerImpl implements Player, Serializable {
         if (game.replaceEvent(event)) {
             return false;
         }
+        // 701.22b If a player is instructed to scry 0, no scry event occurs.
+        // Abilities that trigger whenever a player scries won't trigger.
+        if (event.getAmount() < 1) {
+            return false;
+        }
         game.informPlayers(getLogName() + " scries " + event.getAmount() + CardUtil.getSourceLogName(game, source));
         Cards cards = new CardsImpl();
         cards.addAllCards(getLibrary().getTopCards(game, event.getAmount()));
@@ -5707,7 +5724,7 @@ public abstract class PlayerImpl implements Player, Serializable {
             putCardsOnTopOfLibrary(cards, game, source, true);
             cardsPutOnTop.addAll(cards);
         }
-        game.fireEvent(new GameEvent(GameEvent.EventType.SURVEILED, getId(), source, getId(), event.getAmount(), true));
+        game.fireEvent(new SurveilledEvent(getId(), source, event.getAmount(), cardsPutInGraveyard.getCards(game)));
         return SurveilResult.surveil(cardsPutInGraveyard, cardsPutOnTop);
     }
 
