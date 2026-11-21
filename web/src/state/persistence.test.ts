@@ -474,8 +474,8 @@ describe('persistence', () => {
   })
 
   describe('fx settings persistence', () => {
-    it('returns defaults when nothing is stored', () => {
-      expect(loadFxSettings()).toEqual({ effects: true, animationSpeed: 1 })
+    it('SET-14: returns defaults when nothing is stored, animation effects off', () => {
+      expect(loadFxSettings()).toEqual({ effects: false, animationSpeed: 1 })
     })
 
     it('saves and loads fx settings correctly', () => {
@@ -491,7 +491,7 @@ describe('persistence', () => {
 
     it('falls back to defaults for corrupt payloads', () => {
       mockStorage['mage-web-settings'] = '{not json'
-      expect(loadFxSettings()).toEqual({ effects: true, animationSpeed: 1 })
+      expect(loadFxSettings()).toEqual({ effects: false, animationSpeed: 1 })
     })
   })
 

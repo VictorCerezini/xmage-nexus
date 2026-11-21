@@ -11,7 +11,8 @@ DLG-7 (`dialogs.md`). The design history is `docs/plans/2026-10-16-game-animatio
 
 ### FX-1 · Turning effects off stops every animation, in every screen
 With the effects setting off, the document root carries `html.fx-off` and no CSS animation or
-transition runs anywhere: in a game, in the lobby, in the deck screens. The JS-driven effects
+transition runs anywhere: in a game, in the lobby, in the deck screens. The setting starts off
+(SET-14). The JS-driven effects
 (flights, the coin, the draw slide, token pops, the untap wave, source pulses) do not start at all,
 so nothing is left to wait for.
 

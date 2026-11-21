@@ -1,3 +1,5 @@
+// first: the house settings (SET-14) must be saved before any module reads the settings
+import './setup/applyHouseSettings'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'

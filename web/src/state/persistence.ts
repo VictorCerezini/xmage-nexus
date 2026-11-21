@@ -447,7 +447,8 @@ export interface FxSettings {
 
 export const FX_SETTINGS_KEY = 'mage-web-settings'
 const FX_SPEEDS = [0.5, 1, 1.5]
-export const DEFAULT_FX_SETTINGS: FxSettings = { effects: true, animationSpeed: 1 }
+/** Animation effects start off (SET-14): with them on, a game board keeps the browser redrawing. */
+export const DEFAULT_FX_SETTINGS: FxSettings = { effects: false, animationSpeed: 1 }
 
 export function loadFxSettings(): FxSettings {
   const parsed = readJson<Partial<FxSettings>>(FX_SETTINGS_KEY)

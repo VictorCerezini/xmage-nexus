@@ -170,3 +170,23 @@ the scroll the previous step was left at.
   per line, the 300 px preview took half the width and overflowed on a phone, and the Sound and
   gameplay step opened scrolled to the middle (report of 2026-11-13).
 - Guard: `src/setup/SetupWizard.test.tsx` · `src/settings/settingsUi.test.tsx` · `e2e/setup-wizard.spec.ts`
+
+### SET-14 · Every player starts with the host's settings, and gets them once
+Before the page loads anything else, a browser that hasn't had them yet gets the house settings: the
+host's settings of 2026-11-21 (`src/setup/houseSettings.ts`), stored exactly as the app saves them.
+A new player starts with them, and the setup wizard still opens with them filled in. A player who
+already had settings of their own gets them once: look and board, effects, sound and music, mana
+payment, phase stops, smart stops, the list sizes and the deck import options take the host's
+values, and the settings the host never changed (gameplay preset, turn recap, board rewind,
+notifications, game log, draft helper, hand requests, the deck editor's view) go back to the app's
+default. Whatever a player changes afterwards stays. Decks, the login, card art picks, remembered
+answers, the language and the setup wizard's "done" are never touched. "Animation effects" is the
+one setting that doesn't follow the host: it is off, there and by default, even where nothing can
+be saved.
+
+- Why: the host wanted every player, the friends who join from a browser and anyone who installs
+  the app, on the same settings, and their friends' settings live in each friend's browser, out of
+  the host's reach. Animation effects stay off because a large board with them on kept the browser
+  redrawing all the time: about 250% CPU at idle without graphics acceleration and 80% with it,
+  against 4% and 6% with them off (measured 2026-11, after a friend's report).
+- Guard: `src/setup/houseSettings.test.ts` · `src/state/persistence.test.ts`

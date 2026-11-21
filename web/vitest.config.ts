@@ -5,7 +5,8 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
-    setupFiles: ['src/test-setup.ts'],
+    // test-fx-on first: the effect tests start with animation effects on (SET-14 made off the default)
+    setupFiles: ['src/test-fx-on.ts', 'src/test-setup.ts'],
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'fixtures/**/*.test.ts'],
     coverage: {
       provider: 'v8',
