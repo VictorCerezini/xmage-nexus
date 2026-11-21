@@ -19,6 +19,12 @@
   </tr>
 </table>
 
+## What's new in 0.9.4
+
+- **New default settings**: every player starts with the same settings: look and board, sound and music, mana payment, phase stops and the rest. A player who already had settings of their own gets the new ones once, the friends who join from a browser included (the next time they open the page). Decks, logins, card art picks, remembered answers and the language are kept, and whatever you change afterwards stays.
+- **Animation effects start off**: on a large board they kept the computer busy all the time, even with nothing happening. You can turn them back on in Settings → Sound & effects.
+- **No download**: the game components are the same as 0.9.3, so the update is only the app.
+
 ## What's new in 0.9.3
 
 - **Two players pressing Ctrl+Z at once**: only one player can look back or ask to go back at a time. If the other player got there first, your request ends with the reason ("Bob is looking back at their priorities, wait until they're done.") instead of a waiting window that never closes, and Confirm rollback stays off until they're done.
