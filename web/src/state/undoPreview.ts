@@ -218,6 +218,8 @@ export function endUndoPreview(gameId?: string | null): void {
 export async function confirmUndoPreview(gameId: string) {
   const p = current(gameId)
   if (!p || p.mode !== 'browse' || p.steps < 1 || p.pendingSteps != null) return null
+  // another player stopped the game to look back: one at a time, the server would refuse it
+  if (undoHeldByOther(getState().game)) return null
   const asksOthers = otherRollbackVoters(getState().game) > 0
   setState({ undoPreview: { ...p, mode: asksOthers ? 'vote' : 'applying' } })
   if (!asksOthers) {

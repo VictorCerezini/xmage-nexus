@@ -47,7 +47,9 @@ const ANNOUNCE_RE = /rolling back to start of turn\s+(\d+)/i
 const UNDO_ANNOUNCE_RE = /goes back (?:to their last priority|\d+ priorities) \(turn\s+(\d+)/i
 /** GameController: "Undo request denied by X", or "withdrawn by X" when the requester takes it back */
 const DENIED_RE = /(?:rollback|undo) request (denied|withdrawn) by\s+(.+)$/i
-const FAILED_RE = /not possible to rollback|only request a rollback|not available for rollback|no earlier priority to go back to|going back isn't allowed/i
+/** GameController's refusals to the one who asked; "X is looking back at their priorities, wait until
+ *  they're done" when another player stopped the game to look back (KEY-13) */
+const FAILED_RE = /not possible to rollback|only request a rollback|not available for rollback|no earlier priority to go back to|going back isn't allowed|is looking back at their priorities/i
 /** The undo request the other players get (GameSessionPlayer.requestPermissionToUndoPriority):
  *  "Allow X to go back to their last priority (turn T, step)?" or "... go back 3 priorities (...)?" */
 const UNDO_REQUEST_RE = /go back (?:to their last priority|\d+ priorities)/i

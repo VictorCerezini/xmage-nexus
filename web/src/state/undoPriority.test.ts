@@ -150,6 +150,15 @@ describe('KEY-13 go back to my last priority', () => {
     expect(getState().rollbackPendingFor).toBeNull()
   })
 
+  it('KEY-13: refused because another player is looking back: the vote fails instead of hanging', async () => {
+    update(view({ turn: 4, step: 'PRECOMBAT_MAIN', bobIsHuman: true }), 1)
+    await requestUndoPriority(GAME)
+    chat("Bob is looking back at their priorities, wait until they're done.", 2)
+    expect(getState().rollbackVote?.outcome).toBe('failed')
+    expect(getState().rollbackVote?.failReason).toContain('is looking back')
+    expect(getState().rollbackPendingFor).toBeNull()
+  })
+
   it("KEY-13: the other player's request opens an undo vote, and accepting it arms the flag", async () => {
     update(view({ turn: 4, step: 'PRECOMBAT_MAIN', bobIsHuman: true, me: 'Alice' }), 1)
     incomingUndoRequest('Bob')
@@ -269,6 +278,14 @@ describe('KEY-13 smart stops and going back', () => {
     myWindow('PRECOMBAT_MAIN')
     await requestUndoPriority(GAME)
     chat("There's no earlier priority to go back to.", 2)
+    maybeAutoPass(myWindow('BEGIN_COMBAT'))
+    expect(passes()).toBe(1)
+  })
+
+  it('KEY-13: an undo refused because another player is looking back does not hold the next window', async () => {
+    myWindow('PRECOMBAT_MAIN')
+    await requestUndoPriority(GAME)
+    chat("Bob is looking back at their priorities, wait until they're done.", 2)
     maybeAutoPass(myWindow('BEGIN_COMBAT'))
     expect(passes()).toBe(1)
   })

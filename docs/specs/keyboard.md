@@ -163,7 +163,11 @@ is done when the game goes on, or dropped if it goes back. Cancel, Esc, forward 
 question to the player or a refused request let the game go on (`UNDO_HOLD_RELEASE`), and so does a
 denied or withdrawn vote; after a minute of looking back without asking (the vote itself has no
 limit) it goes on by itself. One player at a time: while one looks back, the others can't, and no
-rollback can be asked. Not while typing in a text field (where Ctrl+Z undoes the typing), not with
+rollback can be asked. When two players press Ctrl+Z or confirm at the same moment, the server takes
+the first and refuses the other: a player already looking back when another stops the game can't
+confirm until that player is done (Confirm rollback is off), and a request refused that way ends the
+asker's vote with the server's reason ("Bob is looking back at their priorities…") instead of waiting
+for an answer that never comes. Not while typing in a text field (where Ctrl+Z undoes the typing), not with
 Alt held, not while a rollback vote is on screen, not in rewind, and not for spectators. The game going on (a new priority request) ends looking back. It needs the game view to
 say there is a priority to go back to (`canUndoPriority`; older servers don't send it, and the menu
 item is then hidden); a server without `undoPriorityCount` goes back to the last priority at once,

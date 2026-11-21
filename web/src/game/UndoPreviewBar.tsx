@@ -4,7 +4,7 @@ import Icon from '../ui/Icon'
 import { useTranslation } from '../i18n'
 import { useStore } from '../state/store'
 import { StepName } from './PhaseBar'
-import { confirmUndoPreview, endUndoPreview, undoBrowseBack, undoBrowseForward } from '../state/undoPreview'
+import { confirmUndoPreview, endUndoPreview, undoBrowseBack, undoBrowseForward, undoHeldByOther } from '../state/undoPreview'
 import './UndoPreviewBar.css'
 
 /**
@@ -15,6 +15,8 @@ export default function UndoPreviewBar() {
   const { t } = useTranslation()
   const preview = useStore((s) => s.undoPreview)
   const gameId = useStore((s) => s.gameId)
+  // another player stopped the game to look back meanwhile: confirming waits until they're done
+  const heldByOther = useStore((s) => !!undoHeldByOther(s.game))
   const [busy, setBusy] = useState(false)
   const browsing = !!preview && !!gameId && preview.mode === 'browse' && preview.gameId === gameId
 
@@ -98,7 +100,7 @@ export default function UndoPreviewBar() {
           size="sm"
           variant="primary"
           data-testid="undo-preview-confirm"
-          disabled={!shown || loading || busy}
+          disabled={!shown || loading || busy || heldByOther}
           onClick={() => void onConfirm()}
         >
           <Icon name="check" size={12} /> {t('game', 'undo_preview_confirm')}

@@ -459,6 +459,37 @@ describe('KEY-13 another player stopped the game to look back', () => {
     await act(async () => { pressKey(' ', 'Space') })
     expect(cmds.sendPlayerBoolean).toHaveBeenCalledTimes(1)
   })
+
+  it('KEY-13: looking back already when Bob stops the game: Confirm waits until he is done', async () => {
+    render(<GameScreen />)
+    await act(async () => { pressZ({ ctrl: true }) })
+    await act(async () => { answer(1) })
+    await act(async () => { withGame({ undoHeldBy: 'Bob' }) })
+    const confirm = () => screen.getByTestId('undo-preview-confirm') as HTMLButtonElement
+    expect(confirm().disabled).toBe(true)
+    await act(async () => { fireEvent.click(confirm()) })
+    expect(undoCalls()).toEqual([])
+    // Bob is done without going back: the look-back on my screen can be confirmed again
+    await act(async () => { withGame({ undoHeldBy: null }) })
+    expect(confirm().disabled).toBe(false)
+  })
+
+  it('KEY-13: confirmed just as Bob stops the game, the refusal ends my request instead of leaving it waiting', async () => {
+    render(<GameScreen />)
+    await act(async () => { pressZ({ ctrl: true }) })
+    await act(async () => { answer(1) })
+    await act(async () => { fireEvent.click(screen.getByTestId('undo-preview-confirm')) })
+    expect(undoCalls()).toEqual([['UNDO_LAST_PRIORITY', 'game-1']])
+    expect(getState().rollbackVote?.outcome).toBe('voting')
+    // what the server answers when Bob's look-back got there first: nobody is asked
+    await act(async () => { sniffRollbackAnnounce("Bob is looking back at their priorities, wait until they're done.", 'game-1') })
+    expect(getState().rollbackVote?.outcome).toBe('failed')
+    expect(getState().undoPreview).toBeNull()
+    expect(getState().rollbackPendingFor).toBeNull()
+    expect(root().classList.contains('game--undo-vote')).toBe(false)
+    expect(screen.getByText(/Bob is looking back at their priorities/)).toBeTruthy()
+    expect(screen.getByTestId('rollback-vote-close')).toBeTruthy()
+  })
 })
 
 describe('KEY-13 menu item', () => {
