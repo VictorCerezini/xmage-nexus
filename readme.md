@@ -19,6 +19,12 @@
   </tr>
 </table>
 
+## What's new in 0.9.3
+
+- **Two players pressing Ctrl+Z at once**: only one player can look back or ask to go back at a time. If the other player got there first, your request ends with the reason ("Bob is looking back at their priorities, wait until they're done.") instead of a waiting window that never closes, and Confirm rollback stays off until they're done.
+- **No more wait after going back**: when both players stopped the game at the same moment, the game could wait almost a minute after going back. It now goes on at once.
+- **New server**: the fix is in the server, so the app downloads its components again the first time it starts after the update.
+
 ## What's new in 0.9.2
 
 - **Caught up with the original XMage Nexus**: everything in its 0.9.0 and 0.9.1 (below) is in this version too, on the same XMage 1.4.63-V2 engine. This version's own fixes and features all stay.
