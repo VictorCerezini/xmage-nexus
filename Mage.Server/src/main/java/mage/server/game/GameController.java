@@ -648,13 +648,13 @@ public class GameController implements GameCallback {
                     }
                 } else {
                     int steps = Math.max(1, Math.min(available, data instanceof Integer ? (Integer) data : 1));
-                    // like a rollback request, a new request replaces any open one
-                    if (undoRequested) {
-                        endUndoPreviews();
-                    }
-                    turnsToRollback = -1;
                     List<GameSessionPlayer> voters = undoVoters(userId);
                     if (voters.isEmpty()) {
+                        // like a rollback request, a new request replaces any open one
+                        if (undoRequested) {
+                            endUndoPreviews();
+                        }
+                        turnsToRollback = -1;
                         userRequestingRollback = null;
                         undoRequested = false;
                         undoStepsRequested = 0;
@@ -663,26 +663,49 @@ public class GameController implements GameCallback {
                         synchronized (undoHoldLock) {
                             hold = takeUndoHold(userId);
                         }
-                        if (!game.undoPriorities(playerId, steps) && hold != null) {
+                        if (game.undoPriorities(playerId, steps)) {
+                            endUndoHoldOfOthers(userId);
+                        } else if (hold != null) {
                             goOnAfterUndoHold(hold);
                         }
                     } else {
-                        // set before asking, so an answer that comes back at once is counted
-                        userRequestingRollback = userId;
-                        undoRequested = true;
-                        undoStepsRequested = steps;
-                        requestsOpen = voters.size();
-                        String where = undoTargetText(playerId, steps);
                         // while the game waits on the requester (or is stopped for them), everyone sees where the game would go back to
                         boolean showPreview = player.isWaitingForAnswer();
+                        boolean replaced;
+                        UUID holderPlayerId = null;
+                        // claimed under undoHoldLock, as a look-back is (startUndoHold): when two players ask
+                        // at the same moment, one gets through and the other is told to wait
                         synchronized (undoHoldLock) {
-                            if (undoHold != null && undoHold.userId.equals(userId)) {
-                                // the vote can take a while, its answer lets the game go on
-                                cancelFuture(undoHold.timeout);
-                                undoHold.timeout = null;
-                                showPreview = showPreview || undoHold.shown;
+                            if (undoHold != null && !undoHold.userId.equals(userId)) {
+                                holderPlayerId = undoHold.playerId;
+                                replaced = false;
+                            } else {
+                                // like a rollback request, a new request replaces any open one
+                                replaced = undoRequested;
+                                // set before asking, so an answer that comes back at once is counted
+                                turnsToRollback = -1;
+                                userRequestingRollback = userId;
+                                undoRequested = true;
+                                undoStepsRequested = steps;
+                                requestsOpen = voters.size();
+                                if (undoHold != null) {
+                                    // the vote can take a while, its answer lets the game go on
+                                    cancelFuture(undoHold.timeout);
+                                    undoHold.timeout = null;
+                                    showPreview = showPreview || undoHold.shown;
+                                }
                             }
                         }
+                        if (holderPlayerId != null) {
+                            Player holder = game.getPlayer(holderPlayerId);
+                            game.informPlayer(player, (holder == null ? "Another player" : holder.getName())
+                                    + " is looking back at their priorities, wait until they're done.");
+                            break;
+                        }
+                        if (replaced) {
+                            endUndoPreviews();
+                        }
+                        String where = undoTargetText(playerId, steps);
                         GameSessionPlayer requesterSession = gameSessions.get(playerId);
                         if (showPreview && requesterSession != null) {
                             requesterSession.undoPreview(buildUndoPreview(playerId, playerId, steps, available, true, player.getName()));
@@ -769,6 +792,8 @@ public class GameController implements GameCallback {
                                 if (hold != null) {
                                     goOnAfterUndoHold(hold);
                                 }
+                            } else {
+                                endUndoHoldOfOthers(requesterUserId);
                             }
                         } else {
                             game.rollbackTurns(turns);
@@ -1049,6 +1074,25 @@ public class GameController implements GameCallback {
         cancelFuture(hold.readyCheck);
         cancelFuture(hold.timeout);
         return hold;
+    }
+
+    /**
+     * The game goes back for that user: someone else's look-back ends too (the game's own hold ends
+     * when it goes back), or it would keep the others' answers waiting until it timed out. What was
+     * kept for it isn't done, as for the one going back, and their own look-back closes.
+     */
+    private void endUndoHoldOfOthers(UUID userId) {
+        UndoHold hold;
+        synchronized (undoHoldLock) {
+            hold = undoHold == null || undoHold.userId.equals(userId) ? null : takeUndoHold(null);
+        }
+        if (hold != null) {
+            GameSessionPlayer session = gameSessions.get(hold.playerId);
+            if (session != null) {
+                Player player = game.getPlayer(hold.playerId);
+                session.undoPreview(new GameUndoPreviewView(null, 0, 0, false, player == null ? "" : player.getName()));
+            }
+        }
     }
 
     /**
