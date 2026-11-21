@@ -127,9 +127,64 @@ def test_catalog_requires_subscription_login_and_saves_no_identity():
         {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "bedrock"},
     ],
 )
-def test_catalog_rejects_other_authentication_modes(status):
-    with pytest.raises(RuntimeError, match="claude auth login"):
+def test_catalog_rejects_other_authentication_modes(status, fake_claude, monkeypatch):
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    with pytest.raises(paths.SignInError, match="auth login --claudeai") as caught:
         claude_client.read_catalog(status)
+    # LBY-33: the app gets the command to copy, its shell, and the program its Sign in window runs
+    assert caught.value.command == f"& '{fake_claude}' auth login --claudeai"
+    assert caught.value.shell == "PowerShell"
+    assert caught.value.program == str(fake_claude)
+
+
+@pytest.mark.parametrize(
+    ("status", "says"),
+    [
+        ({"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"}, "is not signed in"),
+        ({"loggedIn": True, "authMethod": "api_key", "apiProvider": "firstParty"}, "signed in with an API key"),
+        ({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "bedrock"}, "set to use bedrock"),
+    ],
+)
+def test_lby33_the_reason_tells_an_api_key_from_no_sign_in(status, says):
+    with pytest.raises(paths.SignInError) as caught:
+        claude_client.read_catalog(status, claude=r"C:\Tools\claude.exe")
+    assert says in caught.value.message
+    assert "Claude subscription" in caught.value.message
+
+
+def test_lby33_the_sign_in_line_drops_a_claude_config_dir_and_quotes_the_path(monkeypatch):
+    # model seats drop CLAUDE_CONFIG_DIR (clean_env), so the login has to land where they look
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", r"D:\elsewhere")
+    line = claude_client.sign_in_command(r"C:\Users\O'Neil\claude.exe")
+    assert line == (
+        "Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; "
+        r"& 'C:\Users\O''Neil\claude.exe' auth login --claudeai"
+    )
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+    assert claude_client.sign_in_command(r"C:\Tools\claude.exe") == r"& 'C:\Tools\claude.exe' auth login --claudeai"
+
+
+def test_lby33_the_catalog_passes_the_sign_in_and_its_program(fake_claude, monkeypatch):
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+
+    def signed_out():
+        return claude_client.read_catalog({"loggedIn": True, "authMethod": "api_key", "apiProvider": "firstParty"})
+
+    fake = {
+        "claude_subscription": replace(providers.PROVIDERS["claude_subscription"], discover=signed_out),
+        "chatgpt_subscription": replace(
+            providers.PROVIDERS["chatgpt_subscription"], discover=lambda: {"id": "chatgpt_subscription"}
+        ),
+    }
+    entry = providers.discover_all(fake)["unavailable"][0]
+    assert entry == {
+        "id": "claude_subscription",
+        "playerName": providers.PROVIDERS["claude_subscription"].label,
+        "reason": claude_client.not_signed_in_reason({"loggedIn": True, "authMethod": "api_key"}),
+        "signIn": f"& '{fake_claude}' auth login --claudeai",
+        "signInShell": "PowerShell",
+        "signInProgram": str(fake_claude),
+    }
 
 
 @pytest.mark.parametrize(

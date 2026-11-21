@@ -171,15 +171,37 @@ def read_auth_status():
     return json.loads(result.stdout)
 
 
-def read_catalog(status):
+def sign_in_command(claude):
+    """LBY-33: the PowerShell line that signs this Claude Code in with the subscription, where model seats look.
+    clean_env drops CLAUDE_CONFIG_DIR, so when this computer sets one the line drops it too: otherwise the login
+    would land in that folder, which model seats never read."""
+    line = "& '" + str(claude).replace("'", "''") + "' auth login --claudeai"
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        line = "Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; " + line
+    return line
+
+
+def not_signed_in_reason(status):
+    """Why Claude Code's login doesn't count: an API key or another provider is not 'not signed in'."""
+    only_subscription = "and Claude matches only play on your Claude subscription."
+    if status.get("loggedIn") and status.get("authMethod") == "api_key":
+        return f"Claude Code on this computer is signed in with an API key, {only_subscription}"
+    provider = status.get("apiProvider")
+    if status.get("loggedIn") and provider and provider != "firstParty":
+        return f"Claude Code on this computer is set to use {provider}, {only_subscription}"
+    return "Claude Code on this computer is not signed in with your Claude subscription."
+
+
+def read_catalog(status, claude=None):
     # Email, organization and plan details are returned by the CLI but never copied or saved.
     if (
         not status.get("loggedIn")
         or status.get("authMethod") != "claude.ai"
         or status.get("apiProvider") != "firstParty"
     ):
-        raise RuntimeError(
-            "Sign into Claude Code with your Claude subscription before opening Claude matches (claude auth login)."
+        claude = claude or executable()
+        raise paths.SignInError(
+            not_signed_in_reason(status), sign_in_command(claude), "PowerShell", program=str(claude)
         )
     return {
         "id": PROVIDER,

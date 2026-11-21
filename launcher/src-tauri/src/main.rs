@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use nexus_launcher::{current_target, extract, fetch, layout, manifest::ComponentsManifest};
+use nexus_launcher::{claude_sign_in, current_target, extract, fetch, layout, manifest::ComponentsManifest};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -814,6 +814,31 @@ fn apply_update(app: AppHandle) {
     });
 }
 
+/// LBY-33: the Create Table screen's "Sign in" for Claude. Opens a window that signs `program` (the
+/// Claude Code the model service found) in with the Claude subscription, the way model seats run it.
+#[tauri::command]
+fn open_claude_sign_in(program: String) -> Result<(), String> {
+    let program = claude_sign_in::claude_program(&program)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = Command::new("cmd.exe");
+        cmd.raw_arg(claude_sign_in::start_command_line())
+            .env(claude_sign_in::PROGRAM_ENV, &program);
+        for name in claude_sign_in::DROPPED_ENV {
+            cmd.env_remove(name);
+        }
+        // cmd's own window stays hidden; `start` gives PowerShell a window of its own
+        hide_console(&mut cmd);
+        cmd.spawn().map(|_| ()).map_err(|e| format!("sign-in window: {e}"))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = program;
+        Err("the Claude sign-in window opens only on Windows".into())
+    }
+}
+
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     // already answered: the windows closing on the way out don't ask again
@@ -973,7 +998,8 @@ fn main() {
             apply_update,
             skip_update,
             quit_app,
-            ask_before_close
+            ask_before_close,
+            open_claude_sign_in
         ])
         .setup(|app| {
             let handle = app.handle().clone();

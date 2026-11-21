@@ -10,6 +10,7 @@ from llm import (
     opencode_go_client,
     opencode_zen_client,
     openrouter_client,
+    paths,
     subscription_client,
     zai_client,
 )
@@ -170,11 +171,14 @@ def discover_all(providers=None):
             available.append(provider.discover())
         except Exception as error:  # noqa: BLE001 - reported with the catalog, never fatal per provider
             entry = {"id": provider.id, "playerName": provider.label, "reason": str(error)}
-            if isinstance(error, opencode_client.MissingKeyError):
-                # The app shows the sign-in command on its own line, to copy.
+            if isinstance(error, paths.SignInError):
+                # The app shows the sign-in command on its own line, to copy, and for a sign-in program
+                # (Claude Code) the desktop app offers a window that runs it (LBY-33).
                 entry.update(reason=error.message, signIn=error.command)
                 if error.shell:
                     entry["signInShell"] = error.shell
+                if error.program:
+                    entry["signInProgram"] = error.program
             unavailable.append(entry)
             reasons.append(str(error))
     if not available:

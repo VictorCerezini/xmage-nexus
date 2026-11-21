@@ -56,6 +56,15 @@ def missing_cli(cli, flag, sign_in=None):
     return f"Run python -m llm.configure with {cli} installed (or {flag}) before seating it"
 
 
+class SignInError(RuntimeError):
+    """A provider needs a sign-in on this computer. The command is kept apart, so the app can offer it to copy;
+    `program`, when set, is the sign-in program the desktop app can open a window for (Claude Code, LBY-33)."""
+
+    def __init__(self, message, command, shell=None, program=None):
+        self.message, self.command, self.shell, self.program = message, command, shell, program
+        super().__init__(f"{message} Sign in with: {command}" + (f" (in {shell})" if shell else ""))
+
+
 def sign_in_parts(provider):
     """The command that stores an OpenCode provider's key, and the shell it needs (None: any shell)."""
     if not desktop():

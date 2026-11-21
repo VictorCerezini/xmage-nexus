@@ -1,3 +1,4 @@
+pub mod claude_sign_in;
 pub mod extract;
 pub mod fetch;
 pub mod layout;

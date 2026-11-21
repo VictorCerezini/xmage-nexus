@@ -390,13 +390,11 @@ def with_hint(message, hint):
     return message.rstrip(". ") + ". " + hint
 
 
-class MissingKeyError(RuntimeError):
+class MissingKeyError(paths.SignInError):
     """No key is stored for a provider. The sign-in command is kept apart, so the app can offer it to copy."""
 
     def __init__(self, label, sign_in):
-        self.message = f"No {label} key is saved for this app yet."
-        self.command, self.shell = paths.sign_in_parts(sign_in)
-        super().__init__(f"{self.message} Sign in with: {paths.sign_in_command(sign_in)}")
+        super().__init__(f"No {label} key is saved for this app yet.", *paths.sign_in_parts(sign_in))
 
 
 def read_key(provider, label, sign_in):

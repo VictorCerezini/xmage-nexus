@@ -143,6 +143,9 @@ export interface LlmUnavailable {
   signIn?: string
   /** Where to run `signIn` (`PowerShell`); absent when any shell works. */
   signInShell?: string
+  /** A sign-in program rather than a key (Claude Code, LBY-33): `signIn` signs it in with the subscription, and
+   *  the desktop app can open a window that runs it (`open_claude_sign_in`). */
+  signInProgram?: string
 }
 
 /** `getLlmProviders`: `enabled` is false when the proxy runs without `--llm`. */

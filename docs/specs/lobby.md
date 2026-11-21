@@ -385,3 +385,20 @@ deck is a different one is still asked about on its own.
   attempts"). Asking twice about one deck is also a question the player has already answered.
 - Guard: `e2e/deckvalidation.spec.ts` · `src/lobby/CreateTable/submitTable.test.ts`
 
+### LBY-33 · A model that needs a sign-in says how, and Claude has a Sign in button
+When a model seat's provider can't play on this computer, its note on Create Table says why and what to
+do. For Claude, the reason tells apart Claude Code not signed in, signed in with an API key, and set to
+another provider: Claude matches only play on the Claude subscription. The note gives the steps and the
+PowerShell line that signs in with the subscription, to copy; that line runs the same Claude Code model
+seats use (the one the model service found) and drops `CLAUDE_CONFIG_DIR`, as model seats do, so the
+login lands where they look. In the desktop app the note also has a Sign in button: it opens a window
+that runs that sign-in, then says to close it and press Refresh models. The window opens only for an
+existing file named `claude.exe`, and only the desktop app can open it, never a friend's browser. A
+missing key (the OpenCode providers) keeps its own steps and its command to copy, without the button.
+
+- Why: the note said only "(claude auth login)": not where to run it, nor that model seats use the Claude
+  desktop app's own Claude Code and ignore `CLAUDE_CONFIG_DIR`, so a login from a terminal could land in
+  a folder they never read. With the subscription login expired, Claude Code fell back to an old API key
+  and the note still said only "sign in" (report of 2026-11-21).
+- Guard: `src/lobby/CreateTable/LlmUnreadyNote.test.tsx`
+
