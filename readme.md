@@ -19,6 +19,11 @@
   </tr>
 </table>
 
+## What's new in 0.9.6
+
+- **Claude's Sign in button shows**: 0.9.5 explained why Claude wasn't ready but left out the **Sign in** button, and showed the steps for adding a key instead. The button and the right steps are there now.
+- **New components**: the fix is in the part of the app that passes the model list to the screen, so the app downloads its components again the first time it starts after the update.
+
 ## What's new in 0.9.5
 
 - **Signing in to Claude**: when Claude can't play yet, Create Table now says why (not signed in, or signed in with an API key, which Claude matches don't use) and has a **Sign in** button. It opens a window that signs Claude Code in with your Claude subscription; when it's done, press Refresh models. The command that does the same is there to copy too.
