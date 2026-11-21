@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from dataclasses import replace
 
 import pytest
@@ -185,6 +186,10 @@ def test_lby33_the_catalog_passes_the_sign_in_and_its_program(fake_claude, monke
         "signInShell": "PowerShell",
         "signInProgram": str(fake_claude),
     }
+    # the proxy copies only the fields it lists (LlmCatalog.UNAVAILABLE_TEXT): v0.9.5 left signInProgram out
+    java = (paths.REPO / "Mage.Proxy/src/main/java/org/mage/proxy/LlmCatalog.java").read_text(encoding="utf-8")
+    listed = re.search(r"UNAVAILABLE_TEXT\s*=\s*Arrays\.asList\(([^)]*)\)", java).group(1)
+    assert set(entry) <= set(re.findall(r'"([^"]+)"', listed))
 
 
 @pytest.mark.parametrize(

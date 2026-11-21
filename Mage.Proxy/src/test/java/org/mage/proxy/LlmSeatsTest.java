@@ -198,7 +198,9 @@ class LlmSeatsTest {
                 + "{\"id\":\"gpt-6-astra\",\"name\":\"GPT-6-Astra\",\"efforts\":[\"low\",\"high\"],\"defaultEffort\":\"high\",\"isDefault\":false}]},"
                 + "{\"id\":\"openrouter_free\",\"playerName\":\"OpenRouter\",\"playerType\":\"OpenRouter free\",\"auth\":\"key\","
                 + "\"models\":[{\"id\":\"a/alpha:free\",\"name\":\"Alpha\",\"efforts\":[\"default\"],\"defaultEffort\":\"default\",\"isDefault\":true}]}],"
-                + "\"unavailable\":[{\"id\":\"claude_subscription\",\"reason\":\"Claude Code is not signed in\"},"
+                + "\"unavailable\":[{\"id\":\"claude_subscription\",\"playerName\":\"Claude\",\"reason\":\"Claude Code is not signed in\","
+                + "\"signIn\":\"& 'C:\\\\Tools\\\\claude.exe' auth login --claudeai\",\"signInShell\":\"PowerShell\","
+                + "\"signInProgram\":\"C:\\\\Tools\\\\claude.exe\"},"
                 + "{\"id\":\"opencode_go\",\"playerName\":\"OpenCode Go\",\"reason\":\"No OpenCode Go key is saved for this app yet.\","
                 + "\"signIn\":\"python -m llm.sign_in opencode-go\",\"signInShell\":\"PowerShell\",\"key\":\"not-a-secret\"}]}")
                 .getBytes(StandardCharsets.UTF_8));
@@ -338,6 +340,18 @@ class LlmSeatsTest {
         assertEquals("python -m llm.sign_in opencode-go", go.get("signIn").getAsString());
         assertEquals("PowerShell", go.get("signInShell").getAsString());
         assertFalse(go.has("key"));
+        assertFalse(go.has("signInProgram"));
+    }
+
+    /** LBY-33: Claude's sign-in program reaches the page, which offers a Sign in window only when it has it. */
+    @Test
+    void claudeThatIsNotSignedInKeepsItsSignInProgram() throws IOException {
+        JsonObject catalog = new LlmCatalog(runtime(4)).read();
+        JsonObject claude = catalog.getAsJsonArray("unavailable").get(0).getAsJsonObject();
+        assertEquals("claude_subscription", claude.get("id").getAsString());
+        assertEquals("& 'C:\\Tools\\claude.exe' auth login --claudeai", claude.get("signIn").getAsString());
+        assertEquals("PowerShell", claude.get("signInShell").getAsString());
+        assertEquals("C:\\Tools\\claude.exe", claude.get("signInProgram").getAsString());
     }
 
     @Test

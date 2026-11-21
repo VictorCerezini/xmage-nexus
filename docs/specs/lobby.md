@@ -395,10 +395,12 @@ login lands where they look. In the desktop app the note also has a Sign in butt
 that runs that sign-in, then says to close it and press Refresh models. The window opens only for an
 existing file named `claude.exe`, and only the desktop app can open it, never a friend's browser. A
 missing key (the OpenCode providers) keeps its own steps and its command to copy, without the button.
+Every field the note reads crosses the proxy, which copies only the catalog fields it lists.
 
 - Why: the note said only "(claude auth login)": not where to run it, nor that model seats use the Claude
   desktop app's own Claude Code and ignore `CLAUDE_CONFIG_DIR`, so a login from a terminal could land in
   a folder they never read. With the subscription login expired, Claude Code fell back to an old API key
-  and the note still said only "sign in" (report of 2026-11-21).
-- Guard: `src/lobby/CreateTable/LlmUnreadyNote.test.tsx`
+  and the note still said only "sign in" (report of 2026-11-21). v0.9.5 then shipped the button without
+  `signInProgram` in the proxy's list, so the note showed the new reason with the key steps and no button.
+- Guard: `src/lobby/CreateTable/LlmUnreadyNote.test.tsx` · `src/net/llmCatalogFields.test.ts`
 
