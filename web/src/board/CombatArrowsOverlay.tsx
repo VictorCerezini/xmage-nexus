@@ -65,7 +65,6 @@ export default function CombatArrowsOverlay({
   const [arrows, setArrows] = useState<ArrowItem[]>([])
 
   const me = useMemo(() => game?.players?.find((p) => p.controlled), [game?.players])
-  const opp = useMemo(() => game?.players?.find((p) => !p.controlled), [game?.players])
 
   const computeArrows = useCallback((): ArrowItem[] => {
     const boardEl = boardRef.current
@@ -216,22 +215,10 @@ export default function CombatArrowsOverlay({
           ? Object.keys(attackersObj)
           : []
         attackerIds.forEach((attId) => {
-          let defenderId = (record.defenderId as string) || null
-
-          if (!defenderId) {
-            // If attacker is controlled by me, target opponent; if controlled by opponent, target me
-            const isMyAttacker = me && String(attId) in (me.battlefield ?? {})
-            const isOppAttacker = opp && String(attId) in (opp.battlefield ?? {})
-            if (isMyAttacker) {
-              defenderId = opp ? opp.playerId : null
-            } else if (isOppAttacker) {
-              defenderId = me ? me.playerId : null
-            } else {
-              const isMyTurn = game.activePlayerId === me?.playerId
-              defenderId = isMyTurn ? (opp ? opp.playerId : null) : (me ? me.playerId : null)
-            }
-          }
-
+          // No defender means the planeswalker or battle it attacked has left the battlefield: the
+          // creature is still attacking, but nothing, so it gets no arrow (CMB-4). Guessing one
+          // aimed it at this player in a pod.
+          const defenderId = (record.defenderId as string) || null
           if (defenderId) {
             const defCenter = getCenter(defenderId)
             const attCenter = getCenter(String(attId))
@@ -346,7 +333,7 @@ export default function CombatArrowsOverlay({
     }
 
     return newArrows
-  }, [game, boardRef, targetSourceId, chosenTargetIds, combatChosen, combatMode, me, opp, stackFocusIds, variant])
+  }, [game, boardRef, targetSourceId, chosenTargetIds, combatChosen, combatMode, me, stackFocusIds, variant])
 
   useEffect(() => {
     const update = () => {

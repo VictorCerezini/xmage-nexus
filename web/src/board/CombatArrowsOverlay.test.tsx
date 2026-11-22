@@ -212,6 +212,48 @@ describe('CombatArrowsOverlay', () => {
     boardDiv.remove()
   })
 
+  it('CMB-4: an attacker whose planeswalker has left draws no arrow, not one at this player', () => {
+    // A pod: B attacked A's planeswalker and killed it. The server then sends that group with no
+    // defender (XMage clears it when the attacked permanent leaves), while B's other attacker still
+    // aims at A.
+    const boardDiv = document.createElement('div')
+    document.body.appendChild(boardDiv)
+    const rect = (left: number, top: number, width: number, height: number) =>
+      () => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => {} } as DOMRect)
+    const place = (attr: string, id: string, box: () => DOMRect) => {
+      const el = document.createElement('div')
+      el.setAttribute(attr, id)
+      el.getBoundingClientRect = box
+      boardDiv.appendChild(el)
+    }
+    place('data-card-id', 'b-dragon', rect(600, 100, 100, 140))
+    place('data-card-id', 'b-goblin', rect(720, 100, 100, 140))
+    place('data-player-id', 'p-me', rect(450, 700, 60, 60))
+    place('data-player-id', 'p-a', rect(50, 300, 60, 60))
+    place('data-player-id', 'p-b', rect(900, 300, 60, 60))
+    boardDiv.getBoundingClientRect = rect(0, 0, 1000, 800)
+    const game = {
+      step: 'COMBAT_DAMAGE',
+      activePlayerId: 'p-b',
+      combat: [
+        { attackers: { 'b-dragon': {} }, blockers: {}, isBlocked: false },
+        { attackers: { 'b-goblin': {} }, blockers: {}, isBlocked: false, defenderId: 'p-a' },
+      ],
+      players: [
+        { playerId: 'p-me', name: 'Me', controlled: true, battlefield: {} },
+        { playerId: 'p-a', name: 'A', controlled: false, battlefield: {} },
+        { playerId: 'p-b', name: 'B', controlled: false, battlefield: { 'b-dragon': {}, 'b-goblin': {} } },
+      ],
+    }
+    const { container, unmount } = render(<CombatArrowsOverlay game={game as any} boardRef={{ current: boardDiv }} />)
+    const arrows = Array.from(container.querySelectorAll('.arrow-group.arrow-attack')).map(
+      (g) => `${g.getAttribute('data-arrow-from')}->${g.getAttribute('data-arrow-to')}`,
+    )
+    expect(arrows).toEqual(['b-goblin->p-a'])
+    unmount()
+    boardDiv.remove()
+  })
+
   it('rectEdgePoint clips the centre line to the box edge', () => {
     expect(rectEdgePoint({ x: 0, y: 0 }, 50, 20, { x: 0, y: 100 })).toEqual({ x: 0, y: 20 })
     expect(rectEdgePoint({ x: 0, y: 0 }, 50, 20, { x: -200, y: 0 })).toEqual({ x: -50, y: 0 })

@@ -51,12 +51,16 @@ Every attacker draws an arrow to the defender its combat group names: a player's
 middle of their zone), or the planeswalker or battle card being attacked. Every blocker draws an
 arrow to the attacker it blocks. In the Table layout the arrow takes the attacker's seat colour
 and ends on the defender's edge. Arrows that start or end on a player who has left the game are
-not drawn.
+not drawn. A group that names no defender draws no attack arrow: the board never guesses one. The
+server sends that when the planeswalker or battle being attacked has left the battlefield; the
+creature is still attacking (CMB-3), but attacking nothing.
 
 - Why: aiming at the player's zone root put the arrow head in the lands band (`6fecaa53fd`,
   `web/INTERACTION_COVERAGE.md` §F); in a pod the arrow must follow the frame's defender, not the
   first non-active player (`e2e/recorded.spec.ts`, `pod-combat.json`). Seat colours came with the
-  Table layout (`3392950fb4`).
+  Table layout (`3392950fb4`). XMage clears the defender when the attacked permanent leaves
+  (`CombatGroup.removeAttackedPermanent`), and the board's guess then aimed the attacker at the
+  local player in a pod, who was not being attacked (reported after v0.9.6).
 - Guard: `src/board/CombatArrowsOverlay.test.tsx` (blocker arrows, a planeswalker or battle
   defender and the left-player case are not asserted there)
 
