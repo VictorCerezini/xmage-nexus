@@ -69,9 +69,19 @@ beside the pass button; F3 cancels the active skip. There is no F6. The menu off
 entry only while a skip is active. On the game screen, outside text fields, these keys replace the
 browser's own F5 (reload) and F11 (full screen).
 
+On my own turn, before my last main phase is over, F4, F5, F9 and F11 (from a key or the menu)
+pass my main phases too, so they ask first ("Skip anyway" / "Keep playing", the safe answer
+focused) while I may still have something to play: in a main phase with an empty stack, a card
+the server lists as playable; anywhere else, any card in hand, since the server then lists only
+what I can do at that moment. F7 and F10 never ask. While the question is open, another skip
+key asks nothing more.
+
 - Why: desktop parity (G11-1, `f1af392cc6`); F6 is left out because the desktop client has it
-  disabled (`web/COMPONENT_PARITY.md`, U11 game panel).
-- Guard: `src/game/PassMenu.test.tsx` · `src/game/GameScreen.keys.test.tsx` · `e2e/skips.spec.ts`
+  disabled (`web/COMPONENT_PARITY.md`, U11 game panel). The server keeps F4 and F5 until the turn
+  ends, so in a pod a player's whole turn went by in a second after a skip in their own upkeep or
+  draw step, with a land and a spell still in hand, and the table rolled back two turns later.
+  In a browser F5 is also the reload key (reported after v0.9.6).
+- Guard: `src/game/PassMenu.test.tsx` · `src/game/GameScreen.keys.test.tsx` · `src/game/skips.test.ts` · `e2e/skips.spec.ts`
 
 ### KEY-7 · Digits pick the numbered option
 In a yes/no bar and in an option grid every option shows its number, and pressing 1 to 9 picks

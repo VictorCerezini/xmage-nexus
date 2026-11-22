@@ -81,7 +81,8 @@ import { useOverlayGutters } from './useOverlayGutters'
 import { useTranslation } from '../i18n'
 import { soundManager } from '../audio/soundManager'
 import { inverseZoom } from '../appearance/zoom'
-import { CANCEL_SKIP_ACTION, CANCEL_SKIP_SHORTCUT, skipForShortcut } from './skips'
+import { CANCEL_SKIP_ACTION, CANCEL_SKIP_SHORTCUT, SKIPS, skipForShortcut, skipPassesMyMainPhase } from './skips'
+import { confirmDialog } from '../ui/confirmDialog'
 import { isControllingPriority } from '../state/control'
 import { perfMark } from '../system/perfProbe'
 import { useTargetPick } from './useTargetPick'
@@ -360,8 +361,29 @@ export default function GameScreen() {
 
   // Skips one-shot estilo desktop (F4/F5/F7/F9/F10/F11) + F3 cancela.
   // Sin F6: el propio desktop lo tiene desactivado ("Skip action don't used").
+  // A skip that would pass my own main phase while I may still play something asks first (KEY-6):
+  // in a browser F5 is also the reload key, and pressed in my upkeep it gave my whole turn away.
+  const skipAsking = useRef(false)
   const sendSkip = useCallback(async (action: string) => {
-    if (!gameId || busy) return
+    if (!gameId || busy || skipAsking.current) return
+    const skip = SKIPS.find((s) => s.action === action)
+    if (skip && skipPassesMyMainPhase(getState().game, skip)) {
+      skipAsking.current = true
+      try {
+        const ok = await confirmDialog(
+          t('game', 'skip_own_turn_message', { skip: t('game', skip.labelKey), key: skip.shortcut }),
+          {
+            title: t('game', 'skip_own_turn_title'),
+            okLabel: t('game', 'skip_own_turn_ok'),
+            cancelLabel: t('game', 'skip_own_turn_cancel'),
+            danger: true,
+          },
+        )
+        if (!ok) return
+      } finally {
+        skipAsking.current = false
+      }
+    }
     perfMark('click', 'skip', undefined, { action })
     setBusy(true)
     perfMark('ack', 'skip', undefined, { action })
