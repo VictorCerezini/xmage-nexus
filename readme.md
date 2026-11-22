@@ -19,6 +19,12 @@
   </tr>
 </table>
 
+## What's new in 0.9.7
+
+- **Skipping your own turn asks first**: "Next turn", "End step", "My turn" and "End before mine" (F4, F5, F9 and F11, or the ▾ menu next to the pass button) skip the rest of your own turn when you use them on it, main phase included. They now ask first while you may still have something to play. In a browser F5 is also the reload key, so pressing it to refresh the page can no longer give your turn away by accident.
+- **Attack arrows**: when a planeswalker that was being attacked leaves the battlefield, the creature that attacked it no longer points an arrow at you. It is still attacking, but nothing, so it has no arrow.
+- **No download**: the game components are the same as 0.9.6, so the update is only the app.
+
 ## What's new in 0.9.6
 
 - **Claude's Sign in button shows**: 0.9.5 explained why Claude wasn't ready but left out the **Sign in** button, and showed the steps for adding a key instead. The button and the right steps are there now.
