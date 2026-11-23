@@ -295,6 +295,8 @@ public final class StarTrekCommander extends ExpansionSet {
         cards.add(new SetCardInfo("Pest Control", 326, Rarity.MYTHIC, mage.cards.p.PestControl.class, NON_FULL_USE_VARIOUS));
         cards.add(new SetCardInfo("Pest Control", 477, Rarity.MYTHIC, mage.cards.p.PestControl.class, NON_FULL_USE_VARIOUS));
         cards.add(new SetCardInfo("Picard, Steadfast Captain", 193, Rarity.MYTHIC, mage.cards.p.PicardSteadfastCaptain.class));
+        cards.add(new SetCardInfo("Planet Killer", 117, Rarity.RARE, mage.cards.p.PlanetKiller.class, NON_FULL_USE_VARIOUS));
+        cards.add(new SetCardInfo("Planet Killer", 351, Rarity.RARE, mage.cards.p.PlanetKiller.class, NON_FULL_USE_VARIOUS));
         cards.add(new SetCardInfo("Ponder", 440, Rarity.COMMON, mage.cards.p.Ponder.class));
         cards.add(new SetCardInfo("Pongify", 441, Rarity.UNCOMMON, mage.cards.p.Pongify.class));
         cards.add(new SetCardInfo("Port Town", 393, Rarity.RARE, mage.cards.p.PortTown.class, NON_FULL_USE_VARIOUS));
