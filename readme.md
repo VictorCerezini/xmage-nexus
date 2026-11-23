@@ -19,6 +19,12 @@
   </tr>
 </table>
 
+## What's new in 0.9.8
+
+- **New card: Planet Killer** (Star Trek Commander): a 9/9 flying, indestructible artifact creature for {8} that attacks each combat if able. Whenever it deals combat damage to a player, it gets a +1/+1 counter for each land that player controls. Both printings are there, the regular one and the extended art.
+- **Big Moxfield decks import**: importing a Moxfield link failed for decks with a lot of cards, usually ones with a big maybeboard, because the answer was too large. Those decks now import too.
+- **New server**: both changes are in the server and the proxy, so the app downloads its components again the first time it starts after the update.
+
 ## What's new in 0.9.7
 
 - **Skipping your own turn asks first**: "Next turn", "End step", "My turn" and "End before mine" (F4, F5, F9 and F11, or the ▾ menu next to the pass button) skip the rest of your own turn when you use them on it, main phase included. They now ask first while you may still have something to play. In a browser F5 is also the reload key, so pressing it to refresh the page can no longer give your turn away by accident.
