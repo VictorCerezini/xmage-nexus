@@ -41,7 +41,12 @@ final class OnlineDeckCommands {
     private static final Pattern ARCHIDEKT_ID = Pattern.compile("archidekt\\.com/decks/(\\d+)|id=(\\d+)");
     private static final Pattern EDHREC_SLUG = Pattern.compile("[a-z0-9][a-z0-9-]{0,99}");
     private static final int TIMEOUT_MS = 8000;
-    private static final int MAX_BODY_BYTES = 2_000_000;
+    /**
+     * Moxfield sends every card's full data, about 5 KB a card: a 100-card deck is 0.4 to 1.3 MB,
+     * and one with a big maybeboard went past the old 2 MB limit (2.8 MB) and was refused as
+     * "response too large". The cap only guards against a runaway answer.
+     */
+    static final int MAX_BODY_BYTES = 16_000_000;
 
     /**
      * The fetch runs here, off the session's only server-facing thread.
@@ -161,7 +166,7 @@ final class OnlineDeckCommands {
         }
     }
 
-    private static String readLimited(InputStream in, int maxChars) throws IOException {
+    static String readLimited(InputStream in, int maxChars) throws IOException {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             StringBuilder sb = new StringBuilder();
             char[] buf = new char[8192];
