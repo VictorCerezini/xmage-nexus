@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 
 public class ModifyObjectAllMultiZoneEffect extends ContinuousEffectImpl {
     @FunctionalInterface
-    public interface ObjectModifier {
+    public interface ObjectModifier extends java.io.Serializable { // saved with the game to bring it back after the server stops (Game.playFromTurnStart)
         void modify(MageObject obj, Ability source, Game game);
     }
 

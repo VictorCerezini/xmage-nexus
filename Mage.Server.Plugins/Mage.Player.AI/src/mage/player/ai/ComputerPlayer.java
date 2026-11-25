@@ -69,7 +69,7 @@ public class ComputerPlayer extends PlayerImpl {
     // keep current paying cost info for choose dialogs
     // mana abilities must ask payment too, so keep full chain
     // TODO: make sure it thread safe for AI simulations (all transient fields above and bottom)
-    private final transient Map<UUID, ManaCost> lastUnpaidMana = new LinkedHashMap<>();
+    private transient Map<UUID, ManaCost> lastUnpaidMana = new LinkedHashMap<>(); // not final: see readObject
 
     public ComputerPlayer(String name, RangeOfInfluence range) {
         super(name, range);
@@ -1189,5 +1189,12 @@ public class ComputerPlayer extends PlayerImpl {
         // restore used in AI simulations
         // all human players converted to computer and analyse
         this.human = false;
+    }
+
+    private void readObject(java.io.ObjectInputStream in) throws java.io.IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        // a game read back from a save goes on playing (Game.playFromTurnStart), and the field
+        // initializers don't run on deserialization
+        lastUnpaidMana = new LinkedHashMap<>();
     }
 }

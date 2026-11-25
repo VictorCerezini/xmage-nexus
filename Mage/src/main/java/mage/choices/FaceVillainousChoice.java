@@ -9,7 +9,7 @@ import mage.players.Player;
 /**
  * @author TheElk801
  */
-public class FaceVillainousChoice {
+public class FaceVillainousChoice implements java.io.Serializable { // saved with the game to bring it back after the server stops (Game.playFromTurnStart)
 
     private final Outcome outcome;
     private final VillainousChoice firstChoice;

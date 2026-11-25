@@ -32,7 +32,14 @@ public class GainAbilityWithAttachmentEffect extends ContinuousEffectImpl {
     private final Targets targets = new Targets();
     private final Costs<Cost> costs = new CostsImpl<>();
     protected final UseAttachedCost useAttachedCost;
-    private final Consumer<ActivatedAbility> consumer;
+    /**
+     * Changes the gained ability. Serializable: saved with the game to bring it back after the server stops (Game.playFromTurnStart).
+     */
+    @FunctionalInterface
+    public interface AbilityModifier extends Consumer<ActivatedAbility>, java.io.Serializable {
+    }
+
+    private final AbilityModifier consumer;
 
     public GainAbilityWithAttachmentEffect(String rule, Effect effect, Target target, UseAttachedCost attachedCost, Cost... costs) {
         this(rule, new Effects(effect), new Targets(target), attachedCost, costs);
@@ -42,7 +49,7 @@ public class GainAbilityWithAttachmentEffect extends ContinuousEffectImpl {
         this(rule, effects, targets, attachedCost, null, costs);
     }
 
-    public GainAbilityWithAttachmentEffect(String rule, Effects effects, Targets targets, UseAttachedCost attachedCost, Consumer<ActivatedAbility> consumer, Cost... costs) {
+    public GainAbilityWithAttachmentEffect(String rule, Effects effects, Targets targets, UseAttachedCost attachedCost, AbilityModifier consumer, Cost... costs) {
         super(Duration.WhileOnBattlefield, Layer.AbilityAddingRemovingEffects_6, SubLayer.NA, Outcome.AddAbility);
         this.staticText = rule;
         this.effects.addAll(effects);

@@ -694,6 +694,14 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
     boolean executingRollback();
 
     /**
+     * Go on with a game read back from a save taken at the start of a regular turn, the point where
+     * playTurn copies the game for rollbacks: that turn is played again from its beginning. Brings a
+     * game back after the server stopped, for example in a power cut. A save taken at the start of an
+     * extra turn isn't supported.
+     */
+    void playFromTurnStart();
+
+    /**
      * Keep a copy of the game to go back to, while the player is asked for priority (only for human
      * players, and test players in unit tests). See undoLastPriority.
      */

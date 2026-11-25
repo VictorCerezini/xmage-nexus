@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 public class CreateTokenCopyTargetEffect extends OneShotEffect {
 
     @FunctionalInterface
-    public interface PermanentModifier {
+    public interface PermanentModifier extends java.io.Serializable { // saved with the game to bring it back after the server stops (Game.playFromTurnStart)
         void apply(Token token);
     }
 

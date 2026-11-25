@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 /**
  * @author TheElk801
  */
-public class BeholdType {
+public class BeholdType implements java.io.Serializable { // saved with the game to bring it back after the server stops (Game.playFromTurnStart)
 
     private static Map<SubType, BeholdType> typeMap = new HashMap<>();
 
@@ -35,6 +35,13 @@ public class BeholdType {
     private final SubType subType;
 
     private final String description;
+
+    /**
+     * One per creature type, also for a copy read back from a save.
+     */
+    private Object readResolve() {
+        return getBeholdType(subType);
+    }
 
     BeholdType(SubType subType) {
         this.filterPermanent = new FilterControlledPermanent(subType);
