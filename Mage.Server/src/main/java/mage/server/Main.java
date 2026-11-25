@@ -298,6 +298,8 @@ public final class Main {
             // Parameter: serializationtype => jboss
             InvokerLocator serverLocator = new InvokerLocator(connection.getURI());
             if (!isAlreadyRunning(config, serverLocator)) {
+                // tables saved before the server stopped (a power cut) come back, waiting for their players
+                managerFactory.tableManager().restoreSavedTables(managerFactory.gamesRoomManager().getMainRoomId());
                 server = new MageTransporterServer(
                         managerFactory,
                         serverLocator,

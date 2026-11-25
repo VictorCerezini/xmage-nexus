@@ -67,6 +67,12 @@ public interface Match {
 
     void addGame();
 
+    /**
+     * Takes back a game read from a save, after the server stopped (a power cut): it's the match's
+     * current game, the games started and the draws are the saved ones.
+     */
+    void restoreGame(Game game, int startedGames, int draws);
+
     boolean isDoneSideboarding();
 
     UUID getChooser();

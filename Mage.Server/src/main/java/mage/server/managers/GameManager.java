@@ -18,6 +18,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public interface GameManager {
     UUID createGameSession(Game game, ConcurrentHashMap<UUID, UUID> userPlayerMap, UUID tableId, UUID choosingPlayerId, GameOptions gameOptions);
 
+    /**
+     * The session of a game brought back after the server stopped: it waits for its players and goes on
+     * from the saved turn start (Game.playFromTurnStart)
+     */
+    UUID createRestoredGameSession(Game game, ConcurrentHashMap<UUID, UUID> userPlayerMap, UUID tableId, GameOptions gameOptions);
+
     void joinGame(UUID gameId, UUID userId);
 
     Optional<UUID> getChatId(UUID gameId);

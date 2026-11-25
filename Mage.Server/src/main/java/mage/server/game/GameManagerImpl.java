@@ -36,7 +36,16 @@ public class GameManagerImpl implements GameManager {
 
     @Override
     public UUID createGameSession(Game game, ConcurrentHashMap<UUID, UUID> userPlayerMap, UUID tableId, UUID choosingPlayerId, GameOptions gameOptions) {
-        GameController gameController = new GameController(managerFactory, game, userPlayerMap, tableId, choosingPlayerId, gameOptions);
+        return addGameController(new GameController(managerFactory, game, userPlayerMap, tableId, choosingPlayerId, gameOptions, false));
+    }
+
+    @Override
+    public UUID createRestoredGameSession(Game game, ConcurrentHashMap<UUID, UUID> userPlayerMap, UUID tableId, GameOptions gameOptions) {
+        return addGameController(new GameController(managerFactory, game, userPlayerMap, tableId, null, gameOptions, true));
+    }
+
+    private UUID addGameController(GameController gameController) {
+        Game game = gameController.getGame();
         final Lock w = gameControllersLock.writeLock();
         w.lock();
         try {

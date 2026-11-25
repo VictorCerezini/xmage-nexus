@@ -7,13 +7,13 @@ import org.mage.test.serverside.base.CardTestCodePayload;
 /**
  * @author BetaSteward_at_googlemail.com
  */
-public class PlayerAction {
+public class PlayerAction implements java.io.Serializable { // saved with a game taken mid-play (TableRecoveryTest)
 
     private final String actionName;
     private final int turnNum;
     private final PhaseStep step;
     private final String action;
-    private final CardTestCodePayload codePayload; // special code to execute (e.g. on dynamic check)
+    private final transient CardTestCodePayload codePayload; // special code to execute (e.g. on dynamic check), a lambda: not saved
 
     public PlayerAction(String actionName, int turnNum, PhaseStep step, String action) {
         this(actionName, turnNum, step, action, null);

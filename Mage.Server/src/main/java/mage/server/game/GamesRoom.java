@@ -5,6 +5,7 @@ package mage.server.game;
 import mage.MageException;
 import mage.cards.decks.DeckCardLists;
 import mage.game.GameException;
+import mage.game.Table;
 import mage.game.match.MatchOptions;
 import mage.game.tournament.TournamentOptions;
 import mage.players.PlayerType;
@@ -32,6 +33,11 @@ public interface GamesRoom extends Room {
     TableView createTournamentTable(UUID userId, TournamentOptions options);
     void removeTable(UUID userId, UUID tableId);
     void removeTable(UUID tableId);
+
+    /**
+     * A table made outside the room, like one brought back after the server stopped
+     */
+    void addTable(Table table);
     Optional<TableView> getTable(UUID tableId);
     void leaveTable(UUID userId, UUID tableId);
     boolean watchTable(UUID userId, UUID tableId) throws MageException;

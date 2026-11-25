@@ -205,6 +205,28 @@ public class GameSessionPlayer extends GameSessionWatcher {
         }
     }
 
+    /**
+     * Asks the host of a game brought back after the server stopped whether to go on without the players
+     * not back yet, who then concede, or to wait longer for them.
+     *
+     * @param missingNames the players not back yet, "Ana, Bo"
+     */
+    public void askToGoOnWithoutMissingPlayers(String missingNames, int missingCount, int turn) {
+        if (!killed) {
+            userManager.getUser(userId).ifPresent(user -> {
+                UserRequestMessage userRequestMessage = new UserRequestMessage(
+                        "Game brought back",
+                        "The server stopped, and this game came back from the start of turn " + turn + ". "
+                                + missingNames + (missingCount == 1 ? " isn't" : " aren't") + " back yet."
+                                + " Go on without them? They concede.");
+                userRequestMessage.setGameId(game.getId());
+                userRequestMessage.setButton1("Go on without them", PlayerAction.RESTORED_GAME_GO_ON);
+                userRequestMessage.setButton2("Wait", PlayerAction.RESTORED_GAME_WAIT);
+                user.fireCallback(new ClientCallback(ClientCallbackMethod.USER_REQUEST_DIALOG, game.getId(), userRequestMessage));
+            });
+        }
+    }
+
     public void requestPermissionToSeeHandCards(UUID watcherId) {
         if (!killed) {
             Optional<User> watcher = userManager.getUser(watcherId);

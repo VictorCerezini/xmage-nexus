@@ -177,6 +177,14 @@ public abstract class MatchImpl implements Match {
     }
 
     @Override
+    public void restoreGame(Game game, int startedGames, int draws) {
+        game.setTableId(this.tableId);
+        this.games.add(game);
+        this.startedGames = startedGames;
+        this.draws = draws;
+    }
+
+    @Override
     public int getNumGames() {
         return startedGames;
     }

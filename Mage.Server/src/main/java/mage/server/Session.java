@@ -407,6 +407,8 @@ public class Session {
         if (isReconnection) {
             managerFactory.threadExecutor().getCallExecutor().execute(reconnectUser::onReconnect);
         }
+        // a table brought back after the server stopped waits for its players by name
+        managerFactory.threadExecutor().getCallExecutor().execute(() -> managerFactory.tableManager().seatReturningUser(reconnectUser));
 
         // inform about reconnection
         if (isReconnection) {

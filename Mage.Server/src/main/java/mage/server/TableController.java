@@ -23,6 +23,9 @@ import mage.players.PlayerType;
 import mage.server.game.GameFactory;
 import mage.server.game.PlayerFactory;
 import mage.server.managers.ManagerFactory;
+import mage.server.game.GameController;
+import mage.server.recovery.SavedTable;
+import mage.server.recovery.TableRecovery;
 import mage.server.record.TableRecorderImpl;
 import mage.server.tournament.TournamentFactory;
 import mage.server.util.ServerMessagesUtil;
@@ -45,7 +48,7 @@ public class TableController {
     private static final Logger logger = Logger.getLogger(TableController.class);
 
     private final ManagerFactory managerFactory;
-    private final UUID userId; // table owner/creator (null in tourney's table)
+    private volatile UUID userId; // table owner/creator (null in tourney's table, and in a table brought back until its host is back)
     private final UUID chatId;
     private final String controllerName;
     private final Table table;
@@ -57,6 +60,8 @@ public class TableController {
 
     private ScheduledFuture<?> futureTimeout;
     protected final ScheduledExecutorService timeoutExecutor;
+
+    private boolean restored; // brought back from a save after the server stopped, see TableRecovery
 
     public TableController(ManagerFactory managerFactory, UUID roomId, UUID userId, MatchOptions options) {
         this.managerFactory = managerFactory;
@@ -75,6 +80,140 @@ public class TableController {
                 options.getPlayerTypes(), new TableRecorderImpl(managerFactory.userManager()), match, options.getBannedUsers(), options.isPlaneChase());
         this.chatId = managerFactory.chatManager().createTableChatSession(table);
         init();
+    }
+
+    /**
+     * A table brought back from its save after the server stopped (a power cut): its match, seats and
+     * game as they were at the start of a turn. Its players come back by name (seatReturningUser), its
+     * host too, and the game goes on from that turn's beginning once they're back (startRestoredGame).
+     */
+    public TableController(ManagerFactory managerFactory, UUID roomId, SavedTable saved) throws GameException {
+        this.managerFactory = managerFactory;
+        this.timeoutExecutor = managerFactory.threadExecutor().getTimeoutExecutor();
+        this.userId = null; // the host isn't back yet
+        this.options = saved.getOptions();
+        this.match = GameFactory.instance.createMatch(options.getGameType(), options);
+        this.controllerName = saved.getOwnerName();
+        this.table = new Table(roomId, options.getGameType(), options.getName(), controllerName, DeckValidatorFactory.instance.createDeckValidator(options.getDeckType()),
+                options.getPlayerTypes(), new TableRecorderImpl(managerFactory.userManager()), match, options.getBannedUsers(), options.isPlaneChase());
+        this.chatId = managerFactory.chatManager().createTableChatSession(table);
+        this.restored = true;
+        init();
+
+        // the saved game's own players sit down again, with their decks and the match score
+        Game game = saved.getGame();
+        Seat[] seats = table.getSeats();
+        if (seats.length != saved.getSeats().size()) {
+            throw new GameException("The save has " + saved.getSeats().size() + " seats, its table " + seats.length);
+        }
+        for (int i = 0; i < seats.length; i++) {
+            SavedTable.SavedSeat savedSeat = saved.getSeats().get(i);
+            Player player = game.getPlayer(savedSeat.getPlayerId());
+            if (player == null) {
+                throw new GameException("The saved game has no player " + savedSeat.getName());
+            }
+            seats[i].setPlayerType(savedSeat.getPlayerType());
+            table.joinTable(player, seats[i]);
+            match.addPlayer(player, savedSeat.getDeck());
+            MatchPlayer matchPlayer = match.getPlayer(player.getId());
+            for (int win = 0; win < savedSeat.getWins(); win++) {
+                matchPlayer.addWin();
+            }
+            if (savedSeat.hasQuit()) {
+                matchPlayer.setQuit(true);
+            }
+            matchPlayer.setPriorityTimeLeft(savedSeat.getPriorityTimeLeft());
+        }
+        match.restoreGame(game, saved.getStartedGames(), saved.getDraws());
+        match.startMatch();
+        table.initGame();
+    }
+
+    /**
+     * The game of a table brought back: it waits for its players, then goes on from the saved turn start.
+     * After the table is in the table manager, the game's events look it up.
+     */
+    void startRestoredGame() {
+        Game game = match.getGame();
+        managerFactory.gameManager().createRestoredGameSession(game, userPlayerMap, table.getId(), game.getOptions());
+        logger.info("Table brought back from its save: " + table.getId() + " [" + match.getName() + "], game "
+                + game.getId() + ", turn " + game.getTurnNum() + ", host " + controllerName);
+    }
+
+    /**
+     * Saves the table at the start of a regular turn, from the game thread, to bring it back after the
+     * server stopped. Single matches only: no tournaments.
+     */
+    public void saveForRecovery(Game game) {
+        TableRecovery recovery = managerFactory.tableManager().getRecovery();
+        SavedTable saved = toSavedTable(game, recovery.getServerVersion());
+        if (saved != null) {
+            recovery.save(table.getId(), saved);
+        }
+    }
+
+    /**
+     * The table as it's saved, with its game; null if it isn't saved: a tournament's, or not its current game.
+     */
+    public SavedTable toSavedTable(Game game, String serverVersion) {
+        if (table.isTournament() || table.isTournamentSubTable() || match == null || game != match.getGame()) {
+            return null;
+        }
+        List<SavedTable.SavedSeat> seats = new ArrayList<>();
+        for (Seat seat : table.getSeats()) {
+            Player player = seat.getPlayer();
+            MatchPlayer matchPlayer = player == null ? null : match.getPlayer(player.getId());
+            if (matchPlayer == null) {
+                return null; // not a seated match
+            }
+            seats.add(new SavedTable.SavedSeat(seat.getPlayerType(), player.getId(), player.getName(), matchPlayer.getDeck(),
+                    matchPlayer.getWins(), matchPlayer.hasQuit(), matchPlayer.getPriorityTimeLeft()));
+        }
+        return new SavedTable(serverVersion, options, controllerName, seats, match.getNumGames(), match.getDraws(), game);
+    }
+
+    /**
+     * A user who logs in, on a table brought back after the server stopped: the host gets their table
+     * back, and a player whose seat waits for them by name sits there again and is sent into the game.
+     *
+     * @return true if the user got a seat
+     */
+    public synchronized boolean seatReturningUser(User user) {
+        Game game = match == null ? null : match.getGame();
+        if (!restored || game == null || game.hasEnded()) {
+            return false;
+        }
+        if (this.userId == null && controllerName.equals(user.getName())) {
+            this.userId = user.getId();
+        }
+        if (userPlayerMap.containsKey(user.getId())) {
+            return false;
+        }
+        for (Seat seat : table.getSeats()) {
+            Player player = seat.getPlayer() == null ? null : game.getPlayer(seat.getPlayer().getId());
+            if (seat.getPlayerType() != PlayerType.HUMAN || player == null || player.hasLeft()
+                    || !player.getName().equals(user.getName()) || userPlayerMap.containsValue(player.getId())) {
+                continue;
+            }
+            userPlayerMap.put(user.getId(), player.getId());
+            user.addTable(player.getId(), table);
+            user.ccJoinedTable(table.getRoomId(), table.getId(), table.getParentTableId(), false);
+            user.ccGameStarted(table.getId(), table.getParentTableId(), game.getId(), player.getId());
+            logger.info(user.getName() + " is back on the table brought back " + table.getId() + ", gameId: " + game.getId());
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * A table brought back whose game waits for its players: the host decides when it goes on.
+     */
+    private boolean isWaitingForRestoredPlayers() {
+        if (!restored || match == null || match.getGame() == null) {
+            return false;
+        }
+        GameController gameController = managerFactory.gameManager().getGameController().get(match.getGame().getId());
+        return gameController != null && gameController.isWaitingForPlayers();
     }
 
     public TableController(ManagerFactory managerFactory, UUID roomId, UUID userId, TournamentOptions options) {
@@ -836,6 +975,8 @@ public class TableController {
             return true;
         }
         ThreadUtils.setGameThreadStatus(game.getId(), ThreadUtils.THREAD_GAME_STATUS_AFTER_GAME);
+        // the game is over: its save isn't a game to bring back anymore
+        managerFactory.tableManager().getRecovery().delete(table.getId());
         UUID choosingPlayerId = match.getChooser();
         match.endGame();
         if (managerFactory.configSettings().isSaveGameActivated() && !game.isSimulation()) {
@@ -1062,6 +1203,11 @@ public class TableController {
             return true;
         }
 
+        // brought back after the server stopped: it waits for its players, the host decides
+        if (isWaitingForRestoredPlayers()) {
+            return true;
+        }
+
         // only started games need to check
         if (Arrays.asList(
                 TableState.WAITING,
@@ -1133,6 +1279,7 @@ public class TableController {
     }
 
     void cleanUp() {
+        managerFactory.tableManager().getRecovery().delete(table.getId()); // the table is gone, nothing to bring back
         if (!table.isTournamentSubTable()) {
             for (Map.Entry<UUID, UUID> entry : userPlayerMap.entrySet()) {
                 managerFactory.userManager().getUser(entry.getKey()).ifPresent(user

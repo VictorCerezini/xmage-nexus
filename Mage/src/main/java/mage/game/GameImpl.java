@@ -1296,6 +1296,10 @@ public abstract class GameImpl implements Game {
             } else {
                 state.setActivePlayerId(player.getId());
                 saveRollBackGameState();
+                if (!isSimulation() && state.getExtraTurnId() == null) {
+                    // the point a saved game goes on from (playFromTurnStart), an extra turn's start isn't one
+                    tableEventSource.fireTableEvent(EventType.TURN_STARTED, null, this);
+                }
             }
             if (checkStopOnTurnOption()) {
                 return false;
