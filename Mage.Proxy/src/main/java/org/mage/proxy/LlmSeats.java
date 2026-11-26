@@ -531,9 +531,11 @@ final class LlmSeats {
         event.addProperty("type", "llmSeat");
         events.accept(event.toString());
         if (seat.isTerminal()) {
-            if (!LlmSeat.STOPPED.equals(seat.status())) {
-                // its match is over, or it can't play it: nothing to start again. A seat stopped with the
-                // proxy keeps its note, its table may come back.
+            if (LlmSeat.FINISHED.equals(seat.status())) {
+                // its match is over: nothing to start again. A seat stopped with the proxy keeps its note,
+                // and so does a seat that failed: it may have failed because its server stopped (a power cut
+                // can stop it a moment before the proxy). Either way its table may come back, and the
+                // note starts it again only at that table running with its player seated.
                 forgetRestore(seat);
             }
             boolean cooldown = loginOutlivesSeat || !LlmSeat.FINISHED.equals(seat.status());

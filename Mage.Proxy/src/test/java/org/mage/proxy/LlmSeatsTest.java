@@ -770,6 +770,26 @@ class LlmSeatsTest {
         assertTrue(Files.isRegularFile(withTheProxy.resolve(LlmSeats.RESTORE_NOTE)), "stopped with the proxy: its table may come back");
     }
 
+    @Test
+    void aSeatThatFailedWhenItsServerStoppedStartsAgainAtItsTable() throws Exception {
+        LlmSeats before = seats(4);
+        JsonObject args = table("[" + seat(2, "") + "]");
+        before.start(before.prepare(args), args, TABLE);
+        await("the launch", () -> processes.size() == 1);
+        Path run = Path.of(processes.get(0).request().get("run").getAsString());
+
+        // a power cut stops the seat a moment before the proxy: the proxy sees it fail
+        processes.get(0).end(1);
+        await("the failure", () -> statuses().contains("failed"));
+        assertTrue(Files.isRegularFile(run.resolve(LlmSeats.RESTORE_NOTE)), "its table may come back");
+
+        LlmSeats.NAMES.clear();
+        LlmSeats after = seats(4);
+        assertEquals(1, after.restore(Collections.singletonList(runningTable(TABLE, TableState.DUELING, "Owner", "ChatGPT 2"))));
+        await("the second launch", () -> processes.size() == 2);
+        assertEquals(run.toString(), processes.get(1).request().get("restored_from").getAsString());
+    }
+
     private static TableView runningTable(UUID tableId, TableState state, String... players) throws ReflectiveOperationException {
         TableView table = tableView(state, players);
         field(TableView.class, "tableId").set(table, tableId);
