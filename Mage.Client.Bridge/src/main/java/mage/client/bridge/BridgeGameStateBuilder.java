@@ -74,6 +74,12 @@ public final class BridgeGameStateBuilder {
                     var permInfo = new HashMap<String, Object>();
                     permInfo.put("id", viewLocator.getStableShortId(perm.getId(), perm, gameView));
                     permInfo.put("name", cardFormatter.safeDisplayName(perm));
+                    // an Aura or Equipment listed here because it is attached to this player's permanent, but
+                    // another player controls it (an opponent's Aura on your creature)
+                    String controller = BridgeCardFormatter.controllerName(perm, player);
+                    if (!controller.equals(player.getName())) {
+                        permInfo.put("controller", controller);
+                    }
                     permInfo.put("tapped", perm.isTapped());
 
                     if (perm.isCreature()) {

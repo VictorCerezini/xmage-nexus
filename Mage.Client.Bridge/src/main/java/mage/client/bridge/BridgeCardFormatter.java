@@ -135,9 +135,11 @@ public final class BridgeCardFormatter {
             }
             if (gameView != null) {
                 for (PlayerView player : gameView.getPlayers()) {
-                    if (player.getBattlefield().get(targetId) != null) {
-                        if (!player.getPlayerId().equals(myPlayerId)) {
-                            entry.put("controller", player.getName());
+                    PermanentView permanent = player.getBattlefield().get(targetId);
+                    if (permanent != null) {
+                        String controller = controllerName(permanent, player);
+                        if (!controller.equals(playerName(gameView, myPlayerId))) {
+                            entry.put("controller", controller);
                         }
                         break;
                     }
@@ -231,13 +233,35 @@ public final class BridgeCardFormatter {
             return "";
         }
         for (PlayerView player : gameView.getPlayers()) {
-            if (player.getBattlefield().get(objectId) != null) {
-                if (player.getPlayerId().equals(myPlayerId)) {
+            PermanentView permanent = player.getBattlefield().get(objectId);
+            if (permanent != null) {
+                String controller = controllerName(permanent, player);
+                if (controller.equals(playerName(gameView, myPlayerId))) {
                     return " (yours)";
                 }
-                return " (" + player.getName() + "'s)";
+                return " (" + controller + "'s)";
             }
         }
         return "";
+    }
+
+    /**
+     * Who controls a permanent. The server lists an Aura or Equipment under the player whose permanent it is
+     * attached to (to show it next to that permanent), so the battlefield it is listed in can be another
+     * player's: an opponent's Aura on your creature is in your battlefield. The permanent's own controller
+     * says; the battlefield it is listed in is the fallback for a view without it.
+     */
+    static String controllerName(PermanentView permanent, PlayerView listedUnder) {
+        String controller = permanent.getNameController();
+        return controller != null && !controller.isEmpty() ? controller : listedUnder.getName();
+    }
+
+    private static String playerName(GameView gameView, UUID playerId) {
+        for (PlayerView player : gameView.getPlayers()) {
+            if (player.getPlayerId().equals(playerId)) {
+                return player.getName();
+            }
+        }
+        return null;
     }
 }
