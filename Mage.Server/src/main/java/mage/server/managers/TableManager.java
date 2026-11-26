@@ -13,6 +13,9 @@ import mage.game.tournament.TournamentPlayer;
 import mage.players.PlayerType;
 import mage.server.TableController;
 
+import mage.server.User;
+import mage.server.recovery.TableRecovery;
+
 import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
@@ -85,4 +88,19 @@ public interface TableManager {
     void debugServerState();
 
     void checkHealth();
+
+    /**
+     * The saves that bring tables back after the server stopped (a power cut)
+     */
+    TableRecovery getRecovery();
+
+    /**
+     * Brings back the saved tables, into the given room, when the server starts
+     */
+    void restoreSavedTables(UUID roomId);
+
+    /**
+     * A user who logs in gets their seat back on a table brought back, found by their name
+     */
+    void seatReturningUser(User user);
 }

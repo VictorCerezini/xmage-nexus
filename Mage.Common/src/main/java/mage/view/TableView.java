@@ -48,6 +48,7 @@ public class TableView implements Serializable {
     private final boolean rated;
     private final boolean passworded;
     private final boolean spectatorsAllowed;
+    private final boolean waitingForReturningPlayers;
 
     public TableView(Table table) {
         this.tableId = table.getId();
@@ -67,6 +68,7 @@ public class TableView implements Serializable {
             }
         }
         this.isTournament = table.isTournament();
+        this.waitingForReturningPlayers = table.isWaitingForReturningPlayers();
         for (Seat seat : table.getSeats()) {
             seats.add(new SeatView(seat));
         }
@@ -314,6 +316,13 @@ public class TableView implements Serializable {
 
     public String getTableStateText() {
         return tableStateText;
+    }
+
+    /**
+     * The table came back after the server stopped and its game waits for its players to come back.
+     */
+    public boolean isWaitingForReturningPlayers() {
+        return waitingForReturningPlayers;
     }
 
     public SkillLevel getSkillLevel() {

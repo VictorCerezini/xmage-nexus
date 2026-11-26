@@ -21,9 +21,16 @@ import java.util.function.Function;
  */
 public class CreateXXTokenExiledEffectManaValueEffect extends OneShotEffect {
 
-    private final Function<Integer, Token> tokenMaker;
+    /**
+     * Makes the X/X token. Serializable: saved with the game to bring it back after the server stops (Game.playFromTurnStart).
+     */
+    @FunctionalInterface
+    public interface TokenMaker extends Function<Integer, Token>, java.io.Serializable {
+    }
 
-    public CreateXXTokenExiledEffectManaValueEffect(Function<Integer, Token> tokenMaker, String description) {
+    private final TokenMaker tokenMaker;
+
+    public CreateXXTokenExiledEffectManaValueEffect(TokenMaker tokenMaker, String description) {
         super(Outcome.Benefit);
         this.tokenMaker = tokenMaker;
         staticText = "the exiled card's owner creates an X/X " + description +

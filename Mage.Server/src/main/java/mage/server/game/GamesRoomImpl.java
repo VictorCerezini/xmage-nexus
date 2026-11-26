@@ -164,6 +164,11 @@ public class GamesRoomImpl extends RoomImpl implements GamesRoom, Serializable {
     }
 
     @Override
+    public void addTable(Table table) {
+        tables.put(table.getId(), table);
+    }
+
+    @Override
     public Optional<TableView> getTable(UUID tableId) {
         if (tables.containsKey(tableId)) {
             return Optional.of(new TableView(tables.get(tableId)));

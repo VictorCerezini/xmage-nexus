@@ -516,6 +516,20 @@ public class User {
         userTournaments.remove(playerId);
     }
 
+    /**
+     * Seated in a match that's being played (not a tournament): such a user keeps the seat longer when
+     * the connection is lost, see UserManagerImpl
+     */
+    public boolean isInRunningMatch() {
+        for (Table table : tables.values()) {
+            if (!table.isTournament() && !table.isTournamentSubTable()
+                    && (table.getState() == TableState.DUELING || table.getState() == TableState.SIDEBOARDING)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void addTable(UUID playerId, Table table) {
         tables.put(playerId, table);
     }

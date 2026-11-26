@@ -16,8 +16,11 @@ import mage.players.PlayerType;
 import mage.server.game.GameController;
 import mage.server.managers.ManagerFactory;
 import mage.server.managers.TableManager;
+import mage.server.recovery.TableRecovery;
+import mage.server.util.PluginUtil;
 import org.apache.log4j.Logger;
 
+import java.io.File;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -42,8 +45,47 @@ public class TableManagerImpl implements TableManager {
     private final ConcurrentHashMap<UUID, Table> tables = new ConcurrentHashMap<>();
     private final ReadWriteLock tablesLock = new ReentrantReadWriteLock();
 
+    // in the server's data folder (the working directory), like the saved replays
+    private static final String RECOVERY_FOLDER = "recovery";
+    private final TableRecovery recovery;
+
     public TableManagerImpl(ManagerFactory managerFactory) {
         this.managerFactory = managerFactory;
+        this.recovery = new TableRecovery(new File(RECOVERY_FOLDER), PluginUtil.classLoader, Main.getVersion().toString(true));
+    }
+
+    @Override
+    public TableRecovery getRecovery() {
+        return recovery;
+    }
+
+    @Override
+    public void restoreSavedTables(UUID roomId) {
+        for (TableRecovery.Restorable saved : recovery.loadAll()) {
+            try {
+                // with the id it was saved under, which its saves keep
+                TableController tableController = new TableController(managerFactory, roomId, saved.getSavedTableId(), saved.getTable());
+                Table table = tableController.getTable();
+                putControllers(table.getId(), tableController);
+                putTables(table.getId(), table);
+                managerFactory.gamesRoomManager().getRoom(roomId).ifPresent(room -> room.addTable(table));
+                tableController.startRestoredGame();
+            } catch (Exception e) {
+                logger.error("Table " + saved.getSavedTableId() + " can't be brought back, its saves are set aside", e);
+                recovery.setAside(saved.getSavedTableId());
+            }
+        }
+    }
+
+    @Override
+    public void seatReturningUser(User user) {
+        for (TableController tableController : getControllers()) {
+            try {
+                tableController.seatReturningUser(user);
+            } catch (Exception e) {
+                logger.error("Can't seat " + user.getName() + " again on table " + tableController.getTable().getId(), e);
+            }
+        }
     }
 
     public void init() {

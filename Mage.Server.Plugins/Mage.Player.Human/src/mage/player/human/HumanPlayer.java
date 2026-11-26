@@ -98,7 +98,7 @@ public class HumanPlayer extends PlayerImpl {
     // It's save in sending player response, but processing by any GAME thread any any player priority
     private transient Boolean responseOpenedForAnswer = false; // GAME thread waiting new answer
     private transient long responseLastWaitingThreadId = 0;
-    private final transient PlayerResponse response; // data receiver from a client side (must be shared for one player between multiple clients)
+    private transient PlayerResponse response; // data receiver from a client side (must be shared for one player between multiple clients), not final: readObject makes a new one
     private final int RESPONSE_WAITING_TIME_SECS = 30; // waiting time before cancel current response
     private final int RESPONSE_WAITING_CHECK_MS = 100; // timeout for open status check
 
@@ -135,6 +135,17 @@ public class HumanPlayer extends PlayerImpl {
         this.human = true;
         this.response = new PlayerResponse();
         initReplacementDialog();
+    }
+
+    /**
+     * A player read back with a saved game (the server brings a game back after it stopped) gets a new,
+     * empty response: the transient fields aren't saved and the field initializers don't run.
+     */
+    private void readObject(java.io.ObjectInputStream in) throws java.io.IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        response = new PlayerResponse();
+        responseOpenedForAnswer = false;
+        responseLastWaitingThreadId = 0;
     }
 
     private void initReplacementDialog() {

@@ -28,6 +28,8 @@ public enum PlayerAction {
     UNDO_PREVIEW, // show the player the game data (Integer) of their priorities back, without going back
     UNDO_HOLD, // look back while the game isn't waiting on the player: it stops at the next priority, then UNDO_PREVIEW 1 comes (Game.holdForUndo)
     UNDO_HOLD_RELEASE, // done looking back without going back: the game goes on
+    RESTORED_GAME_GO_ON, // the host of a game brought back after the server stopped goes on without the players not back yet: they concede
+    RESTORED_GAME_WAIT, // the host waits longer for the players not back yet
     CONCEDE,
     MANA_AUTO_PAYMENT_ON,
     MANA_AUTO_PAYMENT_OFF,

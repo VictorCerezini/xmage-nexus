@@ -22,7 +22,9 @@ public class TableEvent extends EventObject implements ExternalEvent, Serializab
 
     public enum EventType {
         UPDATE, INFO, STATUS, START_DRAFT, START_MATCH, SIDEBOARD, CONSTRUCT, SUBMIT_DECK, END, END_GAME_INFO, ERROR,
-        INIT_TIMER, RESUME_TIMER, PAUSE_TIMER, CHECK_STATE_PLAYERS, START_MULTIPLAYER_MATCH
+        INIT_TIMER, RESUME_TIMER, PAUSE_TIMER, CHECK_STATE_PLAYERS, START_MULTIPLAYER_MATCH,
+        // a regular turn starts: the server saves the game here, to bring it back after it stopped (Game.playFromTurnStart)
+        TURN_STARTED
     }
 
 

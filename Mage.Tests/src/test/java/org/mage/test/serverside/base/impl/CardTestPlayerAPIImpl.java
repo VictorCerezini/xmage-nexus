@@ -350,6 +350,22 @@ public abstract class CardTestPlayerAPIImpl extends MageTestPlayerBase implement
         //assertNoDuplicatedEffects();
     }
 
+    /**
+     * Go on with a game read back from a save taken at the start of a turn (Game.playFromTurnStart), up
+     * to the stop set by setStopAt. The test puts the read-back game and its players in currentGame,
+     * playerA and so on first. Cards can't be added: the game already holds them all.
+     */
+    public void executeFromTurnStart() {
+        ThreadUtils.ensureRunInGameThread();
+        gameOptions = currentGame.getOptions();
+        gameOptions.stopOnTurn = stopOnTurn;
+        gameOptions.stopAtStep = stopAtStep;
+        currentGame.setGameStopped(false); // the saved game was stopped by the first execute
+        currentGame.playFromTurnStart();
+        currentGame.setGameStopped(true);
+        assertAllCommandsUsed();
+    }
+
     protected TestPlayer createNewPlayer(String playerName, RangeOfInfluence rangeOfInfluence) {
         return createPlayer(playerName, rangeOfInfluence);
     }

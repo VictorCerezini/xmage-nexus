@@ -27,6 +27,8 @@ public class UserManagerImpl implements UserManager {
     private static final int USER_CONNECTION_TIMEOUTS_CHECK_SECS = 30;
     private static final int USER_CONNECTION_TIMEOUT_INFORM_AFTER_SECS = 30; // inform user's opponents about problem
     private static final int USER_CONNECTION_TIMEOUT_SESSION_EXPIRE_AFTER_SECS = 3 * 60; // session expire - remove from all tables and chats (can't reconnect after it)
+    private static final int USER_CONNECTION_TIMEOUT_SESSION_EXPIRE_IN_MATCH_AFTER_SECS = 60 * 60; // a player in a running match keeps the seat that long, e.g. through their own power cut
+    private static final int USER_CONNECTION_TIMEOUT_INFORM_AGAIN_EVERY_SECS = 5 * 60; // after the first 3 minutes, the opponents hear about it less often
     private static final int USER_CONNECTION_TIMEOUT_REMOVE_FROM_SERVER_SECS = 8 * 60; // removes from users list
 
     private static final int SERVER_USERS_LIST_UPDATE_SECS = 10; // server side updates (client use own timeouts to request users list)
@@ -184,6 +186,8 @@ public class UserManagerImpl implements UserManager {
             calInform.add(Calendar.SECOND, -1 * USER_CONNECTION_TIMEOUT_INFORM_AFTER_SECS);
             Calendar calSessionExpire = Calendar.getInstance();
             calSessionExpire.add(Calendar.SECOND, -1 * USER_CONNECTION_TIMEOUT_SESSION_EXPIRE_AFTER_SECS);
+            Calendar calSessionExpireInMatch = Calendar.getInstance();
+            calSessionExpireInMatch.add(Calendar.SECOND, -1 * USER_CONNECTION_TIMEOUT_SESSION_EXPIRE_IN_MATCH_AFTER_SECS);
             Calendar calUserRemove = Calendar.getInstance();
             calUserRemove.add(Calendar.SECOND, -1 * USER_CONNECTION_TIMEOUT_REMOVE_FROM_SERVER_SECS);
             List<User> usersToRemove = new ArrayList<>();
@@ -205,7 +209,9 @@ public class UserManagerImpl implements UserManager {
                     // - user lifecycle: created -> connected/disconnected (bad connection, bad session) -> offline
 
                     boolean isBadConnection = user.isExpired(calInform.getTime());
-                    boolean isBadSession = user.isExpired(calSessionExpire.getTime());
+                    boolean inMatch = user.isInRunningMatch();
+                    int expireAfterSecs = inMatch ? USER_CONNECTION_TIMEOUT_SESSION_EXPIRE_IN_MATCH_AFTER_SECS : USER_CONNECTION_TIMEOUT_SESSION_EXPIRE_AFTER_SECS;
+                    boolean isBadSession = user.isExpired((inMatch ? calSessionExpireInMatch : calSessionExpire).getTime());
                     boolean isBadUser = user.isExpired(calUserRemove.getTime());
 
                     switch (user.getUserState()) {
@@ -224,12 +230,14 @@ public class UserManagerImpl implements UserManager {
 
                         case Connected:
                         case Disconnected: {
-                            if (isBadConnection) {
-                                long secsInfo = (Calendar.getInstance().getTimeInMillis() - user.getLastActivity().getTime()) / 1000;
+                            long secsInfo = (Calendar.getInstance().getTimeInMillis() - user.getLastActivity().getTime()) / 1000;
+                            boolean informNow = secsInfo < USER_CONNECTION_TIMEOUT_SESSION_EXPIRE_AFTER_SECS
+                                    || secsInfo % USER_CONNECTION_TIMEOUT_INFORM_AGAIN_EVERY_SECS < USER_CONNECTION_TIMEOUTS_CHECK_SECS;
+                            if (isBadConnection && informNow) {
                                 informUserOpponents(user.getId(), String.format("%s catch connection problems for %s secs (left before expire: %d secs)",
                                         user.getName(),
                                         secsInfo,
-                                        Math.max(0, USER_CONNECTION_TIMEOUT_SESSION_EXPIRE_AFTER_SECS - secsInfo)
+                                        Math.max(0, expireAfterSecs - secsInfo)
                                 ));
                             }
                             if (isBadSession) {

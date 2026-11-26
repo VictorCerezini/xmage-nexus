@@ -10,7 +10,7 @@ import java.util.Optional;
 /**
  * @author TheElk801
  */
-public abstract class VillainousChoice {
+public abstract class VillainousChoice implements java.io.Serializable { // saved with the game to bring it back after the server stops (Game.playFromTurnStart)
 
     private final String rule;
     private final String message;

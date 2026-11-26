@@ -87,6 +87,14 @@ public class GameController implements GameCallback {
     private boolean useResponseIdleTimeout = true; // control currently active player (if no response for 600 seconds then concede him)
     private final GameOptions gameOptions;
 
+    // a game brought back from its save after the server stopped (TableRecovery): it waits for its players,
+    // nobody is made to leave, and the host decides when it goes on without the ones not back yet
+    private final boolean restored;
+    private final Set<UUID> restoredGoOnWithout = ConcurrentHashMap.newKeySet(); // they concede when the game goes on
+    private volatile long restoredAskHostAt; // when the host is asked next, 0 until they're in the game
+    private static final int RESTORED_GAME_ASK_HOST_AFTER_SECS = 30; // the host's first question, after they're in
+    private static final int RESTORED_GAME_ASK_HOST_AGAIN_AFTER_SECS = 2 * 60; // again, after "wait" or no answer
+
     private ConcurrentHashMap<UUID, GameView> defaultGameViews = new ConcurrentHashMap<>(); // default game views on first connect
 
     private UUID userRequestingRollback;
@@ -123,7 +131,11 @@ public class GameController implements GameCallback {
     private final Object undoHoldLock = new Object();
     private UndoHold undoHold; // guarded by undoHoldLock
 
-    public GameController(ManagerFactory managerFactory, Game game, ConcurrentMap<UUID, UUID> userPlayerMap, UUID tableId, UUID choosingPlayerId, GameOptions gameOptions) {
+    /**
+     * @param restored the game was brought back from its save after the server stopped: it waits for its
+     *                 players and goes on from the saved turn start (Game.playFromTurnStart)
+     */
+    public GameController(ManagerFactory managerFactory, Game game, ConcurrentMap<UUID, UUID> userPlayerMap, UUID tableId, UUID choosingPlayerId, GameOptions gameOptions, boolean restored) {
         this.managerFactory = managerFactory;
         this.gameExecutor = managerFactory.threadExecutor().getGameExecutor();
         this.responseIdleTimeoutExecutor = managerFactory.threadExecutor().getTimeoutIdleExecutor();
@@ -136,8 +148,20 @@ public class GameController implements GameCallback {
         this.tableId = tableId;
         this.choosingPlayerId = choosingPlayerId;
         this.gameOptions = gameOptions;
+        this.restored = restored;
         this.useResponseIdleTimeout = game.getPlayers().values().stream().filter(Player::isHuman).count() > 1;
         init();
+    }
+
+    public Game getGame() {
+        return game;
+    }
+
+    /**
+     * Not started yet: it waits for its players to join (a game brought back: to come back)
+     */
+    public boolean isWaitingForPlayers() {
+        return gameFuture == null;
     }
 
     public void cleanUp() {
@@ -162,6 +186,10 @@ public class GameController implements GameCallback {
                         PriorityTimer timer;
                         UUID playerId;
                         switch (event.getEventType()) {
+                            case TURN_STARTED:
+                                // saved from the game thread, so the game doesn't change while it's written
+                                managerFactory.tableManager().getController(tableId).ifPresent(tableController -> tableController.saveForRecovery(game));
+                                break;
                             case UPDATE:
                                 updateGame();
                                 break;
@@ -376,6 +404,12 @@ public class GameController implements GameCallback {
             joinType = "rejoined";
         }
         user.get().addGame(playerId, gameSession);
+        if (restored && isWaitingForPlayers()) {
+            // a game brought back doesn't run until its players are back: they see it as it was saved.
+            // Nothing changes it meanwhile, so the view is made here, not by the game thread.
+            gameSession.startWithGameView(GameSessionPlayer.generateDefaultGameViewForPlayer(game, playerId));
+            gameSession.init();
+        }
         logger.debug("Player " + player.getName() + ' ' + playerId + " has " + joinType + " gameId: " + game.getId());
         managerFactory.chatManager().broadcast(chatId, "", game.getPlayer(playerId).getLogName() + " has " + joinType + " the game", MessageColor.ORANGE, true, game, MessageType.GAME, null);
         checkJoinAndStart();
@@ -417,7 +451,15 @@ public class GameController implements GameCallback {
             }
 
             // real game start
-            GameWorker worker = new GameWorker(game, choosingPlayerId, this);
+            GameWorker worker = restored
+                    ? new GameWorker(game, new ArrayList<>(restoredGoOnWithout), this)
+                    : new GameWorker(game, choosingPlayerId, this);
+            if (restored) {
+                Table table = managerFactory.tableManager().getTable(tableId);
+                if (table != null) {
+                    table.setWaitingForReturningPlayers(false);
+                }
+            }
             gameFuture = gameExecutor.submit(worker);
             try {
                 Thread.sleep(1000);
@@ -432,6 +474,10 @@ public class GameController implements GameCallback {
     }
 
     private void sendInfoAboutPlayersNotJoinedYetAndTryToFixIt() {
+        if (restored) {
+            waitForRestoredPlayers();
+            return;
+        }
         // TODO: need code and feature review - is it useful? 2024-06-23
         // runs every 10 secs until all players join
         // runs BEFORE game start, so it's safe to call player.leave here
@@ -502,6 +548,94 @@ public class GameController implements GameCallback {
         return Optional.empty();
     }
 
+    /**
+     * A game brought back after the server stopped waits for its players, seated again by name as they
+     * log in (TableController.seatReturningUser): nobody is made to leave. Its host is asked now and then
+     * whether to go on without the ones not back yet (RESTORED_GAME_GO_ON) or to wait (RESTORED_GAME_WAIT).
+     */
+    private void waitForRestoredPlayers() {
+        // back on the server, but their client didn't open the game: sent into it again
+        for (Player player : getMissingPlayers()) {
+            Optional<User> user = getUserByPlayerId(player.getId());
+            if (user.isPresent() && user.get().isConnected() && !gameSessions.containsKey(player.getId())) {
+                managerFactory.gameManager().joinGame(game.getId(), user.get().getId());
+                Table table = managerFactory.tableManager().getTable(tableId);
+                if (table != null && gameSessions.containsKey(player.getId())) {
+                    user.get().ccGameStarted(table.getId(), table.getParentTableId(), game.getId(), player.getId());
+                }
+            }
+        }
+        checkJoinAndStart();
+        List<Player> missing = getMissingPlayers();
+        if (missing.isEmpty() || !isWaitingForPlayers()) {
+            return;
+        }
+
+        GameSessionPlayer hostSession = null;
+        for (Map.Entry<UUID, UUID> entry : userPlayerMap.entrySet()) {
+            if (managerFactory.tableManager().isTableOwner(tableId, entry.getKey())) {
+                hostSession = gameSessions.get(entry.getValue());
+            }
+        }
+        long now = System.currentTimeMillis();
+        if (hostSession == null) {
+            restoredAskHostAt = 0; // the host isn't in the game yet
+            return;
+        }
+        if (restoredAskHostAt == 0) {
+            restoredAskHostAt = now + RESTORED_GAME_ASK_HOST_AFTER_SECS * 1000L; // the others get some time first
+            return;
+        }
+        if (now < restoredAskHostAt) {
+            return;
+        }
+        restoredAskHostAt = now + RESTORED_GAME_ASK_HOST_AGAIN_AFTER_SECS * 1000L;
+        String names = missing.stream().map(Player::getName).collect(Collectors.joining(", "));
+        managerFactory.chatManager().broadcast(chatId, "", "The game came back from the start of turn " + game.getTurnNum()
+                        + ", waiting for " + names + " to come back",
+                MessageColor.BLUE, true, game, MessageType.STATUS, null);
+        hostSession.askToGoOnWithoutMissingPlayers(names, missing.size(), game.getTurnNum());
+    }
+
+    /**
+     * The host of a game brought back goes on without the players not back yet: they concede when it goes on.
+     */
+    private void goOnWithoutMissingPlayers(UUID userId) {
+        if (!restored || !isWaitingForPlayers() || !managerFactory.tableManager().isTableOwner(tableId, userId)) {
+            return;
+        }
+        List<Player> missing = getMissingPlayers();
+        if (missing.isEmpty()) {
+            return;
+        }
+        missing.forEach(player -> restoredGoOnWithout.add(player.getId()));
+        String names = missing.stream().map(Player::getName).collect(Collectors.joining(", "));
+        logger.info("The host goes on without " + names + " in the game brought back " + game.getId());
+        managerFactory.chatManager().broadcast(chatId, "", "The game goes on without " + names
+                        + (missing.size() == 1 ? ", who concedes" : ", who concede"),
+                MessageColor.BLUE, true, game, MessageType.STATUS, null);
+        checkJoinAndStart();
+    }
+
+    /**
+     * The players the game waits for: their user lost the connection, or they aren't in the game yet.
+     * Not the ones who left, nor those the host of a game brought back went on without.
+     */
+    private List<Player> getMissingPlayers() {
+        List<Player> missing = new ArrayList<>();
+        for (Player player : game.getPlayers().values()) {
+            if (player.hasLeft() || restoredGoOnWithout.contains(player.getId())) {
+                continue;
+            }
+            Optional<User> user = getUserByPlayerId(player.getId());
+            if ((user.isPresent() && !user.get().isConnected())
+                    || (player.isHuman() && !gameSessions.containsKey(player.getId()))) {
+                missing.add(player);
+            }
+        }
+        return missing;
+    }
+
     private void checkJoinAndStart() {
         if (isAllJoined()) {
             JOIN_WAITING_EXECUTOR.shutdownNow();
@@ -510,20 +644,7 @@ public class GameController implements GameCallback {
     }
 
     private boolean isAllJoined() {
-        for (Player player : game.getPlayers().values()) {
-            if (!player.hasLeft()) {
-                Optional<User> user = getUserByPlayerId(player.getId());
-                if (user.isPresent()) {
-                    if (!user.get().isConnected()) {
-                        return false;
-                    }
-                }
-                if (player.isHuman() && !gameSessions.containsKey(player.getId())) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return getMissingPlayers().isEmpty();
     }
 
     public boolean watch(UUID userId) {
@@ -600,6 +721,14 @@ public class GameController implements GameCallback {
         // * user change commands can be executed by network thread??? (example: change skip settings)
         //SystemUtil.ensureRunInGameThread();
         switch (playerAction) {
+            case RESTORED_GAME_GO_ON: // the host of a game brought back goes on without the players not back yet
+                goOnWithoutMissingPlayers(userId);
+                break;
+            case RESTORED_GAME_WAIT: // the host waits longer for them
+                if (restored && managerFactory.tableManager().isTableOwner(tableId, userId)) {
+                    restoredAskHostAt = System.currentTimeMillis() + RESTORED_GAME_ASK_HOST_AGAIN_AFTER_SECS * 1000L;
+                }
+                break;
             case UNDO:
                 if (deferForUndoHold(userId, () -> sendPlayerAction(playerAction, userId, data))) {
                     break;
@@ -1430,6 +1559,13 @@ public class GameController implements GameCallback {
 
     public void onResponseIdleTimeout(UUID playerId) {
         Player player = game.getPlayer(playerId);
+        Optional<User> user = getUserByPlayerId(playerId);
+        if (player != null && user.isPresent() && !user.get().isConnected()) {
+            // they lost the connection: their seat is held for a while (UserManagerImpl), and the idle time
+            // starts again. If they don't come back in time, they leave the game then.
+            startResponseIdleTimeout(playerId);
+            return;
+        }
         if (player != null) {
             String sb = player.getLogName()
                     + " has timed out (player had priority and was not active for "
