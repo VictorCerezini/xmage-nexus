@@ -19,6 +19,16 @@
   </tr>
 </table>
 
+## What's new in 0.9.9
+
+- **Games come back after a power cut**: the server now saves each match at the start of every turn. If it stops in the middle of a game, for example in a power cut or a crash, the table is back in the lobby the next time it starts, labeled "Brought back · waiting for players", and the game goes on from the start of that turn. Players who log in again with the same name take their seats. The host can wait for the others or go on without them (they concede). This covers single matches (1v1, multiplayer, best-of-3), not tournaments or drafts. A game saved before an update can't be brought back after it.
+- **Your seat waits for you**: a player who loses the connection during a game keeps the seat for up to an hour instead of 3 minutes.
+- **Model seats come back too**: a model seat in a game that was brought back starts again by itself, with the same name and model, once the host who started it logs in again.
+- **Google model seats** (Windows): a table can seat Google, the models of your Antigravity subscription (Gemini 4 Hydrogen, Gemini 3.8 Flash and the others the Antigravity CLI lists), played through the Antigravity CLI on your existing Google sign-in. Each model shows once, with its reasoning levels. Like the other model seats, it runs in a folder of its own with only the game tools, and it doesn't change your own Antigravity setup.
+- **Long games no longer stop model seats**: a model seat used to stop after two hours of game time, which a big Commander game could reach in the middle of the game. There is no time limit per game now. A model that stops answering is still replaced by its backup model after five quiet minutes.
+- **Auras for model seats**: a model was told that an opponent's Aura on its own creature was its own Aura. It now sees who really controls each Aura and Equipment.
+- **New server**: these changes are in the server, the proxy and the model seats, so the app downloads its components again the first time it starts after the update.
+
 ## What's new in 0.9.8
 
 - **New card: Planet Killer** (Star Trek Commander): a 9/9 flying, indestructible artifact creature for {8} that attacks each combat if able. Whenever it deals combat damage to a player, it gets a +1/+1 counter for each land that player controls. Both printings are there, the regular one and the extended art.
