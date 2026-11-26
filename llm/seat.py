@@ -22,12 +22,16 @@ from llm.mcp_client import rpc
 
 ENGINES = ("bridge", "mcp")
 MAX_CALLS = 6000
-MAX_SECONDS = 7200
+# A game has no time limit: a long game with several players is mostly the others' turns. A model that stops
+# answering is caught by QUIET_SECONDS, a runaway one by MAX_CALLS, and the host can stop the seat.
+# One game tool call may wait this long for the others (pass_priority while they think); past it, the call
+# gets an error and the model looks at the game again.
+TOOL_CALL_SECONDS = 7200
 MAX_WINS = 10
 NEXT_GAME_SECONDS = 600
 # A seat started again after the proxy stopped (request "restored_from": its last run folder) waits this long
 # for its first decision: the server's game brought back goes on once its players are back, or its host goes on.
-RESTORED_WAIT_SECONDS = MAX_SECONDS
+RESTORED_WAIT_SECONDS = 7200
 REPORT_GRACE_SECONDS = 120
 # Waits before another player process takes over a game whose player stopped mid-game (a busy model, a
 # dropped connection); a reached plan limit is not retried. A plan limit, or a model still failing after the
@@ -339,7 +343,7 @@ def run_player(request, *, start_player=None, runtime=None):
         game_text = game_log(bridge_text(), request["username"], number)
         return mcp_engine.winner(match_line(game_text, request["username"], "Game over"))
 
-    def play_attempt(number, attempt, prompt, gateway, game_started, usage):
+    def play_attempt(number, attempt, prompt, gateway, usage):
         """Run one player process on this game: (terminal_reason, None, False) once the game is decided for
         this player, or (None, why it stopped, whether the same model would stop again) when it stopped first."""
 
@@ -358,7 +362,7 @@ def run_player(request, *, start_player=None, runtime=None):
             gateway.url,
             model=playing["model"],
             reasoning=playing["reasoning"],
-            tool_timeout_seconds=MAX_SECONDS + 60,
+            tool_timeout_seconds=TOOL_CALL_SECONDS + 60,
             **({"tools": mcp_engine.TOOLS} if server else {}),
         )
         processes.append(agent)
@@ -385,8 +389,6 @@ def run_player(request, *, start_player=None, runtime=None):
                 raise RuntimeError("The game tool boundary or call limit was exceeded")
             if gateway.fatal_error is not None:
                 raise RuntimeError(gateway.fatal_error)
-            if time.monotonic() - game_started > MAX_SECONDS:
-                raise TimeoutError("The interactive game exceeded its two-hour limit")
             player.require_game_only_events(read_complete_events(events))
             if ended_at is not None and time.monotonic() - ended_at > REPORT_GRACE_SECONDS:
                 local.stop_tree(agent)
@@ -436,12 +438,12 @@ def run_player(request, *, start_player=None, runtime=None):
                 return None
             time.sleep(0.5)
 
-    def wait_for_return(number, game_started):
+    def wait_for_return(number):
         """Stay at the table once eliminated: True when a rollback brought this player back, False once
         the game is over for everyone. No model runs meanwhile."""
         while True:
             check_session(owner, created, run)
-            if bridge.poll() is not None or time.monotonic() - game_started > MAX_SECONDS:
+            if bridge.poll() is not None:
                 return False
             reason = decided(number)
             if reason is None:
@@ -465,7 +467,7 @@ def run_player(request, *, start_player=None, runtime=None):
             run / game_file("player-tools.jsonl", number),
             max_calls=MAX_CALLS,
             optimize_play=server is None,
-            upstream_timeout=MAX_SECONDS + 30,
+            upstream_timeout=TOOL_CALL_SECONDS + 30,
             describe=mcp_engine.describe_tool if server else None,
             report_path=run / game_file("problem-reports.jsonl", number),
         )
@@ -488,9 +490,9 @@ def run_player(request, *, start_player=None, runtime=None):
         attempt = 0
         tries = 0
         while True:
-            terminal_reason, reason, lasting = play_attempt(number, attempt, prompt, gateway, game_started, usage)
+            terminal_reason, reason, lasting = play_attempt(number, attempt, prompt, gateway, usage)
             if reason is None:
-                if terminal_reason == "player_eliminated" and wait_for_return(number, game_started):
+                if terminal_reason == "player_eliminated" and wait_for_return(number):
                     attempt += 1
                     manifest.setdefault("recoveries", []).append(
                         {

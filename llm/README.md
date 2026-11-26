@@ -208,8 +208,9 @@ The bridge's lazily loaded card database is shared by all seats in
   which the gateway marks destructive, and
   only through that run's `-c` overrides; the user's Codex config is not read
   or changed.
-- A seat stops after 6,000 tool calls, after two hours per game, or on any
-  non-game tool use.
+- A seat stops after 6,000 tool calls or on any non-game tool use. A game has
+  no time limit: a model that sends nothing for five minutes outside a game
+  tool call is replaced, and the host can stop the seat.
 - The bridge accepts a rollback request and a spectator's request to see its
   hand without asking the model, as a computer opponent would.
 

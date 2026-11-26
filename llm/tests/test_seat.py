@@ -112,7 +112,7 @@ def harness(tmp_path, monkeypatch):
 
     def make_gateway(*_args, **kwargs):
         assert kwargs["optimize_play"] is True
-        assert kwargs["upstream_timeout"] > seat.MAX_SECONDS
+        assert kwargs["upstream_timeout"] > seat.TOOL_CALL_SECONDS
         return gateway
 
     monkeypatch.setattr(seat, "GameToolGateway", make_gateway)
@@ -149,7 +149,7 @@ def test_selection_reaches_player_only_after_game_starts(harness, monkeypatch, p
     def start(prompt, out, _err, _url, *, model, reasoning, tool_timeout_seconds):
         assert waiting == [False, False, True]
         assert (model, reasoning) == ("gpt-6.2-astra", "high")
-        assert tool_timeout_seconds == seat.MAX_SECONDS + 60
+        assert tool_timeout_seconds == seat.TOOL_CALL_SECONDS + 60
         assert "opponent's deck" in prompt
         assert request["game_type"] in prompt
         assert f"Number of players: {players}" in prompt
@@ -345,6 +345,32 @@ def test_a_player_waiting_in_a_tool_call_or_still_writing_is_not_quiet(undecided
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     assert manifest["status"] == "completed"
     assert "recoveries" not in manifest
+
+
+def test_a_game_of_many_hours_keeps_its_player(undecided, monkeypatch):
+    # A game with several players can run for hours, mostly the others' turns: no clock ends the seat.
+    request, runtime, _stopped, gateway, game_over = undecided
+    gateway.idle_since = None  # waiting in pass_priority while the others play
+    clock = [0.0]
+    monkeypatch.setattr(seat.time, "monotonic", lambda: clock[0])
+    polls = []
+
+    def start(_prompt, _out, *_args, **_kwargs):
+        def poll():
+            polls.append(True)
+            clock[0] += 3600
+            if len(polls) < 6:
+                return None
+            game_over()
+            return 0
+
+        return SimpleNamespace(poll=poll, returncode=0)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert "recoveries" not in manifest
+    assert manifest["games"][0]["game_wall_seconds"] >= 5 * 3600
 
 
 def test_a_reached_usage_limit_is_not_retried(undecided):
