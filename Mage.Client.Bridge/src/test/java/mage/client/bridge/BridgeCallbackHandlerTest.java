@@ -62,6 +62,7 @@ import mage.view.SimpleCardsView;
 import mage.view.StackAbilityView;
 import mage.view.TableClientMessage;
 import mage.view.UserRequestMessage;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.apache.log4j.Logger;
@@ -88,6 +89,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -711,6 +713,75 @@ class BridgeCallbackHandlerTest {
             assertThat(passes.get()).isEqualTo(2);
         } finally {
             System.clearProperty(BridgeGameLogState.TABLE_TALK_PROPERTY);
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void passesTheModelNeverDecidedOnAreMarkedSoGoingBackSkipsThem() throws Exception {
+        Assumptions.assumeTrue(engineHas("UNDO_SKIP_PRIORITY"), "engine jars without UNDO_SKIP_PRIORITY");
+        List<String> sent = Collections.synchronizedList(new ArrayList<>());
+        Semaphore passes = new Semaphore(0);
+        ChatSeat seat = undoSeat(sent, passes, true);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<ActionResult> waiting = executor.submit(() -> seat.handler().passPriority(null, null));
+            // the open priority has nothing to play, and another one like it comes while the model waits
+            assertThat(passes.tryAcquire(2, TimeUnit.SECONDS)).isTrue();
+            sendPriority(seat, 30, false, true);
+            assertThat(passes.tryAcquire(2, TimeUnit.SECONDS)).isTrue();
+            sendPriority(seat, 31, true, true);
+
+            assertThat(waiting.get(5, TimeUnit.SECONDS).stop_reason).isEqualTo("playable_cards");
+            assertThat(sent).containsExactly(
+                "action:UNDO_SKIP_PRIORITY", "boolean:false",
+                "action:UNDO_SKIP_PRIORITY", "boolean:false");
+        } finally {
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void theModelsOwnPassOfAPriorityItCouldPlayInIsAPlainPass() throws Exception {
+        List<String> sent = Collections.synchronizedList(new ArrayList<>());
+        Semaphore passes = new Semaphore(0);
+        ChatSeat seat = undoSeat(sent, passes, true);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            sendPriority(seat, 30, true, true);
+            assertThat(seat.handler().getActionChoicesSafe(null).action_pending).isTrue();
+            Future<ActionResult> waiting = executor.submit(() -> seat.handler().passPriority(null, null));
+            assertThat(passes.tryAcquire(2, TimeUnit.SECONDS)).isTrue();
+            sendPriority(seat, 31, true, true);
+
+            assertThat(waiting.get(5, TimeUnit.SECONDS).stop_reason).isEqualTo("playable_cards");
+            // a point to go back to: after going back there, the model is asked again
+            assertThat(sent).containsExactly("boolean:false");
+        } finally {
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void withoutGoingBackOnTheServerTheBridgeOnlyPasses() throws Exception {
+        List<String> sent = Collections.synchronizedList(new ArrayList<>());
+        Semaphore passes = new Semaphore(0);
+        ChatSeat seat = undoSeat(sent, passes, false);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<ActionResult> waiting = executor.submit(() -> seat.handler().passPriority(null, null));
+            assertThat(passes.tryAcquire(2, TimeUnit.SECONDS)).isTrue();
+            sendPriority(seat, 31, true, false);
+
+            assertThat(waiting.get(5, TimeUnit.SECONDS).stop_reason).isEqualTo("playable_cards");
+            assertThat(sent).containsExactly("boolean:false");
+        } finally {
             executor.shutdownNow();
             executor.awaitTermination(1, TimeUnit.SECONDS);
         }
@@ -6559,6 +6630,81 @@ class BridgeCallbackHandlerTest {
             new GameClientMessage(view, Collections.<String, Serializable>emptyMap(), "Play spells and abilities")
         );
         seat.handler().awaitProcessorIdle();
+    }
+
+    /**
+     * A model seat at its own priority with nothing to play, on a server that goes back priorities or
+     * not (canUndoPriority). The server gets UNDO_SKIP_PRIORITY ("action:...") and passes ("boolean:false").
+     */
+    private static ChatSeat undoSeat(List<String> sent, Semaphore passSent, boolean undoOnServer) throws Exception {
+        InvocationHandler recorder = (proxy, method, args) -> {
+            if ("sendPlayerAction".equals(method.getName())) {
+                sent.add("action:" + args[0]);
+                return true;
+            }
+            if ("sendPlayerBoolean".equals(method.getName())) {
+                sent.add("boolean:" + args[1]);
+                passSent.release();
+                return true;
+            }
+            return defaultReturnValue(method.getReturnType());
+        };
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        client.setSession((Session) Proxy.newProxyInstance(Session.class.getClassLoader(), new Class<?>[]{Session.class}, recorder));
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        GameView view = gameView(21, List.of(playerView(playerId, "TestPlayer", "p2")), new CardsView());
+        setField(view, "myPlayerId", playerId);
+        setField(view, "canUndoPriority", undoOnServer);
+        addActiveGame(handler, gameId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", view);
+        setField(handler, "pendingAction", new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_SELECT,
+            new GameClientMessage(view, Collections.<String, Serializable>emptyMap(), "Play instants and activated abilities"),
+            "Play instants and activated abilities",
+            21
+        ));
+        return new ChatSeat(handler, gameId, playerId);
+    }
+
+    /** The model's priority, with a land it can play or nothing. */
+    private static void sendPriority(ChatSeat seat, int gameSeq, boolean playable, boolean undoOnServer) throws Exception {
+        GameView view = gameView(gameSeq, List.of(playerView(seat.playerId(), "TestPlayer", "p2")), new CardsView());
+        setField(view, "myPlayerId", seat.playerId());
+        setField(view, "step", PhaseStep.PRECOMBAT_MAIN);
+        setField(view, "canUndoPriority", undoOnServer);
+        if (playable) {
+            UUID landId = UUID.randomUUID();
+            CardView land = cardView(landId, "p11", "Plains");
+            setField(land, "cardTypes", List.of(CardType.LAND));
+            setField(land, "rules", List.of("{T}: Add {W}."));
+            setField(land, "manaCostLeftStr", List.of());
+            setField(land, "manaCostRightStr", List.of());
+            CardsView hand = new CardsView();
+            hand.put(landId, land);
+            setField(view, "myHand", hand);
+            setField(view, "canPlayObjects", playableObjects(Map.of(landId, playStats("Play land"))));
+        }
+        enqueueCallback(seat.handler(), ClientCallbackMethod.GAME_UPDATE, seat.gameId(), view);
+        enqueueCallback(
+            seat.handler(),
+            ClientCallbackMethod.GAME_SELECT,
+            seat.gameId(),
+            new GameClientMessage(view, Collections.<String, Serializable>emptyMap(), "Play spells and abilities")
+        );
+        seat.handler().awaitProcessorIdle();
+    }
+
+    private static boolean engineHas(String playerAction) {
+        for (PlayerAction action : PlayerAction.values()) {
+            if (action.name().equals(playerAction)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Another player says something in the game chat. */

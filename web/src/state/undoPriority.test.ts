@@ -4,6 +4,7 @@ import type { GameView } from '../net/types'
 import { getState, setState } from './state'
 import { handleMessage, maybeAutoPass, requestUndoPriority, setSetting, voteRollback } from './store'
 import { reset } from './gateway'
+import { confirmUndoPreview } from './undoPreview'
 import * as cmds from '../net/commands'
 
 vi.mock('../net/commands', () => ({
@@ -130,6 +131,39 @@ describe('KEY-13 go back to my last priority', () => {
     chat(announce('Alice', 4, 'Precombat Main'), 2)
     expect(getState().rollbackVote?.outcome).toBe('applied')
     expect(getState().rollbackVote?.appliedTurn).toBe(4)
+  })
+
+  it('KEY-13: the server saying "goes back 1 priority" (anyone\'s) marks my undo vote done too', async () => {
+    update(view({ turn: 4, step: 'PRECOMBAT_MAIN', bobIsHuman: true }), 1)
+    await requestUndoPriority(GAME)
+    chat("<font color='#ff0000'>Player request: Alice goes back 1 priority (turn 4, Precombat Main, Bob had priority)</font>", 2)
+    expect(getState().rollbackVote?.outcome).toBe('applied')
+    expect(getState().rollbackVote?.appliedTurn).toBe(4)
+    expect(getState().rollbackPendingFor).toBe(GAME)
+  })
+
+  it("KEY-13: the other player's request to go back 1 priority opens an undo vote", () => {
+    update(view({ turn: 4, step: 'PRECOMBAT_MAIN', bobIsHuman: true, me: 'Alice' }), 1)
+    handleMessage({
+      type: 'event',
+      method: 'USER_REQUEST_DIALOG',
+      messageId: 21,
+      objectId: GAME,
+      data: {
+        title: 'Request by Bob',
+        message: 'Allow Bob to go back 1 priority (turn 4, Precombat Main)?',
+        gameId: GAME,
+        relatedUserId: 'u-Bob',
+        relatedUserName: 'Bob',
+        button1Text: 'Accept',
+        button1Action: 'ADD_PERMISSION_TO_ROLLBACK_TURN',
+        button2Text: 'Deny',
+        button2Action: 'DENY_PERMISSION_TO_ROLLBACK_TURN',
+      },
+    } as never)
+    const vote = getState().rollbackVote
+    expect(vote?.kind).toBe('undo')
+    expect(vote?.steps).toBe(1)
   })
 
   it('KEY-13: a denial closes my undo vote with the name of who denied it', async () => {
@@ -264,6 +298,36 @@ describe('KEY-13 smart stops and going back', () => {
     // the window after it is passed as usual
     maybeAutoPass(myWindow('DRAW'))
     expect(passes()).toBe(1)
+  })
+
+  it("KEY-13: gone back to another player's priority, my next window is passed as usual", async () => {
+    myWindow('PRECOMBAT_MAIN')
+    await requestUndoPriority(GAME, 1, false)
+    maybeAutoPass(myWindow('UPKEEP'))
+    expect(passes()).toBe(1)
+  })
+
+  it("KEY-13: confirming a look back that ends at Bob's priority doesn't hold my next window", async () => {
+    const live = myWindow('PRECOMBAT_MAIN')
+    const bobsBoard: GameView = {
+      ...live,
+      step: 'UPKEEP',
+      priorityPlayerName: 'Bob',
+      players: (live.players ?? []).map((p) => ({ ...p, hasPriority: p.name === 'Bob' })),
+    }
+    setState({ undoPreview: { gameId: GAME, mode: 'browse', steps: 1, pendingSteps: null, available: 3, board: bobsBoard, requester: 'Alice', requestedByMe: true } })
+    await confirmUndoPreview(GAME)
+    expect(cmds.sendPlayerAction).toHaveBeenCalledWith('UNDO_LAST_PRIORITY', GAME)
+    maybeAutoPass(myWindow('UPKEEP'))
+    expect(passes()).toBe(1)
+  })
+
+  it('KEY-13: confirming a look back that ends at my own priority shows that window', async () => {
+    const live = myWindow('PRECOMBAT_MAIN')
+    setState({ undoPreview: { gameId: GAME, mode: 'browse', steps: 1, pendingSteps: null, available: 3, board: { ...live, step: 'UPKEEP', priorityPlayerName: 'Alice' }, requester: 'Alice', requestedByMe: true } })
+    await confirmUndoPreview(GAME)
+    maybeAutoPass(myWindow('UPKEEP'))
+    expect(passes()).toBe(0)
   })
 
   it('KEY-13: the window on screen when pressing Ctrl+Z does not use up the hold', async () => {

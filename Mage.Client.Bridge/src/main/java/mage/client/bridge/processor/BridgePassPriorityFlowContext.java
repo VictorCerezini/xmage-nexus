@@ -50,6 +50,14 @@ public interface BridgePassPriorityFlowContext {
 
     void sendBooleanOrDie(UUID gameId, boolean data, String sendContext);
 
+    /**
+     * Pass a priority the model didn't decide on (the bridge passes it by itself). Where the server goes
+     * back to earlier priorities it's told first, so going back skips this one.
+     */
+    default void sendUnseenPassOrDie(UUID gameId, GameView view, String sendContext) {
+        sendBooleanOrDie(gameId, false, sendContext);
+    }
+
     UUID currentGameId();
 
     GameView lastGameView();

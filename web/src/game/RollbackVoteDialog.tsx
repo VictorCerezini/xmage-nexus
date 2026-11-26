@@ -8,6 +8,7 @@ import Icon from '../ui/Icon'
 import Button from '../ui/Button'
 import { useTranslation } from '../i18n'
 import { withdrawUndoRequest } from '../state/actions'
+import { undoBoardPriority } from '../state/undoPreview'
 import { StepName } from './PhaseBar'
 import { clampDragPos } from '../ui/useDraggablePos'
 import './RollbackVoteDialog.css'
@@ -181,6 +182,8 @@ export default function RollbackVoteDialog() {
     : t('dialogs', several ? 'undo_vote_title_n' : `${prefix}_title`, { name: vote.requester || '?', count: steps })
   // where the game is now and where it goes back to, so it is clear how far: the board on screen
   // shows the point back there (the server sends it with the request); the store keeps the live game
+  // going back counts everyone's priorities: whose this one was
+  const undoHolder = undoBoardPriority(undoBoard)
   const where = isUndo && undoBoard ? (
     <span className="rollback-vote-points">
       {currentTurn != null && (
@@ -192,6 +195,11 @@ export default function RollbackVoteDialog() {
       <span className="rollback-vote-where" data-testid="undo-vote-where">
         {t('dialogs', 'undo_vote_where', { turn: undoBoard.turn })}
         {undoBoard.step && <> · <StepName step={undoBoard.step} /></>}
+        {undoHolder && (
+          <> · <span data-testid="undo-vote-whose">
+            {undoHolder.mine ? t('game', 'undo_preview_priority_mine') : t('game', 'undo_preview_priority_of', { name: undoHolder.name })}
+          </span></>
+        )}
       </span>
     </span>
   ) : null

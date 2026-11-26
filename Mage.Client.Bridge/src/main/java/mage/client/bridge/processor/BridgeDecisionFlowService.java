@@ -8,6 +8,7 @@ import mage.client.bridge.PendingAction;
 import mage.client.bridge.tools.ActionResult;
 import mage.client.bridge.tools.ChooseActionTool;
 import mage.constants.ManaType;
+import mage.constants.PlayerAction;
 import mage.interfaces.callback.ClientCallbackMethod;
 import mage.players.PlayableObjectStats;
 import mage.players.PlayableObjectsList;
@@ -62,6 +63,8 @@ public final class BridgeDecisionFlowService {
     private static final Pattern REGEX_COLORLESS = Pattern.compile("\\x7b.{0,2}C.{0,2}\\x7d");
     private static final int MAX_POOL_MANA_ATTEMPTS = 10;
     private static final Pattern PAYING_FOR_NAME = Pattern.compile("<font[^>]*object_id='[^']*'[^>]*>([^<]+)</font>");
+    // the nexus engine's "this priority is passed unseen" (Game.forgetUndoPoint), see sendUnseenPassOrDie
+    private static final PlayerAction UNDO_SKIP_PRIORITY = playerActionOrNull("UNDO_SKIP_PRIORITY");
 
     private final String username;
     private final Logger logger;
@@ -73,6 +76,9 @@ public final class BridgeDecisionFlowService {
     private final Consumer<String> errorLogger;
     private final BridgeEventLogger eventLogger;
     private final BiConsumer<GameView, String> projectPublishedGameState;
+    // see sendUnseenPassOrDie
+    private volatile boolean serverGoesBackPriorities;
+    private volatile boolean undoSkipRefused;
 
     public BridgeDecisionFlowService(
             String username,
@@ -1537,6 +1543,33 @@ public final class BridgeDecisionFlowService {
         boolean ok = sessionSupplier.get().sendPlayerBoolean(gameId, data);
         if (!ok) {
             declareResponseFailed("sendPlayerBoolean(" + data + ")", context, gameId);
+        }
+    }
+
+    /**
+     * Passes a priority the model didn't decide on. Where the server goes back to earlier priorities
+     * (a game view said canUndoPriority), it's told first (UNDO_SKIP_PRIORITY), so going back skips this
+     * priority: the bridge would pass it again at once and the game would run on. Then the usual pass.
+     */
+    public void sendUnseenPassOrDie(UUID gameId, GameView view, String context) {
+        if (view != null && view.isCanUndoPriority()) {
+            serverGoesBackPriorities = true;
+        }
+        if (UNDO_SKIP_PRIORITY != null && serverGoesBackPriorities && !undoSkipRefused && gameId != null) {
+            if (!sessionSupplier.get().sendPlayerAction(UNDO_SKIP_PRIORITY, gameId, null)) {
+                undoSkipRefused = true;
+                logger.warn("[" + username + "] the server refused UNDO_SKIP_PRIORITY, plain passes from now on");
+            }
+        }
+        sendBooleanOrDie(gameId, false, context);
+    }
+
+    // Looked up by name: engine jars without it (servers that don't go back priorities) still build the bridge
+    private static PlayerAction playerActionOrNull(String name) {
+        try {
+            return PlayerAction.valueOf(name);
+        } catch (IllegalArgumentException e) {
+            return null;
         }
     }
 

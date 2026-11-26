@@ -203,13 +203,13 @@ export function buildTournamentLimitedOptions(
   })
 }
 
-/** "Undo steps": how many of their priorities each player can go back (Ctrl+Z). The server keeps
- *  the same limits (GameOptions.UNDO_PRIORITY_STEPS_*). */
+/** "Undo steps": how many priorities the table can go back (Ctrl+Z), everyone's counted together.
+ *  The server keeps the same limits (GameOptions.UNDO_PRIORITY_STEPS_*). */
 export const UNDO_STEPS_MIN = 1
 export const UNDO_STEPS_MAX = 50
 export const UNDO_STEPS_DEFAULT = 10
-/** One step keeps a copy of the game for each human player: about 0.2 MB on a two-player board in
- *  the middle of a game, 0.6 MB on a busy one (about 60 permanents), measured on the engine. */
+/** One step keeps one copy of the game: about 0.2 MB on a two-player board in the middle of a game,
+ *  0.6 MB on a busy one (about 60 permanents), measured on the engine. */
 export const UNDO_STEP_MB_BUSY = 0.6
 
 export function clampUndoSteps(steps: number): number {
@@ -217,7 +217,7 @@ export function clampUndoSteps(steps: number): number {
   return Math.min(UNDO_STEPS_MAX, Math.max(UNDO_STEPS_MIN, Math.round(steps)))
 }
 
-/** About how much memory a player's undo steps take on a busy board, in MB (the server keeps one more copy). */
+/** About how much memory the table's undo steps take on a busy board, in MB (the server keeps one more copy). */
 export function undoStepsMemoryMb(steps: number): number {
   return Math.max(1, Math.round((clampUndoSteps(steps) + 1) * UNDO_STEP_MB_BUSY))
 }

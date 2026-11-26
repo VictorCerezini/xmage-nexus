@@ -37,6 +37,8 @@ public final class BridgePassPriorityFlow {
     private boolean resumingAfterChat = false;
     // When this call began waiting with no decision for the model; 0 while there is one
     private long waitingSinceMs = 0;
+    // The decision open when the model called: the one it asks to pass (null if there was none)
+    private PendingAction decisionAtStart = null;
 
     public BridgePassPriorityFlow(BridgePassPriorityFlowContext context, String until, Long boardCursorParam) {
         this.context = context;
@@ -49,6 +51,7 @@ public final class BridgePassPriorityFlow {
         startTimeMs = now;
         lastProgressLogAtMs = now;
         resumingAfterChat = context.consumeWaitCutForChat();
+        decisionAtStart = context.currentDecisionAction();
         boolean yieldActive = initialize();
         if (result.isDone()) {
             return;
@@ -129,7 +132,7 @@ public final class BridgePassPriorityFlow {
                     yieldUntilMyTurn = false;
                 } else {
                     context.clearPendingActionIfCurrent(action);
-                    context.sendBooleanOrDie(action.gameId(), false, "passPriority:yield_my_turn");
+                    context.sendUnseenPassOrDie(action.gameId(), actionView, "passPriority:yield_my_turn");
                     actionsPassed++;
                     continue;
                 }
@@ -145,7 +148,7 @@ public final class BridgePassPriorityFlow {
                     return;
                 }
                 context.clearPendingActionIfCurrent(action);
-                context.sendBooleanOrDie(action.gameId(), false, "passPriority:yield_end_of_turn");
+                context.sendUnseenPassOrDie(action.gameId(), actionView, "passPriority:yield_end_of_turn");
                 actionsPassed++;
                 continue;
             }
@@ -166,7 +169,7 @@ public final class BridgePassPriorityFlow {
                     return;
                 }
                 context.clearPendingActionIfCurrent(action);
-                context.sendBooleanOrDie(action.gameId(), false, "passPriority:step_yield");
+                context.sendUnseenPassOrDie(action.gameId(), gv, "passPriority:step_yield");
                 actionsPassed++;
                 continue;
             }
@@ -192,9 +195,21 @@ public final class BridgePassPriorityFlow {
             }
 
             context.clearPendingActionIfCurrent(action);
-            context.sendBooleanOrDie(action.gameId(), false, "passPriority:auto_pass");
+            if (actionsPassed == 0 && hasPlayableCards && isDecisionAtStart(action)) {
+                // the model passes the priority it was shown: a point to go back to, it can stop there again
+                context.sendBooleanOrDie(action.gameId(), false, "passPriority:auto_pass");
+            } else {
+                // the model never decided on it, and would pass it again at once after going back there
+                context.sendUnseenPassOrDie(action.gameId(), viewForPlayableCheck, "passPriority:auto_pass");
+            }
             actionsPassed++;
         }
+    }
+
+    private boolean isDecisionAtStart(PendingAction action) {
+        return decisionAtStart != null
+            && decisionAtStart.method() == action.method()
+            && decisionAtStart.gameSeq() == action.gameSeq();
     }
 
     public void tick() {
@@ -305,7 +320,9 @@ public final class BridgePassPriorityFlow {
         if (armedClientSideYield && currentAction != null && !resumingAfterChat) {
             lastSeenGameSeq = currentAction.gameSeq();
             context.clearPendingActionIfCurrent(currentAction);
-            context.sendBooleanOrDie(gameId, false, "passPriority:yield_arm");
+            // like the server's own skips (F-keys), a yield leaves no point to go back to: after going back
+            // there the yield would pass it again
+            context.sendUnseenPassOrDie(gameId, extractGameView(currentAction), "passPriority:yield_arm");
             actionsPassed++;
         }
         return armedClientSideYield;

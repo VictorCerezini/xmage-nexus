@@ -10,7 +10,7 @@ export interface RollbackVoter {
   me: boolean
 }
 
-/** 'turns': roll back to the start of a turn; 'undo': go back some of the requester's priorities. */
+/** 'turns': roll back to the start of a turn; 'undo': go back some priorities (anyone's, newest first). */
 export type RollbackVoteKind = 'turns' | 'undo'
 
 export interface RollbackVote {
@@ -21,7 +21,7 @@ export interface RollbackVote {
   /** missing means a turn rollback */
   kind?: RollbackVoteKind
   turns: number
-  /** undo: how many of the requester's priorities back (missing: 1) */
+  /** undo: how many priorities back, counting every player's (missing: 1) */
   steps?: number
   /** the requester took the request back (outcome 'denied', deniedBy is them) */
   withdrawn?: boolean
@@ -42,21 +42,22 @@ export const ROLLBACK_ACCEPT_CHAT = 'accepted the rollback request'
 export const ROLLBACK_PENDING_TTL_MS = 120_000
 
 const ANNOUNCE_RE = /rolling back to start of turn\s+(\d+)/i
-/** GameImpl.undoExecution: "Player request: X goes back to their last priority (turn N, step)",
- *  or "X goes back 3 priorities (turn N, step)" */
-const UNDO_ANNOUNCE_RE = /goes back (?:to their last priority|\d+ priorities) \(turn\s+(\d+)/i
+/** GameImpl.undoExecution: "Player request: X goes back 1 priority (turn N, step, Y had priority)",
+ *  or "X goes back 3 priorities (turn N, ...)"; older servers said "goes back to their last priority" */
+const UNDO_ANNOUNCE_RE = /goes back (?:to their last priority|\d+ priorit(?:y|ies)) \(turn\s+(\d+)/i
 /** GameController: "Undo request denied by X", or "withdrawn by X" when the requester takes it back */
 const DENIED_RE = /(?:rollback|undo) request (denied|withdrawn) by\s+(.+)$/i
 /** GameController's refusals to the one who asked; "X is looking back at their priorities, wait until
  *  they're done" when another player stopped the game to look back (KEY-13) */
 const FAILED_RE = /not possible to rollback|only request a rollback|not available for rollback|no earlier priority to go back to|going back isn't allowed|is looking back at their priorities/i
 /** The undo request the other players get (GameSessionPlayer.requestPermissionToUndoPriority):
- *  "Allow X to go back to their last priority (turn T, step)?" or "... go back 3 priorities (...)?" */
-const UNDO_REQUEST_RE = /go back (?:to their last priority|\d+ priorities)/i
+ *  "Allow X to go back 1 priority (turn T, step)?" or "... go back 3 priorities (...)?"; older servers
+ *  said "go back to their last priority" */
+const UNDO_REQUEST_RE = /go back (?:to their last priority|\d+ priorit(?:y|ies))/i
 
 /** How many priorities back an undo request goes (1 for "their last priority"). */
 export function parseUndoSteps(message: string): number {
-  const m = /go back (\d+) priorities/i.exec(stripTags(message))
+  const m = /go back (\d+) priorit(?:y|ies)/i.exec(stripTags(message))
   return m ? Math.max(1, Number(m[1])) : 1
 }
 

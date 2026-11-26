@@ -141,18 +141,20 @@ again the picks the player hid.
 
 ### KEY-13 · Ctrl+Z looks back, then goes back to an earlier priority
 On the game screen Ctrl+Z (Cmd+Z on macOS), or "Go back to an earlier priority" in the ⋯ menu,
-shows the player the game as it was at their last priority, only to them (`UNDO_PREVIEW`): nothing
-changes in the game yet. Ctrl+Z again shows one priority further back, as far as the table keeps;
-Ctrl+Shift+Z one forward. Forward from the last one, Cancel or Esc go back to the game as it is. A
-bar on top says how many priorities back the board is and where (turn and step), with Back, Forward,
+shows the player the game as it was at the last priority anyone had, only to them (`UNDO_PREVIEW`):
+nothing changes in the game yet. The server keeps one list of every player's priorities, newest
+first, so each step back is the priority before, whoever had it. Ctrl+Z again shows one priority
+further back, as far as the table keeps; Ctrl+Shift+Z one forward. Forward from the last one,
+Cancel or Esc go back to the game as it is. A bar on top says how many priorities back the board
+is, where (turn and step) and whose priority it was ("your priority", "Bob's priority"), with Back, Forward,
 Confirm rollback and Cancel; the prompts are hidden meanwhile. From Ctrl+Z on, also before the
 server's answer and while it stops the game, the board is grayed out until the game goes back or
 goes on, so an earlier point is never taken for the game as it is. Confirm rollback sends
 `UNDO_LAST_PRIORITY` with that number (no number for one, as older servers expect). Against computer
 players it runs at once. Other humans (model seats included) are asked first in the rollback vote
 dialog, which says who asks and how many priorities back, with where the game is now and where it
-would go back to (turn and step, "Now: turn 5 · Combat damage" over "Back to: turn 4 · Precombat
-Main"); while it is open everyone's board shows that point, grayed out, and nobody can act. The vote dialog can be dragged aside (anywhere but its
+would go back to (turn and step, and whose priority it was: "Now: turn 5 · Combat damage" over
+"Back to: turn 4 · Precombat Main · Bob's priority"); while it is open everyone's board shows that point, grayed out, and nobody can act. The vote dialog can be dragged aside (anywhere but its
 buttons) to see the board under it, which in multiplayer it can cover; it stays inside the screen
 (also when the window gets smaller), follows the pointer at any interface scale, and each new vote
 opens in the usual place again.
@@ -181,20 +183,30 @@ for an answer that never comes. Not while typing in a text field (where Ctrl+Z u
 Alt held, not while a rollback vote is on screen, not in rewind, and not for spectators. The game going on (a new priority request) ends looking back. It needs the game view to
 say there is a priority to go back to (`canUndoPriority`; older servers don't send it, and the menu
 item is then hidden); a server without `undoPriorityCount` goes back to the last priority at once,
-as before. Only games that allow rollbacks have it. How many priorities each player can go back is
-set when creating the table ("Undo steps" under Allow Rollbacks, 1 to 50, default 10): each step
-keeps a copy of the game on the server for each human player, about 0.2 MB in a normal two-player
-game and 0.6 MB on a busy board, and the field shows the estimate. Smart stops send the windows they
-pass by themselves as automatic passes (`PASS_PRIORITY_AUTO`, only where the server has sent
-`canUndoPriority: true`; a plain pass elsewhere or if refused), so the server keeps no point for them
-and Ctrl+Z skips the windows the player never saw. The window it goes back to is always shown, never
-passed by smart stops.
+as before. Only games that allow rollbacks have it. How many priorities the table can go back,
+everyone's counted together, is set when creating the table ("Undo steps" under Allow Rollbacks, 1
+to 50, default 10): each step keeps one copy of the game on the server, about 0.2 MB in a normal
+two-player game and 0.6 MB on a busy board, and the field shows the estimate. Smart stops send the
+windows they pass by themselves as automatic passes (`PASS_PRIORITY_AUTO`, only where the server has
+sent `canUndoPriority: true`; a plain pass elsewhere or if refused), so the server keeps no point for
+them and Ctrl+Z skips the windows the player never saw. A model seat does the same for the
+priorities its bridge passes without the model deciding (yields and windows with nothing to play:
+`UNDO_SKIP_PRIORITY`, then the usual pass), so going back there doesn't pass again at once; a
+priority the model looked at and passed stays a point, and going back there asks the model again.
+Computer players' priorities are never points (the game doesn't stop there). Gone back to the
+player's own priority, that window is always shown, never passed by smart stops; gone back to
+another player's, the player's next window is handled as usual.
 
 - Why: a misclick or a pass at the wrong time in a long turn could only be fixed by rolling back the
   whole turn. Looking first lets the player find the right point before anyone is asked, and the
   others see where the game would resume before they agree. Stopping the game first lets a player
   look back at once while another player is thinking, without the game moving past what they look
-  at. The engine side (what is put back, how many points a table keeps, extra phases and turns,
-  players who lost, stopping and going on) is tested in the engine's `UndoLastPriorityTest`,
-  `UndoLastPriorityMultiplayerTest`, `UndoSeveralPrioritiesTest` and `UndoHoldTest`.
+  at. Going back used to count only the asker's own priorities, so a player with all their mana
+  tapped (smart stops passing every window) went back a whole round with one Ctrl+Z without
+  noticing; one list for the whole table goes back one priority at a time, whoever had it
+  (reported after v0.9.10). The engine side (what is put back, how many points a table keeps,
+  everyone's priorities in one list, extra phases and turns, players who lost, stopping and going
+  on) is tested in the engine's `UndoLastPriorityTest`, `UndoLastPriorityMultiplayerTest`,
+  `UndoSeveralPrioritiesTest`, `UndoAnyPlayersPriorityTest` and `UndoHoldTest`; the model seat's
+  side in the bridge's `BridgeCallbackHandlerTest`.
 - Guard: `src/game/GameScreen.undo.test.tsx` · `src/board/gameTransitionEngine.timers.test.tsx` · `src/game/RollbackVoteDialog.test.tsx` · `src/state/undoPreview.test.ts` · `src/state/undoPriority.test.ts` · `src/lobby/CreateTableDialog.test.tsx` · `src/lobby/CreateTable/tableKind.test.ts`

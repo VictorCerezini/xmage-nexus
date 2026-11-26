@@ -204,6 +204,8 @@ describe('KEY-13 looking back, then going back', () => {
 
   it("KEY-13: the other player's request says how many priorities back", () => {
     expect(parseUndoSteps('Allow Bob to go back 3 priorities (turn 2, Upkeep)?')).toBe(3)
+    expect(parseUndoSteps('Allow Bob to go back 1 priority (turn 2, Upkeep)?')).toBe(1)
+    // older servers
     expect(parseUndoSteps('Allow Bob to go back to their last priority (turn 2, Upkeep)?')).toBe(1)
   })
 

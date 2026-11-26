@@ -120,6 +120,22 @@ describe('KEY-13 Ctrl+Z looks at the game some of my priorities back', () => {
     expect(getState().game).toBe(live)
   })
 
+  it("KEY-13: the bar says whose priority it was, mine or another player's", async () => {
+    render(<GameScreen />)
+    await act(async () => { pressZ({ ctrl: true }) })
+    await act(async () => { answer(1) })
+    expect(screen.getByTestId('undo-preview-whose').textContent).toBe('your priority')
+    // one list for everyone: one further back is Bob's priority
+    await act(async () => { pressZ({ ctrl: true }) })
+    const bobs: GameView = {
+      ...boardBack(2),
+      priorityPlayerName: 'Bob',
+      players: (live.players ?? []).map((p) => ({ ...p, hasPriority: p.name === 'Bob' })),
+    }
+    await act(async () => { answer(2, bobs) })
+    expect(screen.getByTestId('undo-preview-whose').textContent).toBe("Bob's priority")
+  })
+
   it('KEY-13: Ctrl+Z again goes further back, Ctrl+Shift+Z forward, and forward from 1 is the game as it is', async () => {
     render(<GameScreen />)
     await act(async () => { pressZ({ ctrl: true }) })

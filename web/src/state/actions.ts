@@ -344,17 +344,19 @@ export async function requestUndo(gameId: string) {
   return res
 }
 
-/** Go back to my last priority, or `steps` of my priorities (confirmed after looking back with
- * Ctrl+Z, see undoPreview.ts). The other humans must agree, like a rollback, so the vote dialog
- * only shows up when there is someone to ask; against computer players it runs at once.
- * The flag that accepts the restored board is armed before sending: without a vote the server
- * restores right away, and that view must not be dropped as stale. */
-export async function requestUndoPriority(gameId: string, steps = 1) {
+/** Go back `steps` priorities, counting everyone's, newest first (confirmed after looking back with
+ * Ctrl+Z, see undoPreview.ts); older servers go back my own priorities. The other humans must agree,
+ * like a rollback, so the vote dialog only shows up when there is someone to ask; against computer
+ * players it runs at once. The flag that accepts the restored board is armed before sending: without
+ * a vote the server restores right away, and that view must not be dropped as stale.
+ * `holdMyNext`: the priority it goes back to is mine, so smart stops show it instead of passing it. */
+export async function requestUndoPriority(gameId: string, steps = 1, holdMyNext = true) {
   // like a rollback request, a new request replaces an open (hidden) one on the server too
   const asksOthers = otherRollbackVoters(getState().game) > 0
   if (asksOthers) startOwnRollbackVote(gameId, 0, 'undo', steps)
   armRollbackPending(gameId)
-  holdAutoPassAfterUndo(gameId)
+  if (holdMyNext) holdAutoPassAfterUndo(gameId)
+  else releaseAutoPassHold(gameId)
   const res = steps > 1
     ? await cmds.sendPlayerAction('UNDO_LAST_PRIORITY', gameId, steps)
     : await cmds.sendPlayerAction('UNDO_LAST_PRIORITY', gameId)

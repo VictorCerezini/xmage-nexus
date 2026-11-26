@@ -7,7 +7,8 @@ import { otherRollbackVoters, type RollbackVote } from './rollbackVote'
 import { requestUndoPriority } from './actions'
 
 /**
- * Going back some of my priorities (KEY-13), looked at before it happens:
+ * Going back some priorities (KEY-13), looked at before it happens. The server keeps one list of
+ * every player's priorities, newest first, so one step back is the last priority anyone had:
  * - 'browse': I choose how far back with Ctrl+Z / Ctrl+Shift+Z. Only I see it, nothing changes.
  * - 'vote': the other humans are asked to agree. Everyone sees where the game would go back to,
  *   grayed out, until they answer.
@@ -73,6 +74,26 @@ export function waitsOnMe(s: { feedback: unknown; game: GameView | null }): bool
 
 export function gameWaitsOnMe(): boolean {
   return waitsOnMe(getState())
+}
+
+export interface UndoBoardPriority {
+  /** who had priority there */
+  name: string
+  /** it was my own priority */
+  mine: boolean
+  /** going back there, the question comes to me (mine, or a player I control) */
+  toMe: boolean
+}
+
+/** Whose priority the game back there is, or null when the board doesn't say. */
+export function undoBoardPriority(board: GameView | null | undefined): UndoBoardPriority | null {
+  if (!board) return null
+  const players = board.players ?? []
+  const name = board.priorityPlayerName || players.find((p) => p.hasPriority)?.name || ''
+  if (!name) return null
+  const me = players.find((p) => p.controlled)
+  const mine = !!me && me.name.trim().toLowerCase() === name.trim().toLowerCase()
+  return { name, mine, toMe: mine || isControllingPriority(board) }
 }
 
 /** Another player stopped the game to look back at their priorities: their name, or null. */
@@ -228,7 +249,8 @@ export async function confirmUndoPreview(gameId: string) {
       if (still?.mode === 'applying' && still.board === p.board) endUndoPreview(gameId)
     }, UNDO_APPLY_TIMEOUT_MS)
   }
-  const res = await requestUndoPriority(gameId, p.steps)
+  // back at another player's priority, my next question is a later one: smart stops treat it as usual
+  const res = await requestUndoPriority(gameId, p.steps, undoBoardPriority(p.board)?.toMe ?? true)
   if (!res.ok) {
     if (p.holding) void cmds.sendPlayerAction(UNDO_HOLD_RELEASE_ACTION, gameId)
     endUndoPreview(gameId)

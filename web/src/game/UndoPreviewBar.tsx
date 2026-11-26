@@ -4,12 +4,13 @@ import Icon from '../ui/Icon'
 import { useTranslation } from '../i18n'
 import { useStore } from '../state/store'
 import { StepName } from './PhaseBar'
-import { confirmUndoPreview, endUndoPreview, undoBrowseBack, undoBrowseForward, undoHeldByOther } from '../state/undoPreview'
+import { confirmUndoPreview, endUndoPreview, undoBoardPriority, undoBrowseBack, undoBrowseForward, undoHeldByOther } from '../state/undoPreview'
 import './UndoPreviewBar.css'
 
 /**
- * While looking back with Ctrl+Z (KEY-13): how far back the board on screen is, back and forward,
- * and "Confirm rollback" or cancel. Nothing changes in the game until it is confirmed.
+ * While looking back with Ctrl+Z (KEY-13): how far back the board on screen is and whose priority
+ * it was, back and forward, and "Confirm rollback" or cancel. Nothing changes in the game until it
+ * is confirmed.
  */
 export default function UndoPreviewBar() {
   const { t } = useTranslation()
@@ -38,6 +39,8 @@ export default function UndoPreviewBar() {
   const steps = preview.steps
   const at = preview.pendingSteps ?? steps
   const shown = !!board && steps > 0
+  // one list of everyone's priorities: say whose this one was
+  const holder = undoBoardPriority(board)
 
   const onConfirm = async () => {
     if (busy) return
@@ -68,6 +71,11 @@ export default function UndoPreviewBar() {
             <span className="undo-preview-where" data-testid="undo-preview-where">
               {t('game', 'undo_preview_turn', { turn: board.turn })}
               {board.step && <> · <StepName step={board.step} /></>}
+              {holder && (
+                <> · <span data-testid="undo-preview-whose">
+                  {holder.mine ? t('game', 'undo_preview_priority_mine') : t('game', 'undo_preview_priority_of', { name: holder.name })}
+                </span></>
+              )}
             </span>
           </>
         ) : (

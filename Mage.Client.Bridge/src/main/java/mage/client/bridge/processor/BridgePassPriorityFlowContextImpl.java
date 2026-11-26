@@ -113,6 +113,11 @@ public final class BridgePassPriorityFlowContextImpl implements BridgePassPriori
     }
 
     @Override
+    public void sendUnseenPassOrDie(UUID gameId, GameView view, String sendContext) {
+        decisionFlowService.sendUnseenPassOrDie(gameId, view, sendContext);
+    }
+
+    @Override
     public UUID currentGameId() {
         return decisionFlowService.currentGameId();
     }
