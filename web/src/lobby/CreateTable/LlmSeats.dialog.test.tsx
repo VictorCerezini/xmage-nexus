@@ -155,8 +155,9 @@ describe('model seats in the create table dialog', () => {
     expect([...backup.querySelectorAll('optgroup')].map((g) => g.label)).toEqual(['ChatGPT', 'OpenRouter'])
     fireEvent.change(backup, { target: { value: 'openrouter_free|alpha' } })
     expect((screen.getByTestId('seat-llm-backup-0') as HTMLSelectElement).value).toBe('openrouter_free|alpha')
-    // table chat stays off unless the host turns it on
+    // table chat stays off unless the host turns it on, and a personality only matters with chat
     expect((screen.getByTestId('seat-llm-chat-0') as HTMLInputElement).checked).toBe(false)
+    expect(screen.queryByTestId('seat-llm-personality-0')).toBeNull()
 
     for (let i = 0; i < 3 && !document.querySelector('.create-review'); i++) {
       const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
@@ -200,8 +201,33 @@ describe('model seats in the create table dialog', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Crear Mesa|Create Table/ }))
 
     await waitFor(() => expect(cmds.createTable).toHaveBeenCalled())
+    const [seat] = vi.mocked(cmds.createTable).mock.calls[0][0].llmSeats ?? []
+    expect(seat).toEqual(expect.objectContaining({ seat: 2, provider: 'chatgpt_subscription', chat: true }))
+    // the standard personality is the default and goes unsaid
+    expect(seat).not.toHaveProperty('personality')
+  })
+
+  it('a chatting model seat carries the personality the host picked', async () => {
+    vi.mocked(cmds.getLlmProviders).mockResolvedValue(catalog)
+    const seatType = await openSeats()
+    await waitFor(() => expect(seatTypes(seatType)).toContain('ChatGPT'))
+    pickSeatType(seatType, /^ChatGPT$/)
+    fireEvent.click(screen.getByTestId('seat-llm-chat-0'))
+    const personality = screen.getByTestId('seat-llm-personality-0') as HTMLSelectElement
+    expect(personality.value).toBe('standard')
+    expect([...personality.options].map((o) => o.value)).toEqual(['standard', 'competitive', 'spicy'])
+    fireEvent.change(personality, { target: { value: 'spicy' } })
+    expect((screen.getByTestId('seat-llm-personality-0') as HTMLSelectElement).value).toBe('spicy')
+
+    for (let i = 0; i < 3 && !document.querySelector('.create-review'); i++) {
+      const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
+      if (next) fireEvent.click(next)
+    }
+    fireEvent.click(await screen.findByRole('button', { name: /Crear Mesa|Create Table/ }))
+
+    await waitFor(() => expect(cmds.createTable).toHaveBeenCalled())
     expect(vi.mocked(cmds.createTable).mock.calls[0][0].llmSeats).toEqual([
-      expect.objectContaining({ seat: 2, provider: 'chatgpt_subscription', chat: true }),
+      expect.objectContaining({ seat: 2, chat: true, personality: 'spicy' }),
     ])
   })
 

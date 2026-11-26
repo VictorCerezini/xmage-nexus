@@ -55,6 +55,10 @@ public final class BridgeChooseActionFlow {
     private int batchIndex = 0;
     private boolean batchResultFinalized = false;
     private boolean undoingMovedBlock = false;
+    // The last wait ended for table chat: a decision found now came while the model read it, unseen
+    private boolean resumingAfterChat = false;
+    // When this call began waiting with no decision for the model; 0 while there is one
+    private long waitingSinceMs = 0;
 
     public BridgeChooseActionFlow(BridgeChooseActionFlowContext context, BridgeChooseActionInput input) {
         this.context = context;
@@ -62,6 +66,7 @@ public final class BridgeChooseActionFlow {
     }
 
     public void start() {
+        resumingAfterChat = context.consumeWaitCutForChat();
         advance();
     }
 
@@ -118,7 +123,16 @@ public final class BridgeChooseActionFlow {
         if (action == null) {
             if (context.requestCannotContinue()) {
                 result.complete(context.noPendingActionResult());
+            } else if (chatWaiting()) {
+                result.complete(context.chatWakeChooseActionResult());
             }
+            return;
+        }
+        waitingSinceMs = 0;
+
+        if (resumingAfterChat) {
+            // The input was not meant for this decision: the model has not seen it yet.
+            result.complete(context.unseenDecisionChooseActionResult(action));
             return;
         }
 
@@ -240,7 +254,22 @@ public final class BridgeChooseActionFlow {
                 context.finishBatchChooseActionWithoutNextDecision(partialResult);
             }
             result.complete(partialResult);
+            return;
         }
+
+        if (chatWaiting()) {
+            // The choice is made and others are playing: let the model read the chat now.
+            context.finishChooseActionForChat(partialResult, previousAction, batchMode != BatchMode.NONE);
+            result.complete(partialResult);
+        }
+    }
+
+    /** Called while there is no decision for the model; true once chat should end the wait. */
+    private boolean chatWaiting() {
+        if (waitingSinceMs == 0) {
+            waitingSinceMs = System.currentTimeMillis();
+        }
+        return context.chatWaiting(waitingSinceMs);
     }
 
     private void advanceBatchAttackers(PendingAction action) {

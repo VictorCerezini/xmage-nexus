@@ -83,4 +83,10 @@ public interface BridgePassPriorityFlowContext {
         ActionResult result,
         boolean actionPending
     );
+
+    boolean chatWaiting(long waitingSinceMs);
+
+    boolean consumeWaitCutForChat();
+
+    ActionResult chatWakeResult(int gameSeq);
 }

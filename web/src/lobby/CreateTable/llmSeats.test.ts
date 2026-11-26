@@ -100,6 +100,18 @@ describe('model seat helpers', () => {
       2: { provider: 'p', model: 'm', effort: 'e' },
     })
   })
+
+  it('keeps a chat personality only when it is one the seat knows', () => {
+    expect(readSavedLlmChoices({
+      0: { provider: 'p', model: 'm', effort: 'e', chat: true, personality: 'spicy' },
+      1: { provider: 'p', model: 'm', effort: 'e', chat: true, personality: 'rude' },
+      2: { provider: 'p', model: 'm', effort: 'e', chat: true, personality: 'standard' },
+    })).toEqual({
+      0: { provider: 'p', model: 'm', effort: 'e', chat: true, personality: 'spicy' },
+      1: { provider: 'p', model: 'm', effort: 'e', chat: true },
+      2: { provider: 'p', model: 'm', effort: 'e', chat: true },
+    })
+  })
 })
 
 describe('backup model', () => {

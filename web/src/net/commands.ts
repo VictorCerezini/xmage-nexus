@@ -190,6 +190,8 @@ export interface LlmSeatRequest {
   backupEffort?: string
   /** lets the model read and write the game chat; off when absent */
   chat?: boolean
+  /** how the model talks in table chat, only with `chat`: standard (when absent), competitive or spicy */
+  personality?: 'competitive' | 'spicy'
   deck: DeckJson
 }
 

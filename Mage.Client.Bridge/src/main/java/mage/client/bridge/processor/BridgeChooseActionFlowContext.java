@@ -61,4 +61,14 @@ public interface BridgeChooseActionFlowContext {
         PendingAction previousAction,
         ChooseActionTool.Result partialResult
     );
+
+    boolean chatWaiting(long waitingSinceMs);
+
+    boolean consumeWaitCutForChat();
+
+    void finishChooseActionForChat(ChooseActionTool.Result result, PendingAction previousAction, boolean batch);
+
+    ChooseActionTool.Result chatWakeChooseActionResult();
+
+    ChooseActionTool.Result unseenDecisionChooseActionResult(PendingAction action);
 }

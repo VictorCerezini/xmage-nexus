@@ -9,6 +9,8 @@ public final class BridgeDecisionState {
     private BridgeChooseActionFlow pendingChooseActionFlow = null;
     private BridgePassPriorityFlow pendingPassPriorityFlow = null;
     private Runnable pendingActionChangedListener = () -> {};
+    // A wait ended for table chat with no decision for the model: what came in since then, it has not seen
+    private boolean waitCutForChat = false;
 
     public PendingAction pendingAction() {
         return pendingAction;
@@ -88,10 +90,22 @@ public final class BridgeDecisionState {
         pendingActionChangedListener.run();
     }
 
+    public void markWaitCutForChat() {
+        waitCutForChat = true;
+    }
+
+    /** True once after a wait ended for table chat, until the model sees its next decision. */
+    public boolean consumeWaitCutForChat() {
+        boolean cut = waitCutForChat;
+        waitCutForChat = false;
+        return cut;
+    }
+
     public void reset() {
         pendingAction = null;
         pendingActionChangedListener.run();
         pendingChooseActionFlow = null;
         pendingPassPriorityFlow = null;
+        waitCutForChat = false;
     }
 }

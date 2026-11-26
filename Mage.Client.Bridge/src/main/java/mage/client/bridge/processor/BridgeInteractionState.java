@@ -23,6 +23,7 @@ public final class BridgeInteractionState {
     private int maxCallsWithoutProgress = DEFAULT_MAX_CALLS_WITHOUT_PROGRESS;
     private int callsWithoutProgress = 0;
     private Integer lastCallGameSeq = null;
+    private boolean skipNextCount = false;
     private final List<String> cancelledSpells = new ArrayList<>();
 
     /**
@@ -51,12 +52,23 @@ public final class BridgeInteractionState {
      */
     public int recordCall(int gameSeq) {
         if (lastCallGameSeq != null && lastCallGameSeq == gameSeq) {
-            callsWithoutProgress++;
+            if (!skipNextCount) {
+                callsWithoutProgress++;
+            }
         } else {
             callsWithoutProgress = 0;
         }
+        skipNextCount = false;
         lastCallGameSeq = gameSeq;
         return callsWithoutProgress;
+    }
+
+    /**
+     * The call now ending was cut short by table chat, so it did not change the game for a good reason: the next
+     * call does not count it as one more call without progress.
+     */
+    public void dontCountLastCall() {
+        skipNextCount = true;
     }
 
     /** True once the model has made the allowed number of calls in a row that did not change the game. */
@@ -229,6 +241,7 @@ public final class BridgeInteractionState {
         lastTurnNumber = -1;
         callsWithoutProgress = 0;
         lastCallGameSeq = null;
+        skipNextCount = false;
         cancelledSpells.clear();
     }
 }

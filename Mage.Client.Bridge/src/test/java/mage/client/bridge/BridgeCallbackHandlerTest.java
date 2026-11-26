@@ -48,6 +48,7 @@ import mage.util.SubTypes;
 import mage.view.AbilityPickerView;
 import mage.view.CardView;
 import mage.view.CardsView;
+import mage.view.ChatMessage;
 import mage.view.CombatGroupView;
 import mage.view.GameClientMessage;
 import mage.view.GameView;
@@ -74,6 +75,7 @@ import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -540,6 +542,175 @@ class BridgeCallbackHandlerTest {
             assertThat(result.action_type).isEqualTo("GAME_ASK");
             assertThat(result.game_seq).isEqualTo(8);
         } finally {
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void tableChatEndsAPassPriorityWaitSoTheModelCanAnswerWhileOthersPlay() throws Exception {
+        AtomicInteger passes = new AtomicInteger();
+        ChatSeat seat = chatSeatAtEmptyPriority(new CountDownLatch(1), passes);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            System.setProperty(BridgeGameLogState.TABLE_TALK_PROPERTY, "true");
+            Future<ActionResult> future = executor.submit(() -> seat.handler().passPriority(null, null));
+
+            talk(seat.handler(), "Opponent", "nice deck");
+            talk(seat.handler(), "Opponent", "is that a Plains?");
+
+            ActionResult result = future.get(5, TimeUnit.SECONDS);
+            assertThat(result.stop_reason).isEqualTo("chat");
+            assertThat(result.action_pending).isFalse();
+            assertThat(result.recent_chat).containsExactly("Opponent: nice deck", "Opponent: is that a Plains?");
+            assertThat(result.note).contains("pass_priority again");
+            // the model's own priority was passed as asked before the wait
+            assertThat(passes.get()).isEqualTo(1);
+        } finally {
+            System.clearProperty(BridgeGameLogState.TABLE_TALK_PROPERTY);
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void withTableTalkOffOrOnlyBridgeNotesPassPriorityKeepsWaiting() throws Exception {
+        ChatSeat seat = chatSeatAtEmptyPriority(new CountDownLatch(1), new AtomicInteger());
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<ActionResult> future = executor.submit(() -> seat.handler().passPriority(null, null));
+            // table talk off: the model hears none of it
+            talk(seat.handler(), "Opponent", "you there?");
+            // the bridge's own notes reach the model with its next decision, they never wake it
+            System.setProperty(BridgeGameLogState.TABLE_TALK_PROPERTY, "true");
+            BridgeGameLogState gameLog = (BridgeGameLogState) getProcessorStateField(seat.handler(), "gameLogState");
+            BridgeProcessor processor = (BridgeProcessor) getDirectField(seat.handler(), "processor");
+            processor.submit(BridgeCommand.of(() -> {
+                gameLog.addSystemMessage("Your spell was cancelled.");
+                return null;
+            }));
+
+            assertThatThrownBy(() -> future.get(2500, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+        } finally {
+            System.clearProperty(BridgeGameLogState.TABLE_TALK_PROPERTY);
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void chatWakeUpsNeverAddUpToAStuckSeat() throws Exception {
+        AtomicInteger passes = new AtomicInteger();
+        ChatSeat seat = chatSeatAtEmptyPriority(new CountDownLatch(1), passes);
+        BridgeInteractionState interaction =
+            (BridgeInteractionState) getProcessorStateField(seat.handler(), "interactionState");
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            System.setProperty(BridgeGameLogState.TABLE_TALK_PROPERTY, "true");
+            for (int i = 0; i < 3; i++) {
+                Future<ActionResult> future = executor.submit(() -> seat.handler().passPriority(null, null));
+                talk(seat.handler(), "Opponent", "message " + i);
+                assertThat(future.get(5, TimeUnit.SECONDS).stop_reason).isEqualTo("chat");
+            }
+
+            // each call began on the same game sequence, but chat is a good reason not to have moved the game
+            assertThat(interaction.callsWithoutProgress()).isZero();
+            assertThat(passes.get()).isEqualTo(1);
+        } finally {
+            System.clearProperty(BridgeGameLogState.TABLE_TALK_PROPERTY);
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void afterAChatWakeUpPassPriorityStopsAtADecisionTheModelHasNotSeen() throws Exception {
+        AtomicInteger passes = new AtomicInteger();
+        ChatSeat seat = chatSeatAtEmptyPriority(new CountDownLatch(1), passes);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            System.setProperty(BridgeGameLogState.TABLE_TALK_PROPERTY, "true");
+            Future<ActionResult> first = executor.submit(() -> seat.handler().passPriority(null, null));
+            talk(seat.handler(), "Opponent", "gl hf");
+            assertThat(first.get(5, TimeUnit.SECONDS).stop_reason).isEqualTo("chat");
+
+            // while the model read the chat, its priority came with a land it can play
+            sendPlayablePriority(seat, 44);
+
+            ActionResult result = executor.submit(() -> seat.handler().passPriority(null, null))
+                .get(2, TimeUnit.SECONDS);
+            assertThat(result.stop_reason).isEqualTo("playable_cards");
+            assertThat(result.action_pending).isTrue();
+            assertThat(passes.get()).isEqualTo(1);
+        } finally {
+            System.clearProperty(BridgeGameLogState.TABLE_TALK_PROPERTY);
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void afterAChatWakeUpChooseActionShowsTheNewDecisionInsteadOfUsingItsInput() throws Exception {
+        AtomicInteger passes = new AtomicInteger();
+        ChatSeat seat = chatSeatAtEmptyPriority(new CountDownLatch(1), passes);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            System.setProperty(BridgeGameLogState.TABLE_TALK_PROPERTY, "true");
+            Future<ActionResult> first = executor.submit(() -> seat.handler().passPriority(null, null));
+            talk(seat.handler(), "Opponent", "gl hf");
+            assertThat(first.get(5, TimeUnit.SECONDS).stop_reason).isEqualTo("chat");
+            sendPlayablePriority(seat, 44);
+
+            ChooseActionTool.Result result = executor.submit(() -> seat.handler().chooseAction(
+                null, null, false, null, null, null, null, null, null, null, null
+            )).get(2, TimeUnit.SECONDS);
+
+            assertThat(result.success).isFalse();
+            assertThat(result.error_code).isEqualTo("new_decision");
+            assertThat(result.action_pending).isTrue();
+            assertThat(result.action_type).isEqualTo("GAME_SELECT");
+            assertThat(passes.get()).isEqualTo(1);
+        } finally {
+            System.clearProperty(BridgeGameLogState.TABLE_TALK_PROPERTY);
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void aModelThatLookedAtItsDecisionActsOnItAndChatEndsTheWaitForTheNextOne() throws Exception {
+        CountDownLatch bothPassesSent = new CountDownLatch(2);
+        AtomicInteger passes = new AtomicInteger();
+        ChatSeat seat = chatSeatAtEmptyPriority(bothPassesSent, passes);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            System.setProperty(BridgeGameLogState.TABLE_TALK_PROPERTY, "true");
+            Future<ActionResult> first = executor.submit(() -> seat.handler().passPriority(null, null));
+            talk(seat.handler(), "Opponent", "gl hf");
+            assertThat(first.get(5, TimeUnit.SECONDS).stop_reason).isEqualTo("chat");
+            sendPlayablePriority(seat, 44);
+            assertThat(seat.handler().getActionChoicesSafe(null).action_pending).isTrue();
+
+            Future<ChooseActionTool.Result> choice = executor.submit(() -> seat.handler().chooseAction(
+                null, null, false, null, null, null, null, null, null, null, null
+            ));
+            assertThat(bothPassesSent.await(2, TimeUnit.SECONDS)).isTrue();
+            talk(seat.handler(), "Opponent", "bold move");
+
+            ChooseActionTool.Result result = choice.get(5, TimeUnit.SECONDS);
+            assertThat(result.success).isTrue();
+            assertThat(result.stop_reason).isEqualTo("chat");
+            assertThat(result.action_pending).isFalse();
+            assertThat(result.recent_chat).containsExactly("Opponent: bold move");
+            assertThat(passes.get()).isEqualTo(2);
+        } finally {
+            System.clearProperty(BridgeGameLogState.TABLE_TALK_PROPERTY);
             executor.shutdownNow();
             executor.awaitTermination(1, TimeUnit.SECONDS);
         }
@@ -2221,6 +2392,34 @@ class BridgeCallbackHandlerTest {
                     PendingAction previousAction,
                     ChooseActionTool.Result partialResult) {
                 throw new AssertionError("cancelledChooseActionResult should not run");
+            }
+
+            @Override
+            public boolean chatWaiting(long waitingSinceMs) {
+                return false;
+            }
+
+            @Override
+            public boolean consumeWaitCutForChat() {
+                return false;
+            }
+
+            @Override
+            public void finishChooseActionForChat(
+                    ChooseActionTool.Result result,
+                    PendingAction previousAction,
+                    boolean batch) {
+                throw new AssertionError("finishChooseActionForChat should not run");
+            }
+
+            @Override
+            public ChooseActionTool.Result chatWakeChooseActionResult() {
+                throw new AssertionError("chatWakeChooseActionResult should not run");
+            }
+
+            @Override
+            public ChooseActionTool.Result unseenDecisionChooseActionResult(PendingAction action) {
+                throw new AssertionError("unseenDecisionChooseActionResult should not run");
             }
         };
         BridgeChooseActionFlowManager manager = new BridgeChooseActionFlowManager(
@@ -4446,6 +4645,21 @@ class BridgeCallbackHandlerTest {
                     boolean actionPending) {
                 decisionState.clearPendingPassPriorityFlowIfCurrent(flow);
             }
+
+            @Override
+            public boolean chatWaiting(long waitingSinceMs) {
+                return false;
+            }
+
+            @Override
+            public boolean consumeWaitCutForChat() {
+                return false;
+            }
+
+            @Override
+            public ActionResult chatWakeResult(int gameSeq) {
+                throw new AssertionError("chatWakeResult should not run");
+            }
         };
         BridgePassPriorityFlowManager manager = new BridgePassPriorityFlowManager(
             processor,
@@ -6295,6 +6509,63 @@ class BridgeCallbackHandlerTest {
             UUID gameId,
             Object data) {
         handler.handleCallback(new ClientCallback(method, gameId, data, false));
+    }
+
+    private record ChatSeat(BridgeCallbackHandler handler, UUID gameId, UUID playerId) {
+    }
+
+    /** A model seat at its own priority with nothing to play; every pass it sends is counted. */
+    private static ChatSeat chatSeatAtEmptyPriority(CountDownLatch passSent, AtomicInteger passes) throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        client.setSession(sessionProxy(passSent, passes));
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        GameView view = gameView(21, List.of(playerView(playerId, "TestPlayer", "p2")), new CardsView());
+        setField(view, "myPlayerId", playerId);
+        addActiveGame(handler, gameId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", view);
+        setField(handler, "pendingAction", new PendingAction(
+            gameId,
+            ClientCallbackMethod.GAME_SELECT,
+            new GameClientMessage(view, Collections.<String, Serializable>emptyMap(), "Play instants and activated abilities"),
+            "Play instants and activated abilities",
+            21
+        ));
+        return new ChatSeat(handler, gameId, playerId);
+    }
+
+    /** The model's priority, with a land in hand it can play. */
+    private static void sendPlayablePriority(ChatSeat seat, int gameSeq) throws Exception {
+        UUID landId = UUID.randomUUID();
+        CardView land = cardView(landId, "p11", "Plains");
+        setField(land, "cardTypes", List.of(CardType.LAND));
+        setField(land, "rules", List.of("{T}: Add {W}."));
+        setField(land, "manaCostLeftStr", List.of());
+        setField(land, "manaCostRightStr", List.of());
+        CardsView hand = new CardsView();
+        hand.put(landId, land);
+        GameView view = gameView(gameSeq, List.of(playerView(seat.playerId(), "TestPlayer", "p2")), new CardsView());
+        setField(view, "myPlayerId", seat.playerId());
+        setField(view, "myHand", hand);
+        setField(view, "step", PhaseStep.PRECOMBAT_MAIN);
+        setField(view, "canPlayObjects", playableObjects(Map.of(landId, playStats("Play land"))));
+        enqueueCallback(seat.handler(), ClientCallbackMethod.GAME_UPDATE, seat.gameId(), view);
+        enqueueCallback(
+            seat.handler(),
+            ClientCallbackMethod.GAME_SELECT,
+            seat.gameId(),
+            new GameClientMessage(view, Collections.<String, Serializable>emptyMap(), "Play spells and abilities")
+        );
+        seat.handler().awaitProcessorIdle();
+    }
+
+    /** Another player says something in the game chat. */
+    private static void talk(BridgeCallbackHandler handler, String user, String message) {
+        ChatMessage chat = new ChatMessage(user, message, new Date(), null, ChatMessage.MessageColor.BLUE);
+        handler.handleCallback(new ClientCallback(ClientCallbackMethod.CHATMESSAGE, UUID.randomUUID(), chat));
+        handler.awaitProcessorIdle();
     }
 
     private static GameView gameView(int gameSeq, UUID... stackObjectIds) throws Exception {

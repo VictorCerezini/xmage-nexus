@@ -120,4 +120,32 @@ public final class BridgeChooseActionFlowContextImpl implements BridgeChooseActi
             ChooseActionTool.Result partialResult) {
         return decisionFlowService.cancelledChooseActionResult(previousAction, partialResult);
     }
+
+    @Override
+    public boolean chatWaiting(long waitingSinceMs) {
+        return decisionFlowService.chatWaiting(waitingSinceMs);
+    }
+
+    @Override
+    public boolean consumeWaitCutForChat() {
+        return decisionFlowService.consumeWaitCutForChat();
+    }
+
+    @Override
+    public void finishChooseActionForChat(
+            ChooseActionTool.Result result,
+            PendingAction previousAction,
+            boolean batch) {
+        decisionFlowService.finishChooseActionForChat(result, previousAction, batch);
+    }
+
+    @Override
+    public ChooseActionTool.Result chatWakeChooseActionResult() {
+        return decisionFlowService.chatWakeChooseActionResult();
+    }
+
+    @Override
+    public ChooseActionTool.Result unseenDecisionChooseActionResult(PendingAction action) {
+        return decisionFlowService.unseenDecisionChooseActionResult(action);
+    }
 }

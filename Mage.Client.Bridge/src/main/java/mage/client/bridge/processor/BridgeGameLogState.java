@@ -21,10 +21,18 @@ public final class BridgeGameLogState {
         return Boolean.getBoolean(TABLE_TALK_PROPERTY);
     }
 
+    /**
+     * A model waiting for its next decision is woken by what another player says, this long after the first
+     * message it has not read: a few lines typed in a row reach it together.
+     */
+    public static final long CHAT_WAKE_DELAY_MS = 1500;
+
     private record PendingOutgoingChat(String message, long sentAtMs) {
     }
 
     private final List<String> unseenChat = new ArrayList<>();
+    // When the first player message the model has not read came in; 0 when there is none
+    private long firstUnseenTalkAtMs = 0;
     private final List<BridgePublishedLogEntry> publishedLog = new ArrayList<>();
     private final Set<Integer> publishedBridgeEventIndexes = new HashSet<>();
     private final ArrayDeque<PendingOutgoingChat> pendingOutgoingChatEchoes = new ArrayDeque<>();
@@ -35,6 +43,7 @@ public final class BridgeGameLogState {
 
     public void reset() {
         unseenChat.clear();
+        firstUnseenTalkAtMs = 0;
         publishedLog.clear();
         publishedBridgeEventIndexes.clear();
         pendingOutgoingChatEchoes.clear();
@@ -68,7 +77,18 @@ public final class BridgeGameLogState {
         appendRenderedEntry("[Chat] " + user + ": " + msg);
         if (!user.equals(username)) {
             unseenChat.add(user + ": " + msg);
+            if (firstUnseenTalkAtMs == 0) {
+                firstUnseenTalkAtMs = Math.max(nowMs, 1);
+            }
         }
+    }
+
+    /**
+     * True when another player said something the model has not read, at least CHAT_WAKE_DELAY_MS ago: a model
+     * waiting for its next decision is then woken to read it. The bridge's own notes never wake it.
+     */
+    public boolean talkToWakeFor(long nowMs) {
+        return firstUnseenTalkAtMs != 0 && nowMs - firstUnseenTalkAtMs >= CHAT_WAKE_DELAY_MS;
     }
 
     public void addSystemMessage(String message) {
@@ -175,6 +195,7 @@ public final class BridgeGameLogState {
     }
 
     private List<String> drainUnseenChat() {
+        firstUnseenTalkAtMs = 0;
         if (unseenChat.isEmpty()) {
             return null;
         }

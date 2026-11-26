@@ -436,6 +436,7 @@ class LlmSeatsTest {
         assertFalse(request.has("backup_model"));
         // table chat is off unless the host turns it on for the seat
         assertFalse(request.get("chat").getAsBoolean());
+        assertFalse(request.has("personality"));
     }
 
     @Test
@@ -446,6 +447,24 @@ class LlmSeatsTest {
 
         await("the launch", () -> processes.size() == 1);
         assertTrue(processes.get(0).request().get("chat").getAsBoolean());
+        assertEquals("standard", processes.get(0).request().get("personality").getAsString());
+    }
+
+    @Test
+    void theChatPersonalityTheHostPickedReachesTheSeat() throws Exception {
+        LlmSeats seats = seats(4);
+        JsonObject args = table("[" + seat(2, ",\"chat\":true,\"personality\":\"spicy\"") + "]");
+        seats.start(seats.prepare(args), args, TABLE);
+
+        await("the launch", () -> processes.size() == 1);
+        assertEquals("spicy", processes.get(0).request().get("personality").getAsString());
+    }
+
+    @Test
+    void aPersonalityMustBeKnownAndNeedsTableChat() throws Exception {
+        LlmSeats seats = seats(4);
+        assertRefused(seats, table("[" + seat(2, ",\"chat\":true,\"personality\":\"rude\"") + "]"), "unknown personality");
+        assertRefused(seats, table("[" + seat(2, ",\"personality\":\"spicy\"") + "]"), "needs table chat");
     }
 
     @Test

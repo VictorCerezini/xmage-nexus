@@ -807,6 +807,110 @@ public final class BridgeDecisionFlowService {
         attachUnseenChat(result);
     }
 
+    static final String CHAT_WAKE_NOTE = "No decision for you yet: another player wrote in the table chat "
+        + "(recent_chat). Answer with send_chat_message if you like, then call pass_priority again (with the same "
+        + "until, if you gave one) to keep waiting.";
+
+    /**
+     * True when table chat is on, another player wrote something the model has not read, and the call has been
+     * waiting for the model's next decision a while (since waitingSinceMs): the call then ends, so the model can
+     * read it and answer while others play. A decision that comes right after the model's own move brings the
+     * chat along instead.
+     */
+    public boolean chatWaiting(long waitingSinceMs) {
+        long now = System.currentTimeMillis();
+        return BridgeGameLogState.tableTalkOn()
+            && waitingSinceMs > 0
+            && now - waitingSinceMs >= BridgeGameLogState.CHAT_WAKE_DELAY_MS
+            && processorState.gameLogState().talkToWakeFor(now);
+    }
+
+    /** True once after a wait ended for table chat: the model has not seen what came in since. */
+    public boolean consumeWaitCutForChat() {
+        return processorState.decisionState().consumeWaitCutForChat();
+    }
+
+    /** The model saw its decision (get_action_choices), so the next call may act on it as usual. */
+    public void clearWaitCutForChat() {
+        processorState.decisionState().consumeWaitCutForChat();
+    }
+
+    private void markChatWake(String flow) {
+        processorState.decisionState().markWaitCutForChat();
+        processorState.interactionState().dontCountLastCall();
+        logger.info("[" + username + "] " + flow + " woke for table chat");
+    }
+
+    private int viewGameSeq() {
+        GameView view = processorState.gameState().lastGameView();
+        return view != null ? view.getGameSeq() : -1;
+    }
+
+    /** pass_priority was waiting while others play; it ends so the model can read the chat. */
+    public ActionResult chatWakeResult(int gameSeq) {
+        var result = new ActionResult();
+        result.action_pending = false;
+        result.stop_reason = "chat";
+        result.game_seq = gameSeq > 0 ? gameSeq : viewGameSeq();
+        result.note = CHAT_WAKE_NOTE;
+        markChatWake("passPriority");
+        return result;
+    }
+
+    /** The model's choice was made and no next decision has come yet; the call ends for the chat. */
+    public void finishChooseActionForChat(
+            ChooseActionTool.Result result,
+            PendingAction previousAction,
+            boolean batch) {
+        result.action_pending = false;
+        result.stop_reason = "chat";
+        result.note = CHAT_WAKE_NOTE;
+        if (!batch) {
+            reportCancelledSpells(result);
+        }
+        attachUnseenChat(result);
+        markChatWake("chooseAction");
+        if (previousAction != null) {
+            String summary = "after=" + summarizePendingAction(previousAction) + ",woke_to=chat";
+            eventLogger.log("CHOOSE_ACTION_WAKEUP", previousAction.gameId(), summary);
+        }
+    }
+
+    /** choose_action was called with no decision open and chat came before one did; nothing was chosen. */
+    public ChooseActionTool.Result chatWakeChooseActionResult() {
+        var result = new ChooseActionTool.Result();
+        result.success = false;
+        result.error_code = "no_decision_yet";
+        result.error = "Nothing was chosen: you have no decision yet.";
+        result.retryable = true;
+        result.action_pending = false;
+        result.stop_reason = "chat";
+        result.game_seq = viewGameSeq();
+        result.note = CHAT_WAKE_NOTE;
+        attachUnseenChat(result);
+        markChatWake("chooseAction");
+        return result;
+    }
+
+    /**
+     * After a wait ended for table chat, choose_action found a decision the model has not seen yet. Its input
+     * was meant for something else, so it is not used: the model gets the decision to answer.
+     */
+    public ChooseActionTool.Result unseenDecisionChooseActionResult(PendingAction action) {
+        var result = new ChooseActionTool.Result();
+        result.success = false;
+        result.error_code = "new_decision";
+        result.error = "Nothing was chosen: this decision came after you stopped to read the table chat, "
+            + "and you had not seen it yet. Answer it with choose_action.";
+        result.retryable = true;
+        result.game_seq = action.gameSeq();
+        mergeActionChoices(result, null, action);
+        attachUnseenChat(result);
+        logger.info("[" + username + "] chooseAction: new decision " + summarizePendingAction(action)
+            + " since the chat wake-up, input not used");
+        return result;
+    }
+
     public ChooseActionTool.Result cancelledChooseActionResult(
             PendingAction previousAction,
             ChooseActionTool.Result partialResult) {

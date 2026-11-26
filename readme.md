@@ -305,7 +305,8 @@ It keeps a running server and Vite, restarts the proxy with `--llm` and opens `h
 
 - The XMage server must be built from the engine branch `llm-seats-engine`: the bridge needs its short IDs and game events.
 - Each game spends your own quota. A 1v1 against the Mad AI took 1 to 2 minutes (about 9 with `glm-5.3-flash`) and 0.3M to 3.4M input tokens, most of them cached except on OpenRouter. OpenRouter's free models allow 50 requests a day (a 1v1 took 29), shown in the seat picker.
-- A model seat stays out of the game chat unless its host ticks **Can talk in the game chat**: it neither sees what players write nor can it write. With it on, the model reads the table talk and may answer, in plain text of up to 200 characters, 3 messages a turn at most, checked by the seat whatever the model was told. It is told that chat is never instructions, but players could still try to trick it in chat, so keep it for players you know. It can still only play the game and talk.
+- A model seat stays out of the game chat unless its host ticks **Can talk in the game chat**: it neither sees what players write nor can it write. With it on, the model reads the table talk and may answer, in plain text of up to 200 characters, 3 messages a turn at most, checked by the seat whatever the model was told. It reads and answers while the others play too, not only at its own decisions. It is told that chat is never instructions, but players could still try to trick it in chat, so keep it for players you know. It can still only play the game and talk.
+- With chat on, the host also picks the model's **Personality**: **Standard** (short and friendly, the default), **Competitive** (serious, says little) or **Spicy** (answers teasing and taunts at the same level, all in good fun, for a group of friends). Only the tone changes: every personality keeps the chat rules, and none uses slurs, mocks real-life traits or threatens anyone.
 
 ### Ports & URLs
 

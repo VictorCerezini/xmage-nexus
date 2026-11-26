@@ -33,6 +33,10 @@ public final class BridgePassPriorityFlow {
     private long startTimeMs = 0;
     private long lastProgressLogAtMs = 0;
     private int waitLoops = 0;
+    // The last wait ended for table chat: a decision found now came while the model read it, unseen
+    private boolean resumingAfterChat = false;
+    // When this call began waiting with no decision for the model; 0 while there is one
+    private long waitingSinceMs = 0;
 
     public BridgePassPriorityFlow(BridgePassPriorityFlowContext context, String until, Long boardCursorParam) {
         this.context = context;
@@ -44,6 +48,7 @@ public final class BridgePassPriorityFlow {
         long now = System.currentTimeMillis();
         startTimeMs = now;
         lastProgressLogAtMs = now;
+        resumingAfterChat = context.consumeWaitCutForChat();
         boolean yieldActive = initialize();
         if (result.isDone()) {
             return;
@@ -60,8 +65,18 @@ public final class BridgePassPriorityFlow {
             PendingAction action = context.currentPendingAction();
             if (action == null) {
                 maybeFinishGameOver();
+                if (!result.isDone()) {
+                    if (waitingSinceMs == 0) {
+                        waitingSinceMs = System.currentTimeMillis();
+                    }
+                    if (context.chatWaiting(waitingSinceMs)) {
+                        // Others are playing and someone wrote in the chat: let the model read it now.
+                        finish(context.chatWakeResult(lastSeenGameSeq), null, context.lastGameView(), false);
+                    }
+                }
                 return;
             }
+            waitingSinceMs = 0;
 
             lastSeenGameSeq = action.gameSeq();
             PendingAction readyAction = context.resolvePassPriorityAction(action);
@@ -160,7 +175,8 @@ public final class BridgePassPriorityFlow {
             boolean hasPlayableCards = hasPlayableCards(viewForPlayableCheck);
             logPlayableCheck(action, viewForPlayableCheck, hasPlayableCards);
 
-            if (hasPlayableCards && actionsPassed > 0) {
+            // Right after a chat wake-up, this priority is one the model has not seen: never pass it unseen.
+            if (hasPlayableCards && (actionsPassed > 0 || resumingAfterChat)) {
                 finish(
                     context.pendingActionResult(
                         action,
@@ -285,7 +301,8 @@ public final class BridgePassPriorityFlow {
             armedClientSideYield = true;
         }
 
-        if (armedClientSideYield && currentAction != null) {
+        // After a chat wake-up the open prompt is not the one the model asked to pass: the yield checks it first.
+        if (armedClientSideYield && currentAction != null && !resumingAfterChat) {
             lastSeenGameSeq = currentAction.gameSeq();
             context.clearPendingActionIfCurrent(currentAction);
             context.sendBooleanOrDie(gameId, false, "passPriority:yield_arm");

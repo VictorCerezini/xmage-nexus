@@ -570,7 +570,19 @@ public class BridgeCallbackHandler {
      * MCP tool boundary wrapper for get_action_choices.
      */
     public ActionResult getActionChoicesSafe(Long boardCursorParam) {
-        return mcpQueryApi.getActionChoicesSafe(boardCursorParam);
+        ActionResult choices = mcpQueryApi.getActionChoicesSafe(boardCursorParam);
+        if (Boolean.TRUE.equals(choices.action_pending)) {
+            // The model has now seen its decision, even if a wait before ended for table chat.
+            try {
+                processor.submit(BridgeCommand.of(() -> {
+                    decisionFlowService.clearWaitCutForChat();
+                    return null;
+                }));
+            } catch (IllegalStateException ignored) {
+                // shutting down
+            }
+        }
+        return choices;
     }
     static String validateMultiAmountInput(GameClientMessage msg, int[] amounts) {
         return BridgeDecisionFlowService.validateMultiAmountInput(msg, amounts);

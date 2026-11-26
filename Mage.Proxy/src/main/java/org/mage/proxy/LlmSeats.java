@@ -43,6 +43,9 @@ final class LlmSeats {
     static final long STOP_GRACE_MS = 20_000;
     static final String BRIDGE = "bridge";
     static final String MCP = "mcp";
+    /** The table chat personalities a host can pick for a model seat; the seat holds what each one means. */
+    static final List<String> PERSONALITIES = List.of("standard", "competitive", "spicy");
+    static final String DEFAULT_PERSONALITY = "standard";
     /** In a seat's run folder while it plays: what starts it again after the proxy stopped. */
     static final String RESTORE_NOTE = "seat-restore.json";
     /** A restore note a seat that started again took, kept for its history. */
@@ -59,15 +62,18 @@ final class LlmSeats {
         final String engine;
         /** The host lets this model read and write the game chat; off unless asked for. */
         final boolean chat;
+        /** How the model talks in table chat: one of {@link #PERSONALITIES}. */
+        final String personality;
 
         Plan(int seat, LlmCatalog.Selection selection, LlmCatalog.Selection backup, DeckCardLists deck, String engine,
-                boolean chat) {
+                boolean chat, String personality) {
             this.seat = seat;
             this.selection = selection;
             this.backup = backup;
             this.deck = deck;
             this.engine = engine;
             this.chat = chat;
+            this.personality = personality;
         }
     }
 
@@ -270,7 +276,14 @@ final class LlmSeats {
             if (chat && !BRIDGE.equals(engine)) {
                 throw new IllegalArgumentException("Model seat " + seat + " can chat only with the bridge engine");
             }
-            plans.add(new Plan(seat, selection, backup, deck, engine, chat));
+            String personality = JsonArgs.str(entry, "personality", DEFAULT_PERSONALITY);
+            if (!PERSONALITIES.contains(personality)) {
+                throw new IllegalArgumentException("Model seat " + seat + " has an unknown personality: " + personality);
+            }
+            if (!chat && !DEFAULT_PERSONALITY.equals(personality)) {
+                throw new IllegalArgumentException("Model seat " + seat + " needs table chat for a personality");
+            }
+            plans.add(new Plan(seat, selection, backup, deck, engine, chat, personality));
         }
         int live = NAMES.live();
         if (live + plans.size() > runtime.maxSeats()) {
@@ -345,6 +358,9 @@ final class LlmSeats {
         request.addProperty("run", run.toString());
         request.addProperty("engine", plan.engine);
         request.addProperty("chat", plan.chat);
+        if (plan.chat) {
+            request.addProperty("personality", plan.personality);
+        }
         if (MCP.equals(plan.engine)) {
             request.addProperty("proxy_url", "ws://127.0.0.1:" + proxyPort);
         }

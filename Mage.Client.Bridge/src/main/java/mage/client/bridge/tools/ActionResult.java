@@ -137,7 +137,8 @@ public class ActionResult {
     public List<String> recent_chat;
 
     @ResultField(description = "Why returned: playable_cards, combat, non_priority_action, "
-        + "game_over, reached_step, step_not_reached, stack_resolved, end_of_turn, turn_advanced, cancelled")
+        + "game_over, reached_step, step_not_reached, stack_resolved, end_of_turn, turn_advanced, cancelled, "
+        + "chat (table chat came in while you waited; no decision for you yet)")
     public String stop_reason;
 
     @ResultField(description = "Current step (for reached_step/step_not_reached)")

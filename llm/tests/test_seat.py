@@ -1454,9 +1454,10 @@ def test_table_chat_is_off_unless_the_host_turns_it_on(harness, monkeypatch):
     assert seat.run_player(request, runtime=runtime, start_player=start) == 0
     assert "-Dxmage.bridge.tableTalk=false" in arguments
     assert "tools" not in start.call_args.kwargs
-    assert seat.CHAT_PROMPT not in start.call_args.args[0]
+    assert "Table chat is on" not in start.call_args.args[0]
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     assert "chat" not in manifest
+    assert "personality" not in manifest
     assert "chat_messages" not in manifest["games"][0]
 
 
@@ -1478,14 +1479,48 @@ def test_a_seat_with_table_chat_gets_the_chat_tool_and_the_rules_for_table_talk(
     assert "-Dxmage.bridge.tableTalk=true" in arguments
     assert allowed == [*seat.subscription_client.TOOLS, seat.subscription_client.CHAT_TOOL]
     assert start.call_args.kwargs["tools"] == allowed
-    assert seat.CHAT_PROMPT in start.call_args.args[0]
+    prompt = start.call_args.args[0]
+    assert seat.CHAT_PROMPT.format(personality=seat.PERSONALITIES["standard"]) in prompt
+    # chat can end a wait while the others play, and the model learns how to keep waiting
+    assert "stop_reason=chat" in prompt and "call pass_priority again" in prompt
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     assert manifest["chat"] is True
+    assert manifest["personality"] == "standard"
     assert manifest["games"][0]["chat_messages"] == 2
+
+
+@pytest.mark.parametrize("personality", ["competitive", "spicy"])
+def test_the_personality_the_host_picked_sets_how_the_model_talks(harness, monkeypatch, personality):
+    request, runtime, _stopped, gateway = harness
+    request.update(chat=True, personality=personality)
+    gateway.chat_messages = 0
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+    start = Mock(return_value=SimpleNamespace(poll=lambda: 0, returncode=0))
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    prompt = start.call_args.args[0]
+    # the same table chat rules, in the chosen tone
+    assert seat.CHAT_PROMPT.format(personality=seat.PERSONALITIES[personality]) in prompt
+    assert seat.PERSONALITIES["standard"] not in prompt
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["personality"] == personality
 
 
 def test_table_chat_must_be_true_or_false(harness):
     request, *_ = harness
     request["chat"] = "yes"
     with pytest.raises(ValueError, match="true or false"):
+        seat.validate_request(request)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"chat": True, "personality": "rude"}, "Unknown personality"),
+        ({"personality": "spicy"}, "turn table chat on"),
+    ],
+)
+def test_a_personality_must_be_known_and_needs_table_chat(harness, change, message):
+    request, *_ = harness
+    request.update(change)
+    with pytest.raises(ValueError, match=message):
         seat.validate_request(request)

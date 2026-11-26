@@ -191,4 +191,19 @@ public final class BridgePassPriorityFlowContextImpl implements BridgePassPriori
             actionPending
         );
     }
+
+    @Override
+    public boolean chatWaiting(long waitingSinceMs) {
+        return decisionFlowService.chatWaiting(waitingSinceMs);
+    }
+
+    @Override
+    public boolean consumeWaitCutForChat() {
+        return decisionFlowService.consumeWaitCutForChat();
+    }
+
+    @Override
+    public ActionResult chatWakeResult(int gameSeq) {
+        return decisionFlowService.chatWakeResult(gameSeq);
+    }
 }

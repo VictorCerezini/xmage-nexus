@@ -3,9 +3,11 @@ import Checkbox from '../../ui/Checkbox'
 import Field from '../../ui/Field'
 import Icon from '../../ui/Icon'
 import type { LlmProvider } from '../../net/types'
-import { llmBackupValue, type LlmSeatChoice } from './llmSeats'
+import { LLM_PERSONALITIES, llmBackupValue, type LlmPersonality, type LlmSeatChoice } from './llmSeats'
 
-export default function LlmSeatFields({ idx, provider, providers, choice, onModel, onEffort, onBackup, onChat }: {
+export default function LlmSeatFields({
+  idx, provider, providers, choice, onModel, onEffort, onBackup, onChat, onPersonality,
+}: {
   idx: number
   provider: LlmProvider
   /** Every signed-in provider: any of their models may back this seat up. */
@@ -15,8 +17,10 @@ export default function LlmSeatFields({ idx, provider, providers, choice, onMode
   onEffort: (effort: string) => void
   onBackup: (modelId: string) => void
   onChat: (on: boolean) => void
+  onPersonality: (personality: LlmPersonality) => void
 }) {
   const { t } = useTranslation()
+  const personality: LlmPersonality = choice.personality ?? 'standard'
   const efforts = provider.models.find((m) => m.id === choice.model)?.efforts ?? []
   const quota = provider.freeRequestsToday
   const backup = choice.backupModel ? llmBackupValue(choice.backupProvider ?? choice.provider, choice.backupModel) : ''
@@ -61,6 +65,20 @@ export default function LlmSeatFields({ idx, provider, providers, choice, onMode
         description={t('lobby', 'create_seat_llm_chat_hint')}
         inputTestId={`seat-llm-chat-${idx}`}
       />
+      {choice.chat === true && (
+        <Field label={t('lobby', 'create_seat_llm_personality')} hint={t('lobby', `create_seat_llm_personality_${personality}_hint`)}>
+          <select
+            data-testid={`seat-llm-personality-${idx}`}
+            value={personality}
+            onChange={(e) => onPersonality(e.target.value as LlmPersonality)}
+            className="create-seat-select"
+          >
+            {LLM_PERSONALITIES.map((p) => (
+              <option key={p} value={p}>{t('lobby', `create_seat_llm_personality_${p}`)}</option>
+            ))}
+          </select>
+        </Field>
+      )}
       <span className="wizard-hint-box"><Icon name="bot" size={11} /> {t('lobby', 'create_seat_llm_hint', { auth: provider.auth })}</span>
       {typeof quota?.remaining === 'number' && typeof quota.limit === 'number' && (
         <span className="wizard-hint-box">{t('lobby', 'create_seat_llm_free_left', { remaining: quota.remaining, limit: quota.limit })}</span>

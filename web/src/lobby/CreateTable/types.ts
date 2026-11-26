@@ -3,7 +3,7 @@ import type { GameTypeInfo } from '../../net/commands'
 import type { LlmProvider, LlmUnavailable } from '../../net/types'
 import type { Deck } from '../decks'
 import type { CreateKind, CreateTab, DraftTiming, SeatConfig, SeatLimits, TableCategory, TournamentCategory, WizardStep } from './constants'
-import type { LlmSeatChoice } from './llmSeats'
+import type { LlmPersonality, LlmSeatChoice } from './llmSeats'
 import type { TournamentChoice } from '../tournament/tournamentType'
 
 /** Everything the Create Table wizard tabs read and change (see `useCreateTableForm`). */
@@ -159,5 +159,7 @@ export interface CreateTableForm {
   setLlmBackup: (idx: number, value: string) => void
   /** Lets the model read and write the game chat, or not (the default). */
   setLlmChat: (idx: number, on: boolean) => void
+  /** How the model talks in table chat; `standard` is the default. */
+  setLlmPersonality: (idx: number, personality: LlmPersonality) => void
   refreshLlmCatalog: () => Promise<void>
 }

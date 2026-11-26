@@ -342,6 +342,7 @@ function SeatEditor({ form, idx, seatNumber, findSeatDeck }: { form: CreateTable
               onEffort={(e) => form.setLlmEffort(idx, e)}
               onBackup={(m) => form.setLlmBackup(idx, m)}
               onChat={(on) => form.setLlmChat(idx, on)}
+              onPersonality={(p) => form.setLlmPersonality(idx, p)}
             />
           )}
           {!form.isDraftLimited && (

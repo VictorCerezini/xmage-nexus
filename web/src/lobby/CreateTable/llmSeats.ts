@@ -4,6 +4,14 @@ import { isHumanSeatType, type SeatConfig } from './constants'
 /** Seat-type select value of a model seat: `llm:<provider id>`. The server seat stays HUMAN. */
 export const LLM_SEAT_PREFIX = 'llm:'
 
+/** How a model with table chat talks; the seat's prompt holds what each one means. `standard` is the default. */
+export const LLM_PERSONALITIES = ['standard', 'competitive', 'spicy'] as const
+export type LlmPersonality = (typeof LLM_PERSONALITIES)[number]
+
+function isLlmPersonality(value: unknown): value is LlmPersonality {
+  return typeof value === 'string' && (LLM_PERSONALITIES as readonly string[]).includes(value)
+}
+
 export interface LlmSeatChoice {
   provider: string
   model: string
@@ -16,6 +24,8 @@ export interface LlmSeatChoice {
   backupEffort?: string
   /** The host lets the model read and write the game chat; absent means off. */
   chat?: boolean
+  /** How the model talks in table chat, sent only with `chat`; absent means `standard`. */
+  personality?: Exclude<LlmPersonality, 'standard'>
 }
 
 /** A model seat ready for `createTable`: `seat` is 1-based into `playerTypes`, `idx` indexes `seatConfigs`. */
@@ -136,13 +146,14 @@ export function readSavedLlmChoices(raw: unknown): Record<number, LlmSeatChoice>
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     const idx = Number(key)
     if (!Number.isInteger(idx) || idx < 0 || !value || typeof value !== 'object') continue
-    const { provider, model, effort, backupProvider, backupModel, chat } = value as Record<string, unknown>
+    const { provider, model, effort, backupProvider, backupModel, chat, personality } = value as Record<string, unknown>
     if (typeof provider === 'string' && typeof model === 'string' && typeof effort === 'string') {
       out[idx] = { provider, model, effort }
       if (typeof backupModel === 'string' && backupModel) {
         out[idx] = { ...out[idx], backupModel, ...(typeof backupProvider === 'string' && backupProvider ? { backupProvider } : {}) }
       }
       if (chat === true) out[idx] = { ...out[idx], chat }
+      if (isLlmPersonality(personality) && personality !== 'standard') out[idx] = { ...out[idx], personality }
     }
   }
   return out

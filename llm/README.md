@@ -204,6 +204,25 @@ for the game client) and without `<` or `>`; anything else is refused back to
 the model. Each game's record in `manifest.json` counts the messages sent
 (`chat_messages`), and `player-tools.jsonl` has their text.
 
+Chat also reaches the model while the others play. When another player writes
+and the model's `pass_priority` or `choose_action` has been waiting at least
+1.5 s for its next decision, the call returns early with `stop_reason=chat`,
+`action_pending=false` and the messages in `recent_chat`. A few lines typed in a
+row arrive together, since the bridge waits 1.5 s after the first one. The
+model may answer, then calls `pass_priority` again to keep waiting. That next
+call never passes a decision that came in meanwhile, which the model has not
+seen: `pass_priority` stops at it, and `choose_action` returns it unanswered
+(`error_code=new_decision`) unless `get_action_choices` showed it first. These
+wake-ups don't count as calls that leave the game where it was, so they never
+make the bridge answer a prompt by itself. The bridge's own notes never wake
+the model.
+
+With chat on, `"personality"` sets the model's tone: `standard` (the default),
+`competitive` or `spicy` (the host's **Personality** list). `PERSONALITIES` in
+`seat.py` holds one prompt line for each; the table chat rules around it stay
+the same, and `manifest.json` records the one used. A personality other than
+`standard` without chat is refused by the proxy and the seat.
+
 ## Boundaries
 
 - The CLI gets only the eight game tools and `report_problem` (and

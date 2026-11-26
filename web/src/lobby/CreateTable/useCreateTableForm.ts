@@ -74,6 +74,7 @@ import {
   llmProviders,
   planLlmSeats,
   readSavedLlmChoices,
+  type LlmPersonality,
   type LlmSeatChoice,
 } from './llmSeats'
 
@@ -631,6 +632,12 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     const { chat: _chat, ...rest } = current
     setLlmChoices((prev) => ({ ...prev, [idx]: on ? { ...rest, chat: true } : rest }))
   }
+  const setLlmPersonality = (idx: number, personality: LlmPersonality) => {
+    const current = activeLlm[idx]
+    if (!current) return
+    const { personality: _personality, ...rest } = current
+    setLlmChoices((prev) => ({ ...prev, [idx]: personality === 'standard' ? rest : { ...rest, personality } }))
+  }
   const refreshLlmCatalog = () => loadLlmCatalog({ refresh: true })
   const setSeatDeck = (idx: number, deckRefValue: string) => {
     setSeatConfigs((prev) => prev.map((s, i) => (i === idx ? { ...s, deckName: deckRefValue } : s)))
@@ -825,6 +832,7 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     setLlmEffort,
     setLlmBackup,
     setLlmChat,
+    setLlmPersonality,
     refreshLlmCatalog,
     resetToDefaults,
   }
