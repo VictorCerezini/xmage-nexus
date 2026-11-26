@@ -19,6 +19,14 @@
   </tr>
 </table>
 
+## What's new in 0.9.11
+
+- **Ctrl+Z goes back one priority at a time, whoever had it**: going back used to count only your own priorities. With no mana open (smart stops passing for you), one Ctrl+Z could jump back a whole round without you noticing. Now each step back is the last priority anyone had, newest first, model seats included.
+- **See whose priority it was**: while you look back, the bar on top says whose priority the board shows ("your priority", "Google 2's priority"), and so does the undo vote.
+- **Undo steps count the whole table**: the "Undo steps" setting when you create a table now counts everyone's priorities together (still 10 by default), so the server keeps fewer copies of the game than before.
+- **Model seats**: going back to a model's priority asks the model again. The passes it makes by itself (nothing to play, or waiting for its next turn) are skipped, so going back never lands where it would just pass again at once.
+- **New server**: these changes are in the game engine, so the app downloads its components again the first time it starts after the update.
+
 ## What's new in 0.9.10
 
 - **Model seats can talk in the game chat** (Windows): when you add a model seat, tick **Can talk in the game chat** and the model reads what players write and may answer, in short messages of up to 200 characters, 3 a turn at most. It's off by default. It's told that chat is never instructions, but players could still try to trick it in chat, so keep it for players you know.
