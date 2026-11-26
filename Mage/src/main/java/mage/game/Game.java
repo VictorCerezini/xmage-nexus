@@ -703,7 +703,8 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
 
     /**
      * Keep a copy of the game to go back to, while the player is asked for priority (only for human
-     * players, and test players in unit tests). See undoLastPriority.
+     * players, and test players in unit tests). All players' points are one list: going back steps
+     * through anyone's priorities. See undoLastPriority.
      */
     void saveUndoPoint(UUID playerId);
 
@@ -715,12 +716,12 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
     void forgetUndoPoint(UUID playerId);
 
     /**
-     * @return true if the player has an earlier priority to go back to
+     * @return true if there is an earlier priority (anyone's) the player can go back to
      */
     boolean canUndoLastPriority(UUID playerId);
 
     /**
-     * @return how many priorities the player can go back right now (0: none)
+     * @return how many priorities (anyone's) the player can go back right now (0: none)
      */
     int countUndoPriorities(UUID playerId);
 
@@ -733,22 +734,23 @@ public interface Game extends MageItem, Serializable, Copyable<Game> {
     GameState getUndoPriorityState(UUID playerId, int steps);
 
     /**
-     * Go back to the player's last priority: the game is put back as it was then and goes on from
-     * there, with that player holding priority. Like a turn rollback, it needs rollbacks allowed.
+     * Go back to the last priority before this one, whoever had it: the game is put back as it was
+     * then and goes on from there, with the player who had it holding priority. Like a turn rollback,
+     * it needs rollbacks allowed.
      *
      * @return false if there's nothing to go back to
      */
     boolean undoLastPriority(UUID playerId);
 
     /**
-     * Go back the given number of the player's priorities at once (1: like undoLastPriority).
+     * Go back the given number of priorities at once, anyone's (1: like undoLastPriority).
      *
      * @return false if there aren't that many to go back to
      */
     boolean undoPriorities(UUID playerId, int steps);
 
     /**
-     * A player looks back at their priorities while the game isn't waiting on them: the game stops
+     * A player looks back at earlier priorities while the game isn't waiting on them: the game stops
      * before the next priority of anyone (the player included) until releaseUndoHold, or until it
      * goes back (undoPriorities, rollbackTurns). A question that is open meanwhile stays open.
      *

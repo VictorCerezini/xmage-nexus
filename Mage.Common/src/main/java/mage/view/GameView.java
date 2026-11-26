@@ -70,7 +70,7 @@ public class GameView implements Serializable {
     private final int turn;
     private boolean special = false;
     private final boolean rollbackTurnsAllowed;
-    // the player this view is for has an earlier priority to go back to (see Game.undoLastPriority)
+    // the player this view is for has an earlier priority (anyone's) to go back to (see Game.undoLastPriority)
     private final boolean canUndoPriority;
     // how many priorities that player can go back right now (see Game.undoPriorities)
     private final int undoPriorityCount;

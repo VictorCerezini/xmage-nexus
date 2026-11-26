@@ -3,7 +3,7 @@ package mage.view;
 import java.io.Serializable;
 
 /**
- * The game as it was some of a player's priorities back, shown without going back (Game.undoPriorities):
+ * The game as it was some priorities back (anyone's), shown without going back (Game.undoPriorities):
  * to the player while they choose how far to go back, and to everyone while the others are asked
  * to agree. Each player gets it as they saw it (their own hand, not the others').
  */

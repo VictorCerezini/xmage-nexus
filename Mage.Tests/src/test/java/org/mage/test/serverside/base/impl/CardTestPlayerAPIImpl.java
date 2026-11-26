@@ -2050,6 +2050,15 @@ public abstract class CardTestPlayerAPIImpl extends MageTestPlayerBase implement
     }
 
     /**
+     * The player's client passes this priority unseen and says so first, like a model seat's bridge
+     * (PlayerAction.UNDO_SKIP_PRIORITY, then the usual pass): going back skips it.
+     */
+    public void unseenPass(int turnNum, PhaseStep step, TestPlayer player) {
+        player.setKeepUndoPoints(true);
+        addPlayerAction(player, turnNum, step, "playerAction:UnseenPass");
+    }
+
+    /**
      * Adds a number of actions that will be added to the start of the
      * list of actions of the players but only after the rollback is executed
      * because otherwise the actions are executed to early and would lead to

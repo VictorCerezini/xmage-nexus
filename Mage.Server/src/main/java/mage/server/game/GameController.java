@@ -735,7 +735,7 @@ public class GameController implements GameCallback {
                 }
                 game.undo(getPlayerId(userId));
                 break;
-            case UNDO_PREVIEW: // show the player the game some of their priorities back, nothing changes
+            case UNDO_PREVIEW: // show the player the game some priorities back (anyone's), nothing changes
                 sendUndoPreview(userId, data instanceof Integer ? (Integer) data : 1);
                 break;
             case UNDO_HOLD: // look back while the game isn't waiting on the player: it stops at the next priority
@@ -753,7 +753,7 @@ public class GameController implements GameCallback {
                 }
                 break;
             }
-            case UNDO_LAST_PRIORITY: // go back some of the player's priorities (data, 1 if none), the other humans must agree
+            case UNDO_LAST_PRIORITY: // go back some priorities, anyone's (data, 1 if none), the other humans must agree
             {
                 UUID playerId = getPlayerId(userId);
                 Player player = playerId == null ? null : game.getPlayer(playerId);
@@ -1312,7 +1312,7 @@ public class GameController implements GameCallback {
     }
 
     /**
-     * Every other human in the game, who must let the requester go back some of their priorities
+     * Every other human in the game, who must let the requester go back some priorities
      * (model seats included, they accept by themselves). Computer players aren't asked.
      */
     private List<GameSessionPlayer> undoVoters(UUID userIdRequester) {
@@ -1332,7 +1332,7 @@ public class GameController implements GameCallback {
     }
 
     /**
-     * Shows a player the game some of their priorities back, only to them. Only while the game waits
+     * Shows a player the game some priorities back (anyone's), only to them. Only while the game waits
      * on them, or is stopped for them (UNDO_HOLD): the game thread is parked then, so the old state
      * can be read safely. If it can't be shown they get no game, so they're back to the game as it is.
      */
@@ -1369,7 +1369,7 @@ public class GameController implements GameCallback {
     }
 
     /**
-     * The game as requesterId saw it the given number of their priorities back, as viewerId sees it
+     * The game as requesterId saw it the given number of priorities back, as viewerId sees it
      * (their own hand). Without a game if it can't be built: the clients then show the game as it is.
      */
     private GameUndoPreviewView buildUndoPreview(UUID requesterId, UUID viewerId, int steps, int available, boolean vote, String requesterName) {

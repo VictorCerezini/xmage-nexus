@@ -145,24 +145,28 @@ public abstract class GameImpl implements Game {
     protected transient boolean executingRollback;
     protected transient int turnToGoToForRollback;
 
-    // "go back to my last priority": a copy of the game each time a human player is asked for priority,
-    // the last ones per player (see undoPriorities); how many is a table option (GameOptions.undoPrioritySteps)
+    // "go back to an earlier priority": a copy of the game each time a human player is asked for priority.
+    // One list for the whole table, in the order they came: going back steps through anyone's priorities,
+    // not only the requester's (see undoPriorities). How many are kept is a table option
+    // (GameOptions.undoPrioritySteps).
 
     protected static final class UndoPoint {
         final long seq; // order of all points of all players
+        final UUID playerId; // whose priority it was
         final long priorityCall; // the player.priority call it was taken in
         volatile long queriesWhenAsked; // player queries sent so far, to tell if the player is still at that question
         final GameState state;
 
-        UndoPoint(long seq, long priorityCall, long queriesWhenAsked, GameState state) {
+        UndoPoint(long seq, UUID playerId, long priorityCall, long queriesWhenAsked, GameState state) {
             this.seq = seq;
+            this.playerId = playerId;
             this.priorityCall = priorityCall;
             this.queriesWhenAsked = queriesWhenAsked;
             this.state = state;
         }
     }
 
-    protected transient Map<UUID, Deque<UndoPoint>> undoPoints = new ConcurrentHashMap<>();
+    protected transient Deque<UndoPoint> undoPoints = new ConcurrentLinkedDeque<>();
     protected transient long undoPointSeq;
     protected transient volatile long priorityCallNum; // counts the player.priority calls
     protected transient volatile boolean priorityCallRunning;
@@ -3857,7 +3861,7 @@ public abstract class GameImpl implements Game {
         // a game read back from a save goes on playing (playFromTurnStart): what playing needs, empty.
         // The field initializers don't run on deserialization, so without this they would be null.
         gameStatesRollBack = new HashMap<>();
-        undoPoints = new ConcurrentHashMap<>();
+        undoPoints = new ConcurrentLinkedDeque<>();
         undoPointForgottenCall = new ConcurrentHashMap<>();
         undoHoldLock = new Object();
         stackObjectsCheck = new LinkedList<>();
@@ -4382,18 +4386,17 @@ public abstract class GameImpl implements Game {
             // the client already passed this priority by itself
             return;
         }
-        Deque<UndoPoint> points = undoPoints.computeIfAbsent(playerId, k -> new ConcurrentLinkedDeque<>());
         long queries = playerQueryEventSource.getQueriesSent();
-        UndoPoint last = points.peekLast();
-        if (last != null && last.priorityCall == priorityCallNum) {
+        UndoPoint last = undoPoints.peekLast();
+        if (last != null && last.priorityCall == priorityCallNum && last.playerId.equals(playerId)) {
             // asked again in the same priority call, after nothing happened
             last.queriesWhenAsked = queries;
             return;
         }
-        points.addLast(new UndoPoint(++undoPointSeq, priorityCallNum, queries, state.copy()));
-        // keep the point of the priority the player is at, plus the ones they can go back to
-        while (points.size() > GameOptions.clampUndoPrioritySteps(gameOptions.undoPrioritySteps) + 1) {
-            points.pollFirst();
+        undoPoints.addLast(new UndoPoint(++undoPointSeq, playerId, priorityCallNum, queries, state.copy()));
+        // keep the point of the priority the game is at, plus the ones the players can go back to
+        while (undoPoints.size() > GameOptions.clampUndoPrioritySteps(gameOptions.undoPrioritySteps) + 1) {
+            undoPoints.pollFirst();
         }
     }
 
@@ -4402,30 +4405,29 @@ public abstract class GameImpl implements Game {
         if (playerId == null || !priorityCallRunning) {
             return;
         }
-        Deque<UndoPoint> points = undoPoints.get(playerId);
-        UndoPoint last = points == null ? null : points.peekLast();
-        if (last != null && last.priorityCall == priorityCallNum) {
-            points.pollLast();
+        UndoPoint last = undoPoints.peekLast();
+        if (last != null && last.priorityCall == priorityCallNum && last.playerId.equals(playerId)) {
+            undoPoints.pollLast();
         }
         // and if the point isn't kept yet, it won't be
         undoPointForgottenCall.put(playerId, priorityCallNum);
     }
 
     /**
-     * The points a player can go back to, newest first: their priorities before the one they are
-     * being asked right now. While they are in the middle of something in that priority (casting a
-     * spell, paying a cost), going back cancels it, so the first one is the start of that priority.
-     * Never more than the table's number: the priority question (and the game view sent with it) goes
-     * out just before its point is kept, when the oldest kept point is about to be dropped.
+     * The points a player can go back to, newest first: the priorities of all players before the one
+     * the game is at right now, whoever had them. While the player at that priority is in the middle of
+     * something (casting a spell, paying a cost), going back cancels it, so the first one is the start
+     * of that priority. Never more than the table's number: the priority question (and the game view
+     * sent with it) goes out just before its point is kept, when the oldest kept point is about to be
+     * dropped.
      */
     private List<UndoPoint> undoTargets(UUID playerId) {
-        Deque<UndoPoint> points = playerId == null ? null : undoPoints.get(playerId);
-        if (points == null) {
+        if (playerId == null || undoPoints.isEmpty()) {
             return Collections.emptyList();
         }
         int max = GameOptions.clampUndoPrioritySteps(gameOptions.undoPrioritySteps);
-        List<UndoPoint> targets = new ArrayList<>(points.size());
-        Iterator<UndoPoint> it = points.descendingIterator();
+        List<UndoPoint> targets = new ArrayList<>(Math.min(max, undoPoints.size()));
+        Iterator<UndoPoint> it = undoPoints.descendingIterator();
         if (it.hasNext()) {
             UndoPoint latest = it.next();
             boolean stillAtThatQuestion = priorityCallRunning
@@ -4532,18 +4534,19 @@ public abstract class GameImpl implements Game {
         savedStates.clear();
         gameStates.clear();
         // that point and the ones after it are gone, the player gets a new one when asked again
-        for (Deque<UndoPoint> points : undoPoints.values()) {
-            points.removeIf(point -> point.seq >= target.seq);
-        }
+        undoPoints.removeIf(point -> point.seq >= target.seq);
 
         Player requester = getPlayer(requestedBy);
+        Player hadPriority = getPlayer(target.playerId);
         Step step = getStep();
+        // clients read this text: "goes back 1 priority" / "goes back N priorities", then "(turn T, step"
         informPlayers(GameLog.getPlayerRequestColoredText(String.format(
-                "Player request: %s goes back %s (turn %d, %s)",
+                "Player request: %s goes back %s (turn %d, %s%s)",
                 requester == null ? "A player" : requester.getLogName(),
-                steps > 1 ? steps + " priorities" : "to their last priority",
+                steps > 1 ? steps + " priorities" : "1 priority",
                 state.getTurnNum(),
-                step == null ? "?" : step.toString()
+                step == null ? "?" : step.toString(),
+                hadPriority == null ? "" : ", " + hadPriority.getLogName() + " had priority"
         )));
 
         returnPlayersLostSince(restore);

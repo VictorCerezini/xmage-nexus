@@ -2800,6 +2800,9 @@ public abstract class PlayerImpl implements Player, Serializable {
                 game.forgetUndoPoint(getId());
                 this.skip();
                 break;
+            case UNDO_SKIP_PRIORITY: // no point to go back to here: the client passes it unseen, its pass comes next as usual
+                game.forgetUndoPoint(getId());
+                break;
             case PERMISSION_REQUESTS_ALLOWED_OFF:
                 userData.setAllowRequestShowHandCards(false);
                 break;
