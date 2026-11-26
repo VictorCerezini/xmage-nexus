@@ -110,4 +110,29 @@ describe('UserRequestDialog (permiso de mano)', () => {
     // el texto crudo de servidor ya no debe quedar visible tal cual.
     expect(getAllByText('Elige objetivo').length).toBeGreaterThan(0)
   })
+
+  it('translates the buttons of the host question about a game brought back, and sends their action', async () => {
+    setState({
+      userRequest: {
+        title: 'Game brought back',
+        message: "The server stopped, and this game came back from the start of turn 4. ChatGPT 2 isn't back yet. Go on without them? They concede.",
+        gameId: 'g1',
+        buttons: [
+          { text: 'Go on without them', action: 'RESTORED_GAME_GO_ON' },
+          { text: 'Wait', action: 'RESTORED_GAME_WAIT' },
+        ],
+      },
+    })
+    const { getByText, queryByText } = render(<UserRequestDialog />)
+    expect(getByText('Partida recuperada')).not.toBeNull()
+    expect(getByText('Esperar')).not.toBeNull()
+    expect(queryByText('Go on without them')).toBeNull()
+    fireEvent.click(getByText('Seguir sin ellos'))
+    await vi.waitFor(() => expect(send).toHaveBeenCalled())
+    expect(send).toHaveBeenCalledWith('sendPlayerAction', {
+      action: 'RESTORED_GAME_GO_ON',
+      gameId: 'g1',
+      data: undefined,
+    })
+  })
 })

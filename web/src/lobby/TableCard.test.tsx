@@ -148,6 +148,27 @@ describe('TableCard estado de mesa (i18n)', () => {
     )
     expect(container.querySelector('.table-state-badge')?.textContent).toBe('Custom state')
   })
+
+  it('labels a game the server brought back until its players are back, in es and en', () => {
+    const broughtBack = tableOf({ tableState: 'DUELING', waitingForReturningPlayers: true })
+    setLanguage('es')
+    const esView = render(<TableCard tTable={broughtBack} users={[]} stagingTableId={null} busyTable={null} {...handlers} />)
+    expect(esView.container.querySelector('.table-state-badge')?.textContent).toBe('Recuperada · esperando jugadores')
+    expect(esView.container.querySelector('[title^="El servidor se detuvo"]')).not.toBeNull()
+    esView.unmount()
+    setLanguage('en')
+    const enView = render(<TableCard tTable={broughtBack} users={[]} stagingTableId={null} busyTable={null} {...handlers} />)
+    expect(enView.container.querySelector('.table-state-badge')?.textContent).toBe('Brought back · waiting for players')
+    enView.unmount()
+    setLanguage('es')
+  })
+
+  it('shows a game that goes on again as a plain running game', () => {
+    const { container } = render(
+      <TableCard tTable={tableOf({ tableState: 'DUELING', waitingForReturningPlayers: false })} users={[]} stagingTableId={null} busyTable={null} {...handlers} />,
+    )
+    expect(container.querySelector('.table-state-badge')?.textContent).toBe('En partida')
+  })
 })
 
 describe('TableCard with a deck type the server does not know', () => {

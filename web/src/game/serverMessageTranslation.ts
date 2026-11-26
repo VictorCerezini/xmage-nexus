@@ -28,6 +28,18 @@ export function localizeServerMessage(
     .replace(/\s+/g, ' ')
     .trim()
 
+  // The host's question when the server brought a game back after it stopped
+  // (GameSessionPlayer.askToGoOnWithoutMissingPlayers on the server).
+  if (/^Game brought back$/i.test(plain)) {
+    return t('dialogs', 'restored_game_title')
+  }
+  const restoredMatch = plain.match(
+    /^The server stopped, and this game came back from the start of turn (\d+)\. (.+?) (?:isn't|aren't) back yet\. Go on without them\? They concede\.$/i
+  )
+  if (restoredMatch) {
+    return t('dialogs', 'restored_game_message', { turn: restoredMatch[1], names: restoredMatch[2] })
+  }
+
   const payLifeMatch = plain.match(/^Pay\s+(\d+)\s+life\??$/i)
   if (payLifeMatch) {
     return t('game', 'pay_life_prompt', { count: payLifeMatch[1] })

@@ -112,4 +112,20 @@ describe('serverMessageTranslation', () => {
     expect(localizeOptionLabel('Cancel', t as any)).toBe('Cancelar')
     expect(localizeOptionLabel('Custom Card', t as any)).toBe('Custom Card')
   })
+
+  it('translates the host question about a game the server brought back', () => {
+    expect(localizeServerMessage('Game brought back', t as any)).toBe('Partida recuperada')
+    expect(
+      localizeServerMessage(
+        "The server stopped, and this game came back from the start of turn 3. ChatGPT 2 isn't back yet. Go on without them? They concede.",
+        t as any,
+      ),
+    ).toBe('El servidor se detuvo y esta partida volvió desde el inicio del turno 3. Aún no han vuelto: ChatGPT 2. ¿Seguir sin ellos? Concederán la partida.')
+    expect(
+      localizeServerMessage(
+        "The server stopped, and this game came back from the start of turn 12. Ana and Claude aren't back yet. Go on without them? They concede.",
+        t as any,
+      ),
+    ).toBe('El servidor se detuvo y esta partida volvió desde el inicio del turno 12. Aún no han vuelto: Ana and Claude. ¿Seguir sin ellos? Concederán la partida.')
+  })
 })

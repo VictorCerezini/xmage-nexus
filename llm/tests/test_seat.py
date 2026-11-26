@@ -1281,3 +1281,100 @@ def test_bridge_seat_records_the_models_problem_reports(harness, monkeypatch):
     prompt = (run / "player-prompt.txt").read_text()
     assert "call report_problem right away" in prompt
     assert "answer the bridge_check question with report_problem" in prompt
+
+
+def test_a_seat_started_again_goes_on_with_the_game_its_last_run_was_playing():
+    assert seat.first_game(None) == 1
+    assert seat.first_game({}) == 1
+    assert seat.first_game({"games": [{"game": 1}]}) == 2
+    assert seat.first_game({"first_game": 2, "games": [{"game": 2}, {"game": 3}]}) == 4
+
+
+def test_a_seat_started_again_joins_no_table_and_plays_on_once_asked(match, monkeypatch, tmp_path):
+    request, runtime, _stopped, _gateways, write = match
+    earlier = tmp_path / "earlier-run"
+    earlier.mkdir()
+    (earlier / "manifest.json").write_text(json.dumps({"status": "playing", "games": [{"game": 1}]}))
+    request["restored_from"] = str(earlier)
+    launch = runtime.launch_bridge
+
+    def launch_bridge(arguments, env, log, workdir):
+        assert "-Dxmage.bridge.rejoin=true" in arguments
+        return launch(arguments, env, log, workdir)
+
+    runtime.launch_bridge = launch_bridge
+    asked = iter([False, False, True])
+    polls = []
+
+    def rpc(_url, method, params):
+        if method == "initialize":
+            return {"result": {}}
+        if params["name"] == "get_game_state":
+            return result({"available": True})  # its board shows while it waits for its players
+        pending = next(asked, True)
+        polls.append(pending)
+        return result({"action_pending": pending})
+
+    monkeypatch.setattr(seat, "rpc", rpc)
+    prompts = []
+
+    def start(prompt, out, _err, _url, **_kwargs):
+        assert polls == [False, False, True], "no model runs while the game waits for its players"
+        prompts.append(prompt)
+        out.write(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1}}) + "\n")
+        out.flush()
+        write("Game over: game 2")
+        write("Match over: You won the match!")
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert (manifest["restored_from"], manifest["first_game"]) == (str(earlier), 2)
+    assert [game["game"] for game in manifest["games"]] == [2]
+    assert manifest["match_result"] == "You won the match!"
+    assert "This is game 2." in prompts[0]
+    assert "brought this game back from the start of a turn" in prompts[0]
+
+
+def test_a_seat_started_again_keeps_the_backup_that_had_taken_over(harness, monkeypatch, tmp_path):
+    request, runtime, _stopped, _gateway = harness
+    earlier = tmp_path / "earlier-run"
+    earlier.mkdir()
+    switch = {"game": 1, "from": "chatgpt_subscription gpt-6.2-astra", "to": "chatgpt_subscription gpt-6.1-terra"}
+    (earlier / "manifest.json").write_text(json.dumps({"games": [], "model_switch": switch}))
+    request.update(restored_from=str(earlier), backup_model="gpt-6.1-terra", backup_reasoning="medium")
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True, "action_pending": True}))
+    models = []
+
+    def start(_prompt, _out, _err, _url, *, model, reasoning, **_kwargs):
+        models.append((model, reasoning))
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    assert models == [("gpt-6.1-terra", "medium")]
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["model_switch"] == switch
+    assert manifest["games"][0]["game"] == 1
+
+
+def test_an_mcp_engine_seat_started_again_joins_no_table(mcp_harness, tmp_path):
+    request, runtime, _stopped, gateway, server, _built = mcp_harness
+    request["restored_from"] = str(tmp_path / "earlier-run-without-a-manifest")
+    gateway.finish_game = lambda: None
+    server.sessions = [
+        {"gameId": "g1", "game": {"turn": 4}},
+        {"gameId": "g1", "game": {"turn": 4}, "pendingPrompt": {"type": "priority"}},
+        {"gameOver": None},
+        {"gameOver": {"at": 1}},
+    ]
+    polls = iter([None, None])
+    agent = SimpleNamespace(poll=lambda: next(polls, 0), returncode=0)
+    assert seat.run_player(request, runtime=runtime, start_player=Mock(return_value=agent)) == 0
+    names = [name for name, _ in server.calls]
+    assert "mage_join_table" not in names
+    assert "mage_join_game" not in names
+    assert names[:4] == ["initialize", "mage_connect", "mage_session", "mage_session"]
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["first_game"] == 1

@@ -3,6 +3,7 @@ package org.mage.proxy;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import mage.cards.decks.DeckCardLists;
 import mage.cards.decks.exporter.XmageDeckExporter;
 import mage.constants.TableState;
@@ -16,6 +17,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -41,6 +43,10 @@ final class LlmSeats {
     static final long STOP_GRACE_MS = 20_000;
     static final String BRIDGE = "bridge";
     static final String MCP = "mcp";
+    /** In a seat's run folder while it plays: what starts it again after the proxy stopped. */
+    static final String RESTORE_NOTE = "seat-restore.json";
+    /** A restore note a seat that started again took, kept for its history. */
+    static final String RESTORE_NOTE_TAKEN = "seat-restore.taken.json";
 
     static final Names NAMES = new Names();
 
@@ -89,6 +95,20 @@ final class LlmSeats {
                 }
             }
             return null;
+        }
+
+        /**
+         * Holds the name a seat had before the proxy stopped: the server seats it again by that name, so
+         * a cooldown doesn't keep it; a seat playing under it now does.
+         */
+        synchronized boolean hold(String name) {
+            String key = name.toLowerCase(Locale.ROOT);
+            Long until = held.get(key);
+            if (until != null && until == Long.MAX_VALUE) {
+                return false;
+            }
+            held.put(key, Long.MAX_VALUE);
+            return true;
         }
 
         synchronized void release(String name, long now, boolean cooldown) {
@@ -281,6 +301,7 @@ final class LlmSeats {
                 Path deck = run.resolve("deck.dck");
                 writeDeck(deck, plan.deck);
                 request = request(plan, args, tableId, username, run, deck, playerCount);
+                writeRestoreNote(run, plan.selection.playerName, request);
             } catch (IOException ex) {
                 seat.fail("Could not prepare the model seat's run folder: " + ex.getMessage());
                 continue;
@@ -321,6 +342,183 @@ final class LlmSeats {
         return request;
     }
 
+    /**
+     * Starts again the model seats this host had playing when the proxy stopped (a power cut, the app
+     * closed), at the tables still running on the server, like a table the server brought back after it
+     * stopped too. Each seat comes back with its name, model and deck, and the server seats it again by
+     * its name; it doesn't join the table again.
+     *
+     * @return how many seats started again
+     */
+    int restore(Collection<TableView> tables) {
+        if (!enabled() || ownerName.isEmpty() || !LlmRuntime.isLoopbackHost(serverHost)) {
+            return 0;
+        }
+        List<Path> notes = new ArrayList<>();
+        try (java.util.stream.Stream<Path> runs = Files.list(runtime.runRoot())) {
+            runs.map(run -> run.resolve(RESTORE_NOTE)).filter(Files::isRegularFile).sorted().forEach(notes::add);
+        } catch (IOException ex) {
+            return 0; // no run folder yet: no seat ever played here
+        }
+        int restored = 0;
+        for (Path note : notes) {
+            if (restoreSeat(note, tables)) {
+                restored++;
+            }
+        }
+        return restored;
+    }
+
+    /**
+     * {@link #restore} in the background, with the tables on the server now: a host's login doesn't wait
+     * for its model seats.
+     */
+    void restoreAfterLogin(SessionImpl session) {
+        if (!enabled()) {
+            return;
+        }
+        Thread thread = new Thread(() -> {
+            try {
+                UUID roomId = session.getMainRoomId();
+                int restored = roomId == null ? 0 : restore(session.getTables(roomId));
+                if (restored > 0) {
+                    logger.info(restored + " model seat(s) of " + ownerName + " started again");
+                }
+            } catch (Exception ex) {
+                logger.info("model seats of " + ownerName + " not started again: " + ex);
+            }
+        }, "llm-seat-restore");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private boolean restoreSeat(Path note, Collection<TableView> tables) {
+        JsonObject saved;
+        try {
+            saved = JsonParser.parseString(new String(Files.readAllBytes(note), StandardCharsets.UTF_8)).getAsJsonObject();
+        } catch (IOException | RuntimeException ex) {
+            logger.info("unreadable model seat restore note " + note + ": " + ex);
+            return false;
+        }
+        JsonElement raw = saved.get("request");
+        if (!ownerName.equalsIgnoreCase(JsonArgs.str(saved, "owner", "")) || raw == null || !raw.isJsonObject()) {
+            return false;
+        }
+        JsonObject request = raw.getAsJsonObject();
+        String username = JsonArgs.str(request, "username", "");
+        UUID tableId;
+        try {
+            tableId = UUID.fromString(JsonArgs.str(request, "table_id", ""));
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+        if (username.isEmpty() || JsonArgs.getInt(request, "server_port", 0) != serverPort
+                || !seatedAtRunningTable(tables, tableId, username)) {
+            return false; // another server, or its table is gone: nothing to come back to
+        }
+        if (!NAMES.hold(username)) {
+            return false; // it plays already
+        }
+        long now = System.currentTimeMillis();
+        if (NAMES.live() > runtime.maxSeats()) {
+            NAMES.release(username, now, false);
+            errors.accept(username + " can't start again: at most " + runtime.maxSeats() + " model seats can play at once on this proxy");
+            return false;
+        }
+        Path run = note.getParent();
+        try {
+            // taken: a second login of the host doesn't start it twice
+            Files.move(note, run.resolve(RESTORE_NOTE_TAKEN), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException ex) {
+            NAMES.release(username, now, false);
+            logger.info("model seat restore note " + note + " not taken: " + ex);
+            return false;
+        }
+        int seatNumber = JsonArgs.getInt(request, "seat", 0);
+        String engine = JsonArgs.str(request, "engine", BRIDGE);
+        Path back = nextRun(run);
+        JsonObject relaunch = request.deepCopy();
+        relaunch.addProperty("run", back.toString());
+        relaunch.addProperty("owner_pid", ProcessHandle.current().pid());
+        relaunch.addProperty("catalog", runtime.catalog().toString());
+        relaunch.addProperty("restored_from", run.toString());
+        if (MCP.equals(engine)) {
+            relaunch.addProperty("proxy_url", "ws://127.0.0.1:" + proxyPort);
+        }
+        LlmCatalog.Selection selection = new LlmCatalog.Selection(JsonArgs.str(request, "provider", ""),
+                JsonArgs.str(saved, "player_name", username), JsonArgs.str(request, "model", ""),
+                JsonArgs.str(request, "reasoning", ""));
+        boolean loginOutlivesSeat = MCP.equals(engine);
+        LlmSeat seat = new LlmSeat(tableId, seatNumber, username, selection, back, stopGraceMs,
+                changed -> changed(changed, loginOutlivesSeat));
+        synchronized (seats) {
+            seats.put(key(tableId, seatNumber), seat);
+        }
+        try {
+            Files.createDirectories(back);
+            writeRestoreNote(back, selection.playerName, relaunch);
+        } catch (IOException ex) {
+            seat.fail("Could not prepare the model seat's run folder: " + ex.getMessage());
+            return false;
+        }
+        logger.info("model seat " + seatNumber + " for table " + tableId + ": " + username + " starts again ("
+                + selection.provider + " " + selection.model + " " + selection.effort + ")");
+        seat.launch(runtime, relaunch);
+        return true;
+    }
+
+    /** The run folder of a seat started again: next to its last one. */
+    static Path nextRun(Path run) {
+        String base = run.getFileName().toString().replaceFirst("-back\\d+$", "");
+        for (int n = 1; ; n++) {
+            Path candidate = run.resolveSibling(base + "-back" + n);
+            if (!Files.exists(candidate)) {
+                return candidate;
+            }
+        }
+    }
+
+    static boolean seatedAtRunningTable(Collection<TableView> tables, UUID tableId, String username) {
+        for (TableView table : tables) {
+            if (!tableId.equals(table.getTableId())) {
+                continue;
+            }
+            if (table.getTableState() != TableState.DUELING && table.getTableState() != TableState.SIDEBOARDING) {
+                return false;
+            }
+            for (SeatView seat : table.getSeats()) {
+                if (username.equalsIgnoreCase(seat.getPlayerName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * What starts a seat again after the proxy stopped. Without the table's password: a seat that comes
+     * back doesn't join the table again.
+     */
+    private void writeRestoreNote(Path run, String playerName, JsonObject request) throws IOException {
+        JsonObject saved = new JsonObject();
+        saved.addProperty("owner", ownerName);
+        saved.addProperty("player_name", playerName);
+        JsonObject kept = request.deepCopy();
+        kept.remove("table_password");
+        saved.add("request", kept);
+        Path tmp = run.resolve(RESTORE_NOTE + ".tmp");
+        Files.write(tmp, saved.toString().getBytes(StandardCharsets.UTF_8));
+        Files.move(tmp, run.resolve(RESTORE_NOTE), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private static void forgetRestore(LlmSeat seat) {
+        try {
+            Files.deleteIfExists(seat.run.resolve(RESTORE_NOTE));
+        } catch (IOException ex) {
+            logger.info("model seat restore note of " + seat.username + " not deleted: " + ex);
+        }
+    }
+
     static void writeDeck(Path file, DeckCardLists deck) throws IOException {
         try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
              PrintWriter out = new PrintWriter(writer)) {
@@ -333,6 +531,11 @@ final class LlmSeats {
         event.addProperty("type", "llmSeat");
         events.accept(event.toString());
         if (seat.isTerminal()) {
+            if (!LlmSeat.STOPPED.equals(seat.status())) {
+                // its match is over, or it can't play it: nothing to start again. A seat stopped with the
+                // proxy keeps its note, its table may come back.
+                forgetRestore(seat);
+            }
             boolean cooldown = loginOutlivesSeat || !LlmSeat.FINISHED.equals(seat.status());
             NAMES.release(seat.username, System.currentTimeMillis(), cooldown);
             logger.info("model seat " + seat.username + " " + seat.status()
@@ -348,6 +551,7 @@ final class LlmSeats {
         boolean any = false;
         for (LlmSeat seat : snapshot()) {
             if (seat.tableId.equals(tableId) && !seat.isTerminal()) {
+                forgetRestore(seat); // its host stopped it: it doesn't come back
                 seat.stop();
                 any = true;
             }

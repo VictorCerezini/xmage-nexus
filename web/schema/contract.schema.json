@@ -468,7 +468,11 @@
         "limited": { "type": "boolean" },
         "rated": { "type": "boolean" },
         "passworded": { "type": "boolean" },
-        "spectatorsAllowed": { "type": "boolean" }
+        "spectatorsAllowed": { "type": "boolean" },
+        "waitingForReturningPlayers": {
+          "type": "boolean",
+          "description": "The server brought the table back after it stopped and its game waits for its players to come back"
+        }
       },
       "required": [
         "tableId", "gameType", "deckType", "tableName", "controllerName",

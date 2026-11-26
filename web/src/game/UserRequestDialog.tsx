@@ -7,6 +7,12 @@ import DialogShell from '../ui/DialogShell'
 import { useTranslation, dynamicT } from '../i18n'
 import { localizeServerMessage } from './serverMessageTranslation'
 
+// Buttons whose server text the web translates, by the action they send.
+const BUTTON_KEYS: Record<string, 'restored_game_go_on' | 'restored_game_wait'> = {
+  RESTORED_GAME_GO_ON: 'restored_game_go_on',
+  RESTORED_GAME_WAIT: 'restored_game_wait',
+}
+
 export default function UserRequestDialog() {
   const { t } = useTranslation()
   const request = useStore((s) => s.userRequest)
@@ -49,7 +55,7 @@ export default function UserRequestDialog() {
               disabled={busy}
               onClick={() => void onButton(button.action)}
             >
-              <FormattedText text={button.text} />
+              <FormattedText text={BUTTON_KEYS[button.action] ? t('dialogs', BUTTON_KEYS[button.action]) : button.text} />
             </Button>
           ))}
         </div>

@@ -1373,6 +1373,8 @@ public class ProxyClient implements MageClient, CommandContext {
             llmSeats.setOwnerName(username);
             if (!service) {
                 simManager.restoreSims();
+                // the model seats this host had playing when the proxy stopped, at tables still running
+                llmSeats.restoreAfterLogin(session);
             }
         } else {
             connections.abandonLogin();

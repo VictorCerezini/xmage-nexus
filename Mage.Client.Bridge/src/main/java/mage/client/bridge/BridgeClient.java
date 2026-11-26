@@ -161,14 +161,20 @@ public class BridgeClient {
 
             String tableIdProp = System.getProperty("xmage.bridge.tableId");
             UUID targetTableId = tableIdProp != null ? UUID.fromString(tableIdProp) : null;
-            UUID tableId = tryJoinTable(session, roomId, username, deck, targetTableId);
-            if (tableId == null) {
-                logger.error("Failed to join any table within timeout");
-                session.connectStop(false, false);
-                System.exit(1);
-            }
+            if (Boolean.getBoolean("xmage.bridge.rejoin")) {
+                // A seat started again after its proxy stopped: the server seats this player again at its
+                // running table by its name and sends the game start, so there is no table to join.
+                logger.info("Rejoin: waiting for the server to seat " + username + " again at table " + targetTableId + "...");
+            } else {
+                UUID tableId = tryJoinTable(session, roomId, username, deck, targetTableId);
+                if (tableId == null) {
+                    logger.error("Failed to join any table within timeout");
+                    session.connectStop(false, false);
+                    System.exit(1);
+                }
 
-            logger.info("Joined table, waiting for game to start (table creator will start match)...");
+                logger.info("Joined table, waiting for game to start (table creator will start match)...");
+            }
         }
 
         // Set up JoinHandler so the join_table MCP tool can trigger table joining

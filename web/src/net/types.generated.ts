@@ -340,6 +340,7 @@ export interface TableView {
   rated: boolean
   passworded: boolean
   spectatorsAllowed: boolean
+  waitingForReturningPlayers?: boolean
 }
 
 export interface SeatView {

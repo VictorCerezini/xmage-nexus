@@ -138,7 +138,11 @@ export default function TableCard({
   const firstOpenSeat = seats.findIndex((s) => !s.playerName && isHumanSeat(s))
 
   const quitRatio = Number(String(tTable.quitRatio ?? '100').replace('%', ''))
-  const pillText = (isWaiting && freeHumanSeats > 0)
+  // brought back by the server after it stopped: its game waits for its players to come back
+  const broughtBack = isPlaying && !!tTable.waitingForReturningPlayers
+  const pillText = broughtBack
+    ? t('lobby', 'table_state_brought_back')
+    : (isWaiting && freeHumanSeats > 0)
     ? plural('lobby', 'seats_free', freeHumanSeats)
     : stateLabel(t, tTable.tableState, tTable.tableStateText)
 
@@ -182,7 +186,14 @@ export default function TableCard({
           </span>
         </div>
         <div className="tc-status">
-          <Chip solid tone={stateTone} className={`table-state-badge ${statusClass}`}>{pillText}</Chip>
+          <Chip
+            solid
+            tone={broughtBack ? 'gold' : stateTone}
+            className={`table-state-badge ${statusClass}`}
+            title={broughtBack ? t('lobby', 'table_state_brought_back_hint') : undefined}
+          >
+            {pillText}
+          </Chip>
           {timeAgo && (
             <span className="table-time-ago" title={tTable.createTime ? new Date(tTable.createTime).toLocaleTimeString(toBcp47Locale(lang)) : undefined}>
               {timeAgo}

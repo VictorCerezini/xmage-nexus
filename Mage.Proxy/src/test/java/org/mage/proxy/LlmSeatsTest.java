@@ -662,6 +662,120 @@ class LlmSeatsTest {
         assertEquals("ChatGPT 1", processes.get(0).request().get("username").getAsString());
     }
 
+    @Test
+    void aPlayingSeatLeavesANoteToStartAgainWithoutTheTablePassword() throws Exception {
+        LlmSeats seats = seats(4);
+        JsonObject args = table("[" + seat(2, "") + "]");
+        seats.start(seats.prepare(args), args, TABLE);
+        await("the launch", () -> processes.size() == 1);
+        Path run = Path.of(processes.get(0).request().get("run").getAsString());
+        JsonObject note = JsonParser.parseString(new String(Files.readAllBytes(run.resolve(LlmSeats.RESTORE_NOTE)),
+                StandardCharsets.UTF_8)).getAsJsonObject();
+        assertEquals("Owner", note.get("owner").getAsString());
+        assertEquals("ChatGPT", note.get("player_name").getAsString());
+        JsonObject request = note.getAsJsonObject("request");
+        assertEquals("ChatGPT 2", request.get("username").getAsString());
+        assertEquals(TABLE.toString(), request.get("table_id").getAsString());
+        assertFalse(request.has("table_password"));
+        assertFalse(note.toString().contains("table-pw"));
+    }
+
+    @Test
+    void aSeatPlayingWhenTheProxyStoppedStartsAgainAtItsTableOnce() throws Exception {
+        LlmSeats before = seats(4);
+        JsonObject args = table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"effort\":\"high\"") + "]");
+        before.start(before.prepare(args), args, TABLE);
+        await("the launch", () -> processes.size() == 1);
+        Path run = Path.of(processes.get(0).request().get("run").getAsString());
+
+        // the proxy stopped with the server (a power cut); the server brought the table back
+        LlmSeats.NAMES.clear();
+        LlmSeats after = seats(4);
+        List<TableView> tables = Collections.singletonList(runningTable(TABLE, TableState.DUELING, "Owner", "ChatGPT 2"));
+        assertEquals(1, after.restore(tables));
+        await("the second launch", () -> processes.size() == 2);
+        JsonObject request = processes.get(1).request();
+        Path back = run.resolveSibling(run.getFileName() + "-back1");
+        assertEquals("ChatGPT 2", request.get("username").getAsString(), "the name the server seats again");
+        assertEquals(TABLE.toString(), request.get("table_id").getAsString());
+        assertEquals(2, request.get("seat").getAsInt());
+        assertEquals("gpt-6-astra", request.get("model").getAsString());
+        assertEquals("high", request.get("reasoning").getAsString());
+        assertEquals(run.toString(), request.get("restored_from").getAsString());
+        assertEquals(back.toString(), request.get("run").getAsString());
+        assertEquals(ProcessHandle.current().pid(), request.get("owner_pid").getAsLong());
+        assertFalse(request.has("table_password"));
+        assertTrue(Files.isRegularFile(run.resolve(LlmSeats.RESTORE_NOTE_TAKEN)));
+        assertFalse(Files.exists(run.resolve(LlmSeats.RESTORE_NOTE)), "taken");
+        assertTrue(Files.isRegularFile(back.resolve(LlmSeats.RESTORE_NOTE)), "the next power cut brings it back too");
+        assertEquals("ChatGPT 2", after.describe(TABLE).get(0).getAsJsonObject().get("username").getAsString());
+
+        // the host logs in again: it plays already
+        assertEquals(0, after.restore(tables));
+        assertEquals(0, seats(4).restore(tables));
+        assertEquals(2, processes.size());
+        assertEquals(back.resolveSibling(run.getFileName() + "-back2"), LlmSeats.nextRun(back));
+    }
+
+    @Test
+    void aSeatStartsAgainOnlyAtItsRunningTableForItsHost() throws Exception {
+        LlmSeats before = seats(4);
+        JsonObject args = table("[" + seat(2, "") + "]");
+        before.start(before.prepare(args), args, TABLE);
+        await("the launch", () -> processes.size() == 1);
+        LlmSeats.NAMES.clear();
+
+        LlmSeats after = seats(4);
+        assertEquals(0, after.restore(Collections.emptyList()), "its table is gone");
+        assertEquals(0, after.restore(Collections.singletonList(runningTable(TABLE, TableState.FINISHED, "Owner", "ChatGPT 2"))));
+        assertEquals(0, after.restore(Collections.singletonList(runningTable(TABLE, TableState.DUELING, "Owner", "Someone"))),
+                "someone else sits there");
+        assertEquals(0, after.restore(Collections.singletonList(runningTable(UUID.randomUUID(), TableState.DUELING, "Owner", "ChatGPT 2"))));
+        LlmSeats otherHost = seats(4);
+        otherHost.setOwnerName("Other");
+        assertEquals(0, otherHost.restore(Collections.singletonList(runningTable(TABLE, TableState.DUELING, "Owner", "ChatGPT 2"))));
+        LlmSeats otherServer = seats(4);
+        otherServer.setServer("127.0.0.1", 17172);
+        assertEquals(0, otherServer.restore(Collections.singletonList(runningTable(TABLE, TableState.DUELING, "Owner", "ChatGPT 2"))));
+        assertEquals(1, processes.size());
+        assertEquals(0, LlmSeats.NAMES.live());
+    }
+
+    @Test
+    void aSeatThatFinishedOrThatItsHostStoppedDoesNotStartAgain() throws Exception {
+        LlmSeats seats = seats(4);
+        JsonObject args = table("[" + seat(2, "") + "]");
+        seats.start(seats.prepare(args), args, TABLE);
+        await("the launch", () -> processes.size() == 1);
+        Path finished = Path.of(processes.get(0).request().get("run").getAsString());
+        manifest(finished, "{\"status\":\"completed\"}");
+        processes.get(0).end(0);
+        await("the finish", () -> statuses().contains("finished"));
+        assertFalse(Files.exists(finished.resolve(LlmSeats.RESTORE_NOTE)));
+
+        UUID other = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        seats.start(seats.prepare(args), args, other);
+        await("the second launch", () -> processes.size() == 2);
+        Path stopped = Path.of(processes.get(1).request().get("run").getAsString());
+        assertTrue(seats.stopTable(other));
+        assertFalse(Files.exists(stopped.resolve(LlmSeats.RESTORE_NOTE)));
+
+        UUID third = UUID.fromString("00000000-0000-0000-0000-000000000004");
+        seats.start(seats.prepare(args), args, third);
+        await("the third launch", () -> processes.size() == 3);
+        Path withTheProxy = Path.of(processes.get(2).request().get("run").getAsString());
+        seats.stopAll();
+        processes.get(2).end(0);
+        await("the stop", () -> statuses().stream().filter("stopped"::equals).count() == 2);
+        assertTrue(Files.isRegularFile(withTheProxy.resolve(LlmSeats.RESTORE_NOTE)), "stopped with the proxy: its table may come back");
+    }
+
+    private static TableView runningTable(UUID tableId, TableState state, String... players) throws ReflectiveOperationException {
+        TableView table = tableView(state, players);
+        field(TableView.class, "tableId").set(table, tableId);
+        return table;
+    }
+
     private static TableView tableView(TableState state, String... players) throws ReflectiveOperationException {
         TableView table = blank(TableView.class);
         field(TableView.class, "tableState").set(table, state);

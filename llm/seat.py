@@ -25,6 +25,9 @@ MAX_CALLS = 6000
 MAX_SECONDS = 7200
 MAX_WINS = 10
 NEXT_GAME_SECONDS = 600
+# A seat started again after the proxy stopped (request "restored_from": its last run folder) waits this long
+# for its first decision: the server's game brought back goes on once its players are back, or its host goes on.
+RESTORED_WAIT_SECONDS = MAX_SECONDS
 REPORT_GRACE_SECONDS = 120
 # Waits before another player process takes over a game whose player stopped mid-game (a busy model, a
 # dropped connection); a reached plan limit is not retried. A plan limit, or a model still failing after the
@@ -77,6 +80,13 @@ RESUME_PROMPT = (
     "\n\nThe previous session playing this game for you stopped before the game ended. The game is still "
     "running and you are still in it. Start by looking at the current game state and your pending decision, "
     "then keep playing until the game ends."
+)
+
+
+RESTORED_PROMPT = (
+    "\n\nThe game server stopped and brought this game back from the start of a turn, so that turn is played "
+    "again from its beginning. A previous session played this game for you until then. Start by looking at the "
+    "current game state and your pending decision, then keep playing until the game ends."
 )
 
 
@@ -135,6 +145,25 @@ def backup_provider(request):
 def wins_needed(request):
     # Requests from clients built before match support carry no wins and mean a single game.
     return int(request.get("wins_needed", 1))
+
+
+def earlier_run(request):
+    """The manifest of the run a seat started again goes on from; None for a seat that starts at its table."""
+    folder = request.get("restored_from")
+    if not folder:
+        return None
+    try:
+        return json.loads((Path(folder) / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        # its run stopped before it wrote one: it goes on from the match's first game
+        return {}
+
+
+def first_game(earlier):
+    """The match's game a seat started again plays first: the one its last run was playing."""
+    if earlier is None:
+        return 1
+    return int(earlier.get("first_game", 1)) + len(earlier.get("games", []))
 
 
 def game_file(name, game):
@@ -226,6 +255,11 @@ def run_player(request, *, start_player=None, runtime=None):
     owner = psutil.Process(request["owner_pid"])
     created = owner.create_time()
     wins = wins_needed(request)
+    # A seat started again after the proxy stopped is seated again by the server under its name: it joins no
+    # table and goes on with the match's game its last run was playing.
+    earlier = earlier_run(request)
+    restored = earlier is not None
+    first = first_game(earlier)
     manifest = {
         "status": "joining",
         "provider": provider.id,
@@ -245,6 +279,8 @@ def run_player(request, *, start_player=None, runtime=None):
         "usage": [],
         "games": [],
     }
+    if restored:
+        manifest.update(restored_from=request["restored_from"], first_game=first)
     processes = []
     logs = []
     gateways = []
@@ -255,6 +291,12 @@ def run_player(request, *, start_player=None, runtime=None):
     mcp_game = {}
     # What this seat plays with now: the chosen model, or the backup (any provider's) once it took over.
     playing = {"provider": provider, "model": request["model"], "reasoning": request["reasoning"]}
+    if restored and "model_switch" in earlier and request.get("backup_model"):
+        # the backup had taken over the match before the proxy stopped: it plays on
+        manifest["model_switch"] = earlier["model_switch"]
+        playing.update(
+            provider=backup_provider(request), model=request["backup_model"], reasoning=request["backup_reasoning"]
+        )
     started = time.monotonic()
 
     def log(name):
@@ -415,6 +457,8 @@ def run_player(request, *, start_player=None, runtime=None):
         return bool(request.get("backup_model")) and "model_switch" not in manifest
 
     def play_game(number):
+        # number counts this run's games (its bridge log); a seat started again goes on with a later one
+        match_game = first + number - 1
         gateway = GameToolGateway(
             server or url,
             mcp_engine.TOOLS if server else subscription_client.TOOLS,
@@ -435,8 +479,10 @@ def run_player(request, *, start_player=None, runtime=None):
         if wins > 1:
             status = match_line(bridge_text(), request["username"], "Match continues")
             prompt += MATCH_PROMPT.format(
-                wins_needed=wins, game=number, status=f"Match status: {status} " if status else ""
+                wins_needed=wins, game=match_game, status=f"Match status: {status} " if status else ""
             )
+        if restored and number == 1:
+            prompt += RESTORED_PROMPT
         game_started = time.monotonic()
         usage = []
         attempt = 0
@@ -447,7 +493,12 @@ def run_player(request, *, start_player=None, runtime=None):
                 if terminal_reason == "player_eliminated" and wait_for_return(number, game_started):
                     attempt += 1
                     manifest.setdefault("recoveries", []).append(
-                        {"game": number, "attempt": attempt, "reason": "returned by a rollback", "model": playing["model"]}
+                        {
+                            "game": match_game,
+                            "attempt": attempt,
+                            "reason": "returned by a rollback",
+                            "model": playing["model"],
+                        }
                     )
                     gateway.resume_game()
                     gateway.new_player()
@@ -461,13 +512,13 @@ def run_player(request, *, start_player=None, runtime=None):
                 raise RuntimeError(f"{playing['provider'].label} stopped before a confirmed game result: {reason}")
             attempt += 1
             manifest.setdefault("recoveries", []).append(
-                {"game": number, "attempt": attempt, "reason": reason, "model": playing["model"]}
+                {"game": match_game, "attempt": attempt, "reason": reason, "model": playing["model"]}
             )
             if switching:
                 # The backup plays the rest of the match; it may be another provider's model.
                 backup = backup_provider(request)
                 manifest["model_switch"] = {
-                    "game": number,
+                    "game": match_game,
                     "from": f"{playing['provider'].id} {playing['model']}",
                     "to": f"{backup.id} {request['backup_model']}",
                     "reason": reason,
@@ -485,7 +536,7 @@ def run_player(request, *, start_player=None, runtime=None):
             gateway.new_player()
         manifest["games"].append(
             {
-                "game": number,
+                "game": match_game,
                 "terminal_reason": terminal_reason,
                 "winner": winner(number),
                 **({"turns": mcp_game.get("turn")} if server else {}),
@@ -547,6 +598,9 @@ def run_player(request, *, start_player=None, runtime=None):
         if wins > 1:
             # The bridge stays for the match's later games and keeps the deck unchanged between them.
             arguments.append("-Dxmage.bridge.continueMatch=true")
+        if restored:
+            # The server seats it again by its name: it joins no table and waits for the game.
+            arguments.append("-Dxmage.bridge.rejoin=true")
         bridge_env = dict(env)
         if request.get("table_password"):
             bridge_env[TABLE_PASSWORD_ENV] = request["table_password"]
@@ -576,16 +630,20 @@ def run_player(request, *, start_player=None, runtime=None):
             },
         )
         save_status("waiting_for_start")
-        deadline = time.monotonic() + 600
+        deadline = time.monotonic() + (RESTORED_WAIT_SECONDS if restored else 600)
         while True:
             check_session(owner, created, run)
             if bridge.poll() is not None:
                 raise RuntimeError(f"The {provider.label} bridge stopped before the match started")
             state = tool_payload(rpc(url, "tools/call", {"name": "get_game_state", "arguments": {}}))
             choices = tool_payload(rpc(url, "tools/call", {"name": "get_action_choices", "arguments": {}}))
-            if state.get("available") or choices.get("action_pending"):
+            # A game brought back shows its board while it waits for its players: no model runs until it
+            # goes on and asks this player something.
+            if choices.get("action_pending") or (state.get("available") and not restored):
                 break
             if time.monotonic() > deadline:
+                if restored:
+                    raise TimeoutError("The game brought back did not go on within two hours")
                 raise TimeoutError("The table was not started within ten minutes; create a new match")
             time.sleep(1)
 
@@ -606,30 +664,35 @@ def run_player(request, *, start_player=None, runtime=None):
             },
             timeout=180,
         )
-        join = {
-            "tableId": request["table_id"],
-            "deck": mcp_engine.read_deck(request["deck"]),
-            "playerName": request["username"],
-        }
-        if request.get("table_password"):
-            join["password"] = request["table_password"]
-        server.call("mage_join_table", join)
+        if not restored:
+            # a seat started again is seated again by the server under its name
+            join = {
+                "tableId": request["table_id"],
+                "deck": mcp_engine.read_deck(request["deck"]),
+                "playerName": request["username"],
+            }
+            if request.get("table_password"):
+                join["password"] = request["table_password"]
+            server.call("mage_join_table", join)
         save_status("waiting_for_start")
-        deadline = time.monotonic() + 600
+        deadline = time.monotonic() + (RESTORED_WAIT_SECONDS if restored else 600)
         game_seen = None
         while True:
             check_session(owner, created, run)
             if server.proc.poll() is not None:
                 raise RuntimeError("The mcp/ game server stopped before the match started; see mcp-server.log")
             snapshot = server.call("mage_session")
-            if snapshot.get("game") or snapshot.get("pendingPrompt"):
+            # a game brought back shows its board while it waits for its players: no model runs until it asks
+            if snapshot.get("pendingPrompt") or (snapshot.get("game") and not restored):
                 return
-            if snapshot.get("gameId"):
+            if snapshot.get("gameId") and not snapshot.get("game"):
                 game_seen = game_seen or time.monotonic()
                 if time.monotonic() - game_seen > 20:
                     server.call("mage_join_game", {"waitMs": 15000}, timeout=60)
                     game_seen = time.monotonic()
             if time.monotonic() > deadline:
+                if restored:
+                    raise TimeoutError("The game brought back did not go on within two hours")
                 raise TimeoutError("The table was not started within ten minutes; create a new match")
             time.sleep(1)
 
