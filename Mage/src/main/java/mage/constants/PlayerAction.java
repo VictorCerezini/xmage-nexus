@@ -17,6 +17,7 @@ public enum PlayerAction {
     PASS_PRIORITY_UNTIL_END_STEP_BEFORE_MY_NEXT_TURN,
     PASS_PRIORITY_CANCEL_ALL_ACTIONS,
     PASS_PRIORITY_AUTO, // the client passed this priority by itself (smart stops): going back skips it (Game.forgetUndoPoint)
+    UNDO_SKIP_PRIORITY, // the client answers this priority by itself, unseen, with its usual pass right after (a model seat's bridge): going back skips it (Game.forgetUndoPoint)
     TRIGGER_AUTO_ORDER_ABILITY_FIRST,
     TRIGGER_AUTO_ORDER_NAME_FIRST,
     TRIGGER_AUTO_ORDER_ABILITY_LAST,
@@ -24,8 +25,8 @@ public enum PlayerAction {
     TRIGGER_AUTO_ORDER_RESET_ALL,
     ROLLBACK_TURNS,
     UNDO,
-    UNDO_LAST_PRIORITY, // go back to the player's last priority, or data (Integer) priorities back (Game.undoPriorities)
-    UNDO_PREVIEW, // show the player the game data (Integer) of their priorities back, without going back
+    UNDO_LAST_PRIORITY, // go back to the last priority (anyone's), or data (Integer) priorities back (Game.undoPriorities)
+    UNDO_PREVIEW, // show the player the game data (Integer) priorities back (anyone's), without going back
     UNDO_HOLD, // look back while the game isn't waiting on the player: it stops at the next priority, then UNDO_PREVIEW 1 comes (Game.holdForUndo)
     UNDO_HOLD_RELEASE, // done looking back without going back: the game goes on
     RESTORED_GAME_GO_ON, // the host of a game brought back after the server stopped goes on without the players not back yet: they concede

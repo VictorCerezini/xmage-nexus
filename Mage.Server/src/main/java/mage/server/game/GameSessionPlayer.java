@@ -172,7 +172,7 @@ public class GameSessionPlayer extends GameSessionWatcher {
     /**
      * Same buttons as a turn rollback request, so clients and model seats that answer those answer this too
      *
-     * @param steps how many of their priorities the requester goes back
+     * @param steps how many priorities (anyone's) the requester goes back
      * @param where where that is ("turn 4, Precombat Main"), can be empty
      */
     public void requestPermissionToUndoPriority(UUID requestingUserId, int steps, String where) {
@@ -180,8 +180,9 @@ public class GameSessionPlayer extends GameSessionWatcher {
             Optional<User> requestingUser = userManager.getUser(requestingUserId);
             Optional<User> requestedUser = userManager.getUser(userId);
             if (requestedUser.isPresent() && requestingUser.isPresent()) {
-                // clients read this text: "go back to their last priority" / "go back N priorities", then "(turn T, step)"
-                String howFar = steps > 1 ? steps + " priorities" : "to their last priority";
+                // clients read this text: "go back 1 priority" / "go back N priorities", then "(turn T, step)"
+                // (older servers said "go back to their last priority")
+                String howFar = steps > 1 ? steps + " priorities" : "1 priority";
                 UserRequestMessage userRequestMessage = new UserRequestMessage(
                         "Request by " + requestingUser.get().getName(),
                         "Allow " + requestingUser.get().getName() + " to go back " + howFar

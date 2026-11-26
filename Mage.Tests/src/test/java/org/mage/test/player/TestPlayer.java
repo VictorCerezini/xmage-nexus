@@ -806,6 +806,13 @@ public class TestPlayer implements Player {
                             computerPlayer.pass(game);
                             return false;
                         }
+                        if (groups[0].equals("UnseenPass")) {
+                            // the client says it passes this priority unseen, then passes as usual, like a model seat's bridge
+                            actions.remove(action);
+                            sendPlayerAction(mage.constants.PlayerAction.UNDO_SKIP_PRIORITY, game, null);
+                            computerPlayer.pass(game);
+                            return false;
+                        }
                         if (groups[0].equals("Concede")) {
                             game.concede(this.getId());
                             ((GameImpl) game).checkConcede();
