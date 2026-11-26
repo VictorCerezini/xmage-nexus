@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 
 from llm import claude_client, paths, providers
+from llm.subscription_client import CHAT_TOOL, TOOLS
 
 
 @pytest.fixture
@@ -58,6 +59,19 @@ def test_credential_overrides_are_removed_only_from_child_environment(monkeypatc
     assert cleaned["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
     assert cleaned["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
     assert cleaned["CLAUDE_CODE_DISABLE_MODEL_ACCESS_FALLBACK"] == "1"
+
+
+@pytest.mark.usefixtures("fake_claude")
+def test_a_seat_with_table_chat_also_allows_the_chat_tool():
+    tools = [*TOOLS, CHAT_TOOL]
+    command = claude_client.command("http://127.0.0.1:12345/mcp", tools=tools)
+    assert flag(command, "--allowedTools").split(",") == [*claude_client.MCP_TOOLS, "mcp__mage__send_chat_message"]
+    claude_client.require_game_only_events(
+        [
+            {"type": "system", "subtype": "init", "tools": claude_client.mcp_tools(tools)},
+            assistant({"type": "tool_use", "name": "mcp__mage__send_chat_message"}),
+        ]
+    )
 
 
 def assistant(*blocks):

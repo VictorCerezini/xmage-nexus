@@ -530,6 +530,8 @@ export const de: TranslationSchema = {
     create_seat_llm_backup: 'Ersatzmodell',
     create_seat_llm_backup_none: 'Keines',
     create_seat_llm_backup_hint: 'Übernimmt, wenn das Modell oben sein Nutzungslimit erreicht oder nach etwa 6 Minuten Wiederholungsversuchen noch scheitert.',
+    create_seat_llm_chat: 'Darf im Spielchat schreiben',
+    create_seat_llm_chat_hint: 'Das Modell liest, was die Spieler schreiben, und kann mit wenigen kurzen Nachrichten antworten. Jemand könnte versuchen, es im Chat zu täuschen, aber es kann trotzdem nur dieses Spiel spielen und schreiben. Am besten mit Spielern, die du kennst.',
     create_seat_llm_hint: 'Nutzt die Anmeldung dieses Computers: {auth}. Tritt bei, sobald die Plätze davor besetzt sind.',
     create_seat_llm_free_left: 'Heute noch {remaining} von {limit} kostenlosen Anfragen',
     create_llm_catalog_failed: 'Modellplätze sind nicht verfügbar: {error}',

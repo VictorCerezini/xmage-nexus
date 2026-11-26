@@ -20,6 +20,8 @@ TOOLS = [
     # answered by the seat's gateway, not the bridge: the model's reports of problems with these tools
     "report_problem",
 ]
+# Offered on top of TOOLS only at a seat whose host turned table chat on; the gateway checks each message.
+CHAT_TOOL = "send_chat_message"
 
 
 def clean_env():

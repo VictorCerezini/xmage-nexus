@@ -434,6 +434,24 @@ class LlmSeatsTest {
         assertEquals("bridge", request.get("engine").getAsString());
         assertFalse(request.has("proxy_url"));
         assertFalse(request.has("backup_model"));
+        // table chat is off unless the host turns it on for the seat
+        assertFalse(request.get("chat").getAsBoolean());
+    }
+
+    @Test
+    void aSeatWhoseHostTurnedChatOnTellsTheSeat() throws Exception {
+        LlmSeats seats = seats(4);
+        JsonObject args = table("[" + seat(2, ",\"model\":\"gpt-6-astra\",\"chat\":true") + "]");
+        seats.start(seats.prepare(args), args, TABLE);
+
+        await("the launch", () -> processes.size() == 1);
+        assertTrue(processes.get(0).request().get("chat").getAsBoolean());
+    }
+
+    @Test
+    void chatIsOnlyForBridgeSeats() throws Exception {
+        LlmSeats seats = seats(4);
+        assertRefused(seats, table("[" + seat(2, ",\"engine\":\"mcp\",\"chat\":true") + "]"), "only with the bridge");
     }
 
     @Test

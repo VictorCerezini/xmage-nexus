@@ -755,6 +755,8 @@ public final class BridgeDecisionFlowService {
         result.game_seq = nextAction.gameSeq();
         mergeActionChoices(result, null, nextAction);
         reportCancelledSpells(result);
+        // A model that mostly answers choose_action gets its news here, or it would miss chat for whole turns.
+        attachUnseenChat(result);
         String summary = "after=" + summarizePendingAction(previousAction)
             + ",woke_to=" + summarizePendingAction(nextAction)
             + ",gameOver=" + processorState.gameState().gameOverObserved();
@@ -798,6 +800,7 @@ public final class BridgeDecisionFlowService {
             PendingAction nextAction) {
         result.game_seq = nextAction.gameSeq();
         mergeActionChoices(result, null, nextAction);
+        attachUnseenChat(result);
     }
 
     public void finishBatchChooseActionWithoutNextDecision(ChooseActionTool.Result result) {

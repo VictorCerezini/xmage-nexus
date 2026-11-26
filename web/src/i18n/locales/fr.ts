@@ -530,6 +530,8 @@ export const fr: TranslationSchema = {
     create_seat_llm_backup: 'Modèle de secours',
     create_seat_llm_backup_none: 'Aucun',
     create_seat_llm_backup_hint: 'Prend le relais si le modèle ci-dessus atteint sa limite d’utilisation ou échoue encore après environ 6 minutes de nouvelles tentatives.',
+    create_seat_llm_chat: 'Peut parler dans le chat de la partie',
+    create_seat_llm_chat_hint: 'Le modèle lit ce que les joueurs écrivent et peut répondre en quelques messages courts. Quelqu’un pourrait essayer de le piéger dans le chat, mais il ne peut quand même que jouer cette partie et écrire. À réserver aux joueurs que vous connaissez.',
     create_seat_llm_hint: 'Utilise la connexion de cet ordinateur : {auth}. Rejoint la table une fois les places précédentes occupées.',
     create_seat_llm_free_left: "Encore {remaining} requêtes gratuites sur {limit} aujourd'hui",
     create_llm_catalog_failed: 'Les places de modèle sont indisponibles : {error}',

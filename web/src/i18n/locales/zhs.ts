@@ -530,6 +530,8 @@ export const zhs: TranslationSchema = {
     create_seat_llm_backup: '备用模型',
     create_seat_llm_backup_none: '无',
     create_seat_llm_backup_hint: '当上方模型达到使用上限，或在约 6 分钟的重试后仍然失败时接替。',
+    create_seat_llm_chat: '可以在游戏聊天中发言',
+    create_seat_llm_chat_hint: '模型会读取玩家发的消息，并可以用几条简短的消息回复。有人可能会在聊天中试图诱骗它，但它仍然只能玩这局游戏和发消息。建议在与熟人对局时开启。',
     create_seat_llm_hint: '使用本机的登录：{auth}。前面的座位坐满后才会加入。',
     create_seat_llm_free_left: '今日剩余免费请求 {remaining} / {limit}',
     create_llm_catalog_failed: '模型座位不可用：{error}',

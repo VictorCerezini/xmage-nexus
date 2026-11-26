@@ -9,6 +9,7 @@ import mage.client.bridge.processor.BridgeCallbackEvent;
 import mage.client.bridge.processor.BridgeCommand;
 import mage.client.bridge.processor.BridgeConcedeFlow;
 import mage.client.bridge.processor.BridgeConcedeFlowManager;
+import mage.client.bridge.processor.BridgeDecisionFlowService;
 import mage.client.bridge.processor.BridgeDecisionState;
 import mage.client.bridge.processor.BridgeGameLogState;
 import mage.client.bridge.processor.BridgeGameState;
@@ -5570,6 +5571,36 @@ class BridgeCallbackHandlerTest {
         ((BridgeGameLogState) getProcessorStateField(handler, "gameLogState")).attachUnseenChat(news, false, false);
         assertThat(String.valueOf(news.get("recent_chat"))).contains("Everything Comes to Dust was not cast")
             .contains("tap the mana sources first");
+    }
+
+    @Test
+    void aChooseActionThatGoesStraightToTheNextDecisionBringsTheChatThatCameMeanwhile() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        BridgeProcessor processor = (BridgeProcessor) getDirectField(handler, "processor");
+        BridgeGameLogState log = (BridgeGameLogState) getProcessorStateField(handler, "gameLogState");
+        BridgeDecisionFlowService decisions = (BridgeDecisionFlowService) getField(handler, "decisionFlowService");
+        UUID gameId = UUID.randomUUID();
+        PendingAction answered = new PendingAction(gameId, ClientCallbackMethod.GAME_ASK,
+            new GameClientMessage(gameView(8), Collections.<String, Serializable>emptyMap(), "Mulligan hand?"),
+            "Mulligan hand?", 8);
+        PendingAction next = new PendingAction(gameId, ClientCallbackMethod.GAME_ASK,
+            new GameClientMessage(gameView(9), Collections.<String, Serializable>emptyMap(), "Mulligan down to 6?"),
+            "Mulligan down to 6?", 9);
+        ChooseActionTool.Result single = new ChooseActionTool.Result();
+        ChooseActionTool.Result batch = new ChooseActionTool.Result();
+
+        processor.submit(BridgeCommand.of(() -> {
+            log.recordTalkMessage("TestPlayer", "Opponent", "good luck, have fun", 0, 0);
+            decisions.finishChooseActionWithNextDecision(single, answered, next);
+            log.recordTalkMessage("TestPlayer", "Opponent", "nice keep", 0, 0);
+            decisions.finishBatchChooseActionWithNextDecision(batch, next);
+            return null;
+        }));
+
+        assertThat(single.game_seq).isEqualTo(9);
+        assertThat(single.recent_chat).containsExactly("Opponent: good luck, have fun");
+        assertThat(batch.recent_chat).containsExactly("Opponent: nice keep");
     }
 
     /** A special payment prompt where an untapped Plains can pay {W}. */

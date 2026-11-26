@@ -155,6 +155,8 @@ describe('model seats in the create table dialog', () => {
     expect([...backup.querySelectorAll('optgroup')].map((g) => g.label)).toEqual(['ChatGPT', 'OpenRouter'])
     fireEvent.change(backup, { target: { value: 'openrouter_free|alpha' } })
     expect((screen.getByTestId('seat-llm-backup-0') as HTMLSelectElement).value).toBe('openrouter_free|alpha')
+    // table chat stays off unless the host turns it on
+    expect((screen.getByTestId('seat-llm-chat-0') as HTMLInputElement).checked).toBe(false)
 
     for (let i = 0; i < 3 && !document.querySelector('.create-review'); i++) {
       const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
@@ -181,6 +183,26 @@ describe('model seats in the create table dialog', () => {
     await waitFor(() => expect(cmds.joinTable).toHaveBeenCalledTimes(1))
     expect(cmds.joinTable).toHaveBeenCalledWith(expect.objectContaining({ tableId: 'table-llm', playerType: 'HUMAN' }))
     expect(llmSeatRequestsFor('table-llm')).toEqual(args.llmSeats)
+  })
+
+  it('a model seat the host lets chat says so in the request', async () => {
+    vi.mocked(cmds.getLlmProviders).mockResolvedValue(catalog)
+    const seatType = await openSeats()
+    await waitFor(() => expect(seatTypes(seatType)).toContain('ChatGPT'))
+    pickSeatType(seatType, /^ChatGPT$/)
+    fireEvent.click(screen.getByTestId('seat-llm-chat-0'))
+    expect((screen.getByTestId('seat-llm-chat-0') as HTMLInputElement).checked).toBe(true)
+
+    for (let i = 0; i < 3 && !document.querySelector('.create-review'); i++) {
+      const next = screen.queryByRole('button', { name: /Siguiente|Next/ })
+      if (next) fireEvent.click(next)
+    }
+    fireEvent.click(await screen.findByRole('button', { name: /Crear Mesa|Create Table/ }))
+
+    await waitFor(() => expect(cmds.createTable).toHaveBeenCalled())
+    expect(vi.mocked(cmds.createTable).mock.calls[0][0].llmSeats).toEqual([
+      expect.objectContaining({ seat: 2, provider: 'chatgpt_subscription', chat: true }),
+    ])
   })
 
   it('switching a model seat back to a bot drops it from the request', async () => {

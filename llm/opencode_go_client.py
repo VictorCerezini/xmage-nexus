@@ -22,7 +22,17 @@ ALLOWANCE_WORDS = ("limit", "quota", "allowance", "insufficient")
 REGION_WORDS = ("hosted outside", "select global")
 
 
-def start(prompt, stdout, stderr, mcp_url=None, *, model=MODEL, reasoning=DEFAULT_EFFORT, tool_timeout_seconds=180):
+def start(
+    prompt,
+    stdout,
+    stderr,
+    mcp_url=None,
+    *,
+    model=MODEL,
+    reasoning=DEFAULT_EFFORT,
+    tool_timeout_seconds=180,
+    tools=None,  # noqa: ARG001 - OpenCode offers every game tool the seat's gateway lists
+):
     game_config = opencode_client.config(mcp_url, OPENCODE_PROVIDER, tool_timeout_seconds=tool_timeout_seconds)
     cmd = opencode_client.command(OPENCODE_PROVIDER, model, reasoning)
     return opencode_client.launch(prompt, stdout, stderr, game_config, cmd)

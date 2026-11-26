@@ -1,10 +1,11 @@
 import { useTranslation } from '../../i18n'
+import Checkbox from '../../ui/Checkbox'
 import Field from '../../ui/Field'
 import Icon from '../../ui/Icon'
 import type { LlmProvider } from '../../net/types'
 import { llmBackupValue, type LlmSeatChoice } from './llmSeats'
 
-export default function LlmSeatFields({ idx, provider, providers, choice, onModel, onEffort, onBackup }: {
+export default function LlmSeatFields({ idx, provider, providers, choice, onModel, onEffort, onBackup, onChat }: {
   idx: number
   provider: LlmProvider
   /** Every signed-in provider: any of their models may back this seat up. */
@@ -13,6 +14,7 @@ export default function LlmSeatFields({ idx, provider, providers, choice, onMode
   onModel: (modelId: string) => void
   onEffort: (effort: string) => void
   onBackup: (modelId: string) => void
+  onChat: (on: boolean) => void
 }) {
   const { t } = useTranslation()
   const efforts = provider.models.find((m) => m.id === choice.model)?.efforts ?? []
@@ -51,6 +53,14 @@ export default function LlmSeatFields({ idx, provider, providers, choice, onMode
           </select>
         </Field>
       )}
+      <Checkbox
+        checked={choice.chat === true}
+        onChange={onChat}
+        icon="chat"
+        label={t('lobby', 'create_seat_llm_chat')}
+        description={t('lobby', 'create_seat_llm_chat_hint')}
+        inputTestId={`seat-llm-chat-${idx}`}
+      />
       <span className="wizard-hint-box"><Icon name="bot" size={11} /> {t('lobby', 'create_seat_llm_hint', { auth: provider.auth })}</span>
       {typeof quota?.remaining === 'number' && typeof quota.limit === 'number' && (
         <span className="wizard-hint-box">{t('lobby', 'create_seat_llm_free_left', { remaining: quota.remaining, limit: quota.limit })}</span>

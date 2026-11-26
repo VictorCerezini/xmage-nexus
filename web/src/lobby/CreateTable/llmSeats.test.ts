@@ -88,6 +88,18 @@ describe('model seat helpers', () => {
     expect(readSavedLlmChoices(null)).toEqual({})
     expect(readSavedLlmChoices([1, 2])).toEqual({})
   })
+
+  it('keeps table chat only when it was turned on', () => {
+    expect(readSavedLlmChoices({
+      0: { provider: 'p', model: 'm', effort: 'e', chat: true },
+      1: { provider: 'p', model: 'm', effort: 'e', chat: 'yes' },
+      2: { provider: 'p', model: 'm', effort: 'e', chat: false },
+    })).toEqual({
+      0: { provider: 'p', model: 'm', effort: 'e', chat: true },
+      1: { provider: 'p', model: 'm', effort: 'e' },
+      2: { provider: 'p', model: 'm', effort: 'e' },
+    })
+  })
 })
 
 describe('backup model', () => {

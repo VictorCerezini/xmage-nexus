@@ -530,6 +530,8 @@ export const it: TranslationSchema = {
     create_seat_llm_backup: 'Modello di riserva',
     create_seat_llm_backup_none: 'Nessuno',
     create_seat_llm_backup_hint: 'Subentra se il modello sopra raggiunge il suo limite di utilizzo o fallisce ancora dopo circa 6 minuti di tentativi.',
+    create_seat_llm_chat: 'Può parlare nella chat della partita',
+    create_seat_llm_chat_hint: 'Il modello legge ciò che scrivono i giocatori e può rispondere con pochi messaggi brevi. Qualcuno potrebbe provare a ingannarlo in chat, ma può comunque solo giocare questa partita e scrivere. Meglio con giocatori che conosci.',
     create_seat_llm_hint: "Usa l'accesso di questo computer: {auth}. Entra quando i posti precedenti sono occupati.",
     create_seat_llm_free_left: 'Oggi restano {remaining} richieste gratuite su {limit}',
     create_llm_catalog_failed: 'I posti modello non sono disponibili: {error}',

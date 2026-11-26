@@ -352,6 +352,7 @@ async function submitMatch(f: SubmitTableForm, io: SubmitTableIO): Promise<void>
       ...(llm.backupModel
         ? { backupProvider: llm.backupProvider, backupModel: llm.backupModel, backupEffort: llm.backupEffort }
         : {}),
+      ...(llm.chat ? { chat: true } : {}),
       deck: fixed,
     })
   }

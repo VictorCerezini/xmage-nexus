@@ -12,7 +12,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 from llm.player_view import PlayerView, action_payload, replace_payload
+from llm.subscription_client import CHAT_TOOL
 
+# What a model may say in the game chat, checked here whatever the model was told: one line of plain text,
+# short and not too often. A line starting with \ or / is a server command (a whisper, for one) and one starting
+# with ~ is meant for the game client, so neither is sent.
+CHAT_LENGTH = 200
+CHAT_PER_TURN = 3
+CHAT_COMMAND_STARTS = ("\\", "/", "~")
+CHAT_DESCRIPTION = (
+    f" Everyone at the table sees it. Plain text on one line, at most {CHAT_LENGTH} characters and "
+    f"{CHAT_PER_TURN} messages each turn. It does not change the game."
+)
 # A tool the gateway answers itself: the model tells us when the game tools kept it from doing what it
 # wanted. Nothing reaches the bridge or the game; the note is saved in the seat's run folder.
 REPORT_TOOL = "report_problem"
@@ -133,6 +144,10 @@ class GameToolGateway:
         self.model_response_bytes = 0
         self.game_finished = False
         self.reports = REPORT_TOOL in self.allowed
+        # Messages the model sent to the game chat (offered only where the host turned it on), and this turn's.
+        self.chat_messages = 0
+        self.chat_turn = None
+        self.chat_this_turn = 0
         self.report_path = report_path or trace_path.with_name("problem-reports.jsonl")
         self.problem_reports = 0
         self.said_all_worked = False
@@ -199,6 +214,14 @@ class GameToolGateway:
                     if response is None and is_call and gateway.game_finished:
                         response = finished_response(payload, gateway.ask_end_question())
                         record["outcome"] = "game_finished"
+                    if response is None and is_call and params.get("name") == CHAT_TOOL:
+                        message, refusal = gateway.chat_message(params.get("arguments"))
+                        if refusal:
+                            response = tool_response(payload, {"success": False, "error": refusal}, is_error=True)
+                            record["outcome"] = "chat_refused"
+                        else:
+                            # Only the cleaned-up text reaches the game.
+                            payload = {**payload, "params": {**params, "arguments": {"message": message}}}
                     if response is None:
                         effective = gateway.view.prepare_request(payload) if is_call and gateway.view else payload
                         if is_call:
@@ -245,7 +268,9 @@ class GameToolGateway:
                         record["outcome"] = "upstream_error"
                     outgoing = (
                         gateway.view.model_response(params["name"], answered)
-                        if is_call and gateway.view and record["outcome"] not in {"game_finished", "reported"}
+                        if is_call
+                        and gateway.view
+                        and record["outcome"] not in {"game_finished", "reported", "chat_refused"}
                         else response
                     )
                     if is_call and record["outcome"] == "ok":
@@ -321,6 +346,11 @@ class GameToolGateway:
                 self.view.describe_tool(tool)
             if self.describe:
                 self.describe(tool)
+            if tool["name"] == CHAT_TOOL:
+                tool["description"] = tool.get("description", "") + CHAT_DESCRIPTION
+                message = ((tool.get("inputSchema") or {}).get("properties") or {}).get("message")
+                if isinstance(message, dict):
+                    message["maxLength"] = CHAT_LENGTH
             properties = (tool.get("outputSchema") or {}).get("properties")
             if self.reports and isinstance(properties, dict) and any(key in properties for key in GAME_OVER_KEYS):
                 properties["bridge_check"] = {
@@ -329,6 +359,31 @@ class GameToolGateway:
                 }
         if self.reports:
             tools.append(json.loads(json.dumps(REPORT_TOOL_DEFINITION)))
+
+    def chat_message(self, arguments):
+        """(the model's chat message as one line of plain text, None), or (None, why it is not sent)."""
+        message = arguments.get("message") if isinstance(arguments, dict) else None
+        if not isinstance(message, str):
+            return None, "Give the message as text."
+        # Line breaks, control and invisible formatting characters become spaces.
+        message = " ".join("".join(char if char.isprintable() else " " for char in message).split())
+        if not message:
+            return None, "The message is empty."
+        if len(message) > CHAT_LENGTH:
+            return None, f"Keep a message to {CHAT_LENGTH} characters or fewer."
+        if message.startswith(CHAT_COMMAND_STARTS):
+            return None, "A message can't start with \\, / or ~."
+        if "<" in message or ">" in message:
+            return None, "Plain text only: leave out < and >."
+        turn = self.view.turn if self.view else None
+        with self.lock:
+            if turn != self.chat_turn:
+                self.chat_turn, self.chat_this_turn = turn, 0
+            if self.chat_this_turn >= CHAT_PER_TURN:
+                return None, f"You already sent {CHAT_PER_TURN} messages this turn. Keep playing."
+            self.chat_this_turn += 1
+            self.chat_messages += 1
+        return message, None
 
     def report(self, request):
         """Save the model's problem report with the calls that led to it, and tell the model it was saved."""

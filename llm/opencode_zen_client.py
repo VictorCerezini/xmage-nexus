@@ -24,7 +24,17 @@ def is_free(model):
     return model == "big-pickle" or model.endswith("-free")
 
 
-def start(prompt, stdout, stderr, mcp_url=None, *, model=MODEL, reasoning=DEFAULT_EFFORT, tool_timeout_seconds=180):
+def start(
+    prompt,
+    stdout,
+    stderr,
+    mcp_url=None,
+    *,
+    model=MODEL,
+    reasoning=DEFAULT_EFFORT,
+    tool_timeout_seconds=180,
+    tools=None,  # noqa: ARG001 - OpenCode offers every game tool the seat's gateway lists
+):
     # Free models only answer a player that offers OpenCode's read tool; it reads nothing (see opencode_client).
     game_config = opencode_client.config(
         mcp_url, OPENCODE_PROVIDER, tool_timeout_seconds=tool_timeout_seconds, offer_read=is_free(model)

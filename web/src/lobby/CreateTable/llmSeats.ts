@@ -14,6 +14,8 @@ export interface LlmSeatChoice {
   backupModel?: string
   /** The backup's reasoning level: `effort` when the backup has it. Set by `resolveLlmChoice`. */
   backupEffort?: string
+  /** The host lets the model read and write the game chat; absent means off. */
+  chat?: boolean
 }
 
 /** A model seat ready for `createTable`: `seat` is 1-based into `playerTypes`, `idx` indexes `seatConfigs`. */
@@ -134,12 +136,13 @@ export function readSavedLlmChoices(raw: unknown): Record<number, LlmSeatChoice>
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     const idx = Number(key)
     if (!Number.isInteger(idx) || idx < 0 || !value || typeof value !== 'object') continue
-    const { provider, model, effort, backupProvider, backupModel } = value as Record<string, unknown>
+    const { provider, model, effort, backupProvider, backupModel, chat } = value as Record<string, unknown>
     if (typeof provider === 'string' && typeof model === 'string' && typeof effort === 'string') {
       out[idx] = { provider, model, effort }
       if (typeof backupModel === 'string' && backupModel) {
         out[idx] = { ...out[idx], backupModel, ...(typeof backupProvider === 'string' && backupProvider ? { backupProvider } : {}) }
       }
+      if (chat === true) out[idx] = { ...out[idx], chat }
     }
   }
   return out

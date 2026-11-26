@@ -157,5 +157,7 @@ export interface CreateTableForm {
   setLlmEffort: (idx: number, effort: string) => void
   /** `value` is `llmBackupValue(provider, model)`, or '' for no backup. */
   setLlmBackup: (idx: number, value: string) => void
+  /** Lets the model read and write the game chat, or not (the default). */
+  setLlmChat: (idx: number, on: boolean) => void
   refreshLlmCatalog: () => Promise<void>
 }

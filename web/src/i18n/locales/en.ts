@@ -528,6 +528,8 @@ export const en = {
     create_seat_llm_backup: 'Backup model',
     create_seat_llm_backup_none: 'None',
     create_seat_llm_backup_hint: 'Takes over if the model above reaches its usage limit, or is still failing after about 6 minutes of retries.',
+    create_seat_llm_chat: 'Can talk in the game chat',
+    create_seat_llm_chat_hint: 'The model reads what players write and may answer in a few short messages. Someone could try to trick it in chat, but it can still only play this game and talk. Best with players you know.',
     create_seat_llm_hint: "Uses this computer's sign-in: {auth}. It joins once the seats before it are taken.",
     create_seat_llm_free_left: '{remaining} of {limit} free requests left today',
     create_llm_catalog_failed: 'Model seats are unavailable: {error}',

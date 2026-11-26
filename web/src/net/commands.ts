@@ -188,6 +188,8 @@ export interface LlmSeatRequest {
   backupProvider?: string
   backupModel?: string
   backupEffort?: string
+  /** lets the model read and write the game chat; off when absent */
+  chat?: boolean
   deck: DeckJson
 }
 

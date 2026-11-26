@@ -105,6 +105,9 @@ public final class BridgeActionCommandService {
     }
 
     public String sendChatMessage(String message) {
+        if (!BridgeGameLogState.tableTalkOn()) {
+            return "table chat is off for this seat";
+        }
         var gameId = processorState.gameState().currentGameId();
         if (gameId == null) {
             logger.warn("[" + username + "] Cannot send chat: no active game");

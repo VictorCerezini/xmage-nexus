@@ -35,7 +35,17 @@ def config(mcp_url, model, tool_timeout_seconds=180):
     return opencode_client.config(mcp_url, OPENCODE_PROVIDER, {model["id"]: entry}, tool_timeout_seconds)
 
 
-def start(prompt, stdout, stderr, mcp_url=None, *, model, reasoning=DEFAULT_EFFORT, tool_timeout_seconds=180):
+def start(
+    prompt,
+    stdout,
+    stderr,
+    mcp_url=None,
+    *,
+    model,
+    reasoning=DEFAULT_EFFORT,
+    tool_timeout_seconds=180,
+    tools=None,  # noqa: ARG001 - OpenCode offers every game tool the seat's gateway lists
+):
     game_config = config(mcp_url, catalog_model(model), tool_timeout_seconds)
     cmd = opencode_client.command(OPENCODE_PROVIDER, model, reasoning)
     return opencode_client.launch(prompt, stdout, stderr, game_config, cmd)

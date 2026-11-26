@@ -57,13 +57,17 @@ final class LlmSeats {
         final LlmCatalog.Selection backup;
         final DeckCardLists deck;
         final String engine;
+        /** The host lets this model read and write the game chat; off unless asked for. */
+        final boolean chat;
 
-        Plan(int seat, LlmCatalog.Selection selection, LlmCatalog.Selection backup, DeckCardLists deck, String engine) {
+        Plan(int seat, LlmCatalog.Selection selection, LlmCatalog.Selection backup, DeckCardLists deck, String engine,
+                boolean chat) {
             this.seat = seat;
             this.selection = selection;
             this.backup = backup;
             this.deck = deck;
             this.engine = engine;
+            this.chat = chat;
         }
     }
 
@@ -262,7 +266,11 @@ final class LlmSeats {
             if (!BRIDGE.equals(engine) && !MCP.equals(engine)) {
                 throw new IllegalArgumentException("Model seat " + seat + " has an unknown engine: " + engine);
             }
-            plans.add(new Plan(seat, selection, backup, deck, engine));
+            boolean chat = JsonArgs.getBool(entry, "chat", false);
+            if (chat && !BRIDGE.equals(engine)) {
+                throw new IllegalArgumentException("Model seat " + seat + " can chat only with the bridge engine");
+            }
+            plans.add(new Plan(seat, selection, backup, deck, engine, chat));
         }
         int live = NAMES.live();
         if (live + plans.size() > runtime.maxSeats()) {
@@ -336,6 +344,7 @@ final class LlmSeats {
         request.addProperty("owner_pid", ProcessHandle.current().pid());
         request.addProperty("run", run.toString());
         request.addProperty("engine", plan.engine);
+        request.addProperty("chat", plan.chat);
         if (MCP.equals(plan.engine)) {
             request.addProperty("proxy_url", "ws://127.0.0.1:" + proxyPort);
         }

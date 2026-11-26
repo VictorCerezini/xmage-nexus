@@ -413,7 +413,9 @@ public final class BridgeCallbackProcessorService
                 String message = chatMessage.getMessage();
                 // "~nxart1 ..." lines are the web client sharing its picked card art: not talk
                 boolean sharedArtLine = message != null && message.trim().startsWith("~nxart1");
-                if (user != null && message != null && !message.isEmpty() && !sharedArtLine) {
+                // With table talk off, the model sees none of it, in its tool results or in the game log
+                if (user != null && message != null && !message.isEmpty() && !sharedArtLine
+                        && BridgeGameLogState.tableTalkOn()) {
                     processorState.gameLogState().recordTalkMessage(
                         username,
                         user,

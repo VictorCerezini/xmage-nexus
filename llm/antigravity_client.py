@@ -15,7 +15,7 @@ from pathlib import Path
 
 from llm import paths
 from llm.claude_client import SYSTEM_PROMPT
-from llm.subscription_client import TOOLS
+from llm.subscription_client import CHAT_TOOL, TOOLS
 
 PROVIDER = "google_subscription"
 NAME = "Google"
@@ -173,7 +173,8 @@ def steps(events):
     return [event["step_update"] for event in events if event.get("event") == "step_update"]
 
 
-def require_game_only_events(events, tools=TOOLS):
+def require_game_only_events(events, tools=(*TOOLS, CHAT_TOOL)):
+    # The chat tool too: the seat offers it only at a table whose host lets the model talk.
     allowed = set(mcp_tools(tools))
     for step in steps(events):
         if step.get("step_type") == "tool" and step.get("tool_name") not in allowed:

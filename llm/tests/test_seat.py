@@ -1280,6 +1280,7 @@ def test_mcp_engine_server_that_stops_during_play_is_a_failure(mcp_harness):
         ({"wins_needed": 2}, "two-player single games"),
         ({"player_count": 3}, "two-player single games"),
         ({"proxy_url": "ws://example.com:8787"}, "local proxy"),
+        ({"chat": True}, "bridge seats only"),
     ],
 )
 def test_mcp_engine_requests_outside_the_experiment_are_rejected(mcp_harness, change, message):
@@ -1430,3 +1431,61 @@ def test_an_mcp_engine_seat_started_again_joins_no_table(mcp_harness, tmp_path):
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     assert manifest["status"] == "completed"
     assert manifest["first_game"] == 1
+
+
+def bridge_arguments(runtime):
+    """The bridge's command line, kept as the harness launches it."""
+    launch = runtime.launch_bridge
+    arguments = []
+
+    def launch_and_keep(args, *rest):
+        arguments.extend(args)
+        return launch(args, *rest)
+
+    runtime.launch_bridge = launch_and_keep
+    return arguments
+
+
+def test_table_chat_is_off_unless_the_host_turns_it_on(harness, monkeypatch):
+    request, runtime, _stopped, _gateway = harness
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+    arguments = bridge_arguments(runtime)
+    start = Mock(return_value=SimpleNamespace(poll=lambda: 0, returncode=0))
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    assert "-Dxmage.bridge.tableTalk=false" in arguments
+    assert "tools" not in start.call_args.kwargs
+    assert seat.CHAT_PROMPT not in start.call_args.args[0]
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert "chat" not in manifest
+    assert "chat_messages" not in manifest["games"][0]
+
+
+def test_a_seat_with_table_chat_gets_the_chat_tool_and_the_rules_for_table_talk(harness, monkeypatch):
+    request, runtime, _stopped, gateway = harness
+    request["chat"] = True
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+    arguments = bridge_arguments(runtime)
+    allowed = []
+
+    def make_gateway(_upstream, tools, *_args, **_kwargs):
+        allowed.extend(tools)
+        return gateway
+
+    monkeypatch.setattr(seat, "GameToolGateway", make_gateway)
+    gateway.chat_messages = 2
+    start = Mock(return_value=SimpleNamespace(poll=lambda: 0, returncode=0))
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    assert "-Dxmage.bridge.tableTalk=true" in arguments
+    assert allowed == [*seat.subscription_client.TOOLS, seat.subscription_client.CHAT_TOOL]
+    assert start.call_args.kwargs["tools"] == allowed
+    assert seat.CHAT_PROMPT in start.call_args.args[0]
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["chat"] is True
+    assert manifest["games"][0]["chat_messages"] == 2
+
+
+def test_table_chat_must_be_true_or_false(harness):
+    request, *_ = harness
+    request["chat"] = "yes"
+    with pytest.raises(ValueError, match="true or false"):
+        seat.validate_request(request)

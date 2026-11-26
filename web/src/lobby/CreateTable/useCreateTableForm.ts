@@ -625,6 +625,12 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     if (!current) return
     setLlmChoices((prev) => ({ ...prev, [idx]: { ...current, effort } }))
   }
+  const setLlmChat = (idx: number, on: boolean) => {
+    const current = activeLlm[idx]
+    if (!current) return
+    const { chat: _chat, ...rest } = current
+    setLlmChoices((prev) => ({ ...prev, [idx]: on ? { ...rest, chat: true } : rest }))
+  }
   const refreshLlmCatalog = () => loadLlmCatalog({ refresh: true })
   const setSeatDeck = (idx: number, deckRefValue: string) => {
     setSeatConfigs((prev) => prev.map((s, i) => (i === idx ? { ...s, deckName: deckRefValue } : s)))
@@ -818,6 +824,7 @@ export function useCreateTableForm(onClose: () => void, kind: CreateKind = 'matc
     setLlmModel,
     setLlmEffort,
     setLlmBackup,
+    setLlmChat,
     refreshLlmCatalog,
     resetToDefaults,
   }

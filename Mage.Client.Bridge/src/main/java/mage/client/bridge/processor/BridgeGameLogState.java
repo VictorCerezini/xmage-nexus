@@ -11,6 +11,16 @@ import java.util.Map;
 import java.util.Set;
 
 public final class BridgeGameLogState {
+    /**
+     * -Dxmage.bridge.tableTalk=true lets the model read what the other players say in the game chat and
+     * send its own messages. Off by default: table talk may try to give the model instructions.
+     */
+    public static final String TABLE_TALK_PROPERTY = "xmage.bridge.tableTalk";
+
+    public static boolean tableTalkOn() {
+        return Boolean.getBoolean(TABLE_TALK_PROPERTY);
+    }
+
     private record PendingOutgoingChat(String message, long sentAtMs) {
     }
 

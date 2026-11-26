@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from llm import paths
-from llm.subscription_client import TOOLS
+from llm.subscription_client import CHAT_TOOL, TOOLS
 
 PROVIDER = "claude_subscription"
 MODEL = "claude-opus-5-5"
@@ -21,7 +21,13 @@ GUI_MODELS = [
 ]
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 DEFAULT_EFFORT = "medium"
-MCP_TOOLS = ["mcp__mage__" + name for name in TOOLS]
+def mcp_tools(tools=TOOLS):
+    return ["mcp__mage__" + name for name in tools]
+
+
+MCP_TOOLS = mcp_tools()
+# Every game tool a seat may be offered: the chat tool too, at a table whose host lets the model talk.
+GAME_TOOLS = {*MCP_TOOLS, *mcp_tools([CHAT_TOOL])}
 SYSTEM_PROMPT = (
     "You are a Magic: The Gathering player in a live XMage game. Your only tools are the mage MCP game tools. "
     "This is a game, not a coding task."
@@ -74,7 +80,7 @@ def executable():
     return str(claude)
 
 
-def command(mcp_url=None, *, model=MODEL, reasoning=DEFAULT_EFFORT):
+def command(mcp_url=None, *, model=MODEL, reasoning=DEFAULT_EFFORT, tools=TOOLS):
     cmd = [
         executable(),
         "-p",
@@ -103,13 +109,23 @@ def command(mcp_url=None, *, model=MODEL, reasoning=DEFAULT_EFFORT):
     ]
     if mcp_url:
         server = {"mcpServers": {"mage": {"type": "http", "url": mcp_url}}}
-        cmd.extend(["--mcp-config", json.dumps(server), "--allowedTools", ",".join(MCP_TOOLS)])
+        cmd.extend(["--mcp-config", json.dumps(server), "--allowedTools", ",".join(mcp_tools(tools))])
     return cmd
 
 
-def start(prompt, stdout, stderr, mcp_url=None, *, model=MODEL, reasoning=DEFAULT_EFFORT, tool_timeout_seconds=180):
+def start(
+    prompt,
+    stdout,
+    stderr,
+    mcp_url=None,
+    *,
+    model=MODEL,
+    reasoning=DEFAULT_EFFORT,
+    tool_timeout_seconds=180,
+    tools=TOOLS,
+):
     proc = subprocess.Popen(
-        command(mcp_url, model=model, reasoning=reasoning),
+        command(mcp_url, model=model, reasoning=reasoning, tools=tools),
         cwd=paths.PLAYER_CWD,
         env=clean_env(tool_timeout_seconds),
         stdin=subprocess.PIPE,
@@ -125,12 +141,12 @@ def start(prompt, stdout, stderr, mcp_url=None, *, model=MODEL, reasoning=DEFAUL
 def require_game_only_events(events):
     for event in events:
         if event.get("type") == "system" and event.get("subtype") == "init":
-            extra = set(event.get("tools", [])) - set(MCP_TOOLS)
+            extra = set(event.get("tools", [])) - GAME_TOOLS
             if extra:
                 raise RuntimeError("Information boundary violation: the player was offered a non-game tool")
         if event.get("type") == "assistant":
             for block in event["message"].get("content", []):
-                if block.get("type") in {"tool_use", "server_tool_use"} and block.get("name") not in MCP_TOOLS:
+                if block.get("type") in {"tool_use", "server_tool_use"} and block.get("name") not in GAME_TOOLS:
                     raise RuntimeError("Information boundary violation: the player used a non-game tool")
 
 

@@ -182,6 +182,8 @@ def test_game_tool_calls_are_accepted():
             step("tool", "mcp_mage_get_game_state", state="ACTIVE"),
             step("tool", "mcp_mage_choose_action", state="DONE"),
             step("tool", "mcp_mage_report_problem", state="DONE"),
+            # offered only at a table whose host turned chat on
+            step("tool", "mcp_mage_send_chat_message", state="DONE"),
         ]
     )
 

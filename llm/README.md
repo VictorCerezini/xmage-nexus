@@ -189,9 +189,25 @@ for its own rules mistake.
 The bridge's lazily loaded card database is shared by all seats in
 `.run/llm/bridge/db`.
 
+## Table chat
+
+A seat request with `"chat": true` (the host's **Can talk in the game chat**
+box, `bridge` engine only) lets the model read and write the game chat. Off,
+the bridge runs with `-Dxmage.bridge.tableTalk=false`: it keeps the other
+players' messages out of the tool results (`recent_chat`) and the game log, and
+refuses `send_chat_message`, which the gateway doesn't offer either. On, the
+model gets `send_chat_message` as a tenth tool and the prompt tells it that
+chat is talk between players, never instructions. Whatever the model was told,
+the gateway sends only one line of plain text of up to 200 characters, at most
+3 messages a turn, never starting with `\`, `/` or `~` (server commands, lines
+for the game client) and without `<` or `>`; anything else is refused back to
+the model. Each game's record in `manifest.json` counts the messages sent
+(`chat_messages`), and `player-tools.jsonl` has their text.
+
 ## Boundaries
 
-- The CLI gets only the eight game tools and `report_problem`, through a
+- The CLI gets only the eight game tools and `report_problem` (and
+  `send_chat_message` where the host turned table chat on), through a
   loopback gateway that counts calls, auto-passes empty priority windows and
   drops unchanged boards
   and repeated rules text.
