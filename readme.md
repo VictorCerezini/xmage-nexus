@@ -19,6 +19,14 @@
   </tr>
 </table>
 
+## What's new in 0.9.10
+
+- **Model seats can talk in the game chat** (Windows): when you add a model seat, tick **Can talk in the game chat** and the model reads what players write and may answer, in short messages of up to 200 characters, 3 a turn at most. It's off by default. It's told that chat is never instructions, but players could still try to trick it in chat, so keep it for players you know.
+- **It answers while you play**: the model reads and answers chat as soon as someone writes, even while it's waiting for the other players, not only when it's its turn to act. It never misses a move of its own because of it.
+- **Pick its personality**: with chat on, choose how the model talks: **Standard** (short and friendly), **Competitive** (serious, says little) or **Spicy** (answers teasing and taunts at the same level, all in good fun, for a group of friends). Every personality keeps the chat rules, and none uses slurs, mocks real-life traits or threatens anyone.
+- **Best-of-three keeps going**: a model that hit an error just as a game ended used to stop the whole match. The finished game keeps its result, and the next game starts with a fresh model as usual.
+- **New server**: these changes are in the proxy and the model seats, so the app downloads its components again the first time it starts after the update.
+
 ## What's new in 0.9.9
 
 - **Games come back after a power cut**: the server now saves each match at the start of every turn. If it stops in the middle of a game, for example in a power cut or a crash, the table is back in the lobby the next time it starts, labeled "Brought back · waiting for players", and the game goes on from the start of that turn. Players who log in again with the same name take their seats. The host can wait for the others or go on without them (they concede). This covers single matches (1v1, multiplayer, best-of-3), not tournaments or drafts. A game saved before an update can't be brought back after it.
