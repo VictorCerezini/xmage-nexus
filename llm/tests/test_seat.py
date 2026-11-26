@@ -220,9 +220,8 @@ def test_closing_window_before_start_consumes_no_inference(harness, monkeypatch)
     assert len(stopped) == 1
 
 
-def test_early_player_exit_is_failure_and_cleans_processes(harness, monkeypatch):
-    request, runtime, stopped, _ = harness
-    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+def test_early_player_exit_is_failure_and_cleans_processes(undecided):
+    request, runtime, stopped, _gateway, _game_over = undecided
 
     def start(*_args, **_kwargs):
         return SimpleNamespace(poll=lambda: 1, returncode=1)
@@ -231,7 +230,8 @@ def test_early_player_exit_is_failure_and_cleans_processes(harness, monkeypatch)
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     assert manifest["status"] == "failed"
     assert manifest["cleanup_complete"] is True
-    assert len(stopped) == 2
+    # every player tried (the first one and each retry), and the bridge
+    assert len(stopped) == len(seat.RETRY_DELAYS) + 2
 
 
 CAPACITY = "Selected model is at capacity. Please try a different model."
@@ -702,7 +702,7 @@ def test_an_eliminated_player_stays_until_the_game_ends_for_everyone(undecided, 
     assert len(starts) == 1
 
 
-def test_a_game_decided_before_the_player_stopped_is_not_replayed(undecided):
+def test_a_game_decided_before_the_player_crashed_keeps_its_result_and_is_not_replayed(undecided):
     request, runtime, _stopped, _gateway, game_over = undecided
     starts = []
 
@@ -711,9 +711,10 @@ def test_a_game_decided_before_the_player_stopped_is_not_replayed(undecided):
         game_over()  # The game is decided, but this player crashed before reporting it.
         return codex_failure(out, CAPACITY)
 
-    assert seat.run_player(request, runtime=runtime, start_player=start) == 1
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
-    assert "at capacity" in manifest["error"]
+    assert manifest["status"] == "completed"
+    assert manifest["games"][0]["player_error"] == CAPACITY
     assert "recoveries" not in manifest
     assert len(starts) == 1
 
@@ -822,10 +823,9 @@ def test_openrouter_seat_rejects_a_non_game_tool_during_play(harness, monkeypatc
     assert len(stopped) == 2
 
 
-def test_openrouter_seat_failure_records_the_cli_reason(harness, monkeypatch):
-    request, runtime, stopped, _ = harness
+def test_openrouter_seat_failure_records_the_cli_reason(undecided):
+    request, runtime, stopped, _gateway, _game_over = undecided
     request.update(provider="openrouter_free", model="a/alpha:free", reasoning="default", username="OpenRouter 2")
-    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
 
     def start(_prompt, out, *_args, **_kwargs):
         error = {"type": "error", "error": {"data": {"message": "a/alpha:free is temporarily rate-limited upstream."}}}
@@ -837,13 +837,12 @@ def test_openrouter_seat_failure_records_the_cli_reason(harness, monkeypatch):
     manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
     assert "rate-limited upstream" in manifest["error"]
     assert "choose another free model" in manifest["error"]
-    assert len(stopped) == 2
+    assert len(stopped) == len(seat.RETRY_DELAYS) + 2
 
 
-def test_zai_seat_uses_its_own_trace_and_records_the_plan_limit(harness, monkeypatch):
-    request, runtime, stopped, _ = harness
+def test_zai_seat_uses_its_own_trace_and_records_the_plan_limit(undecided):
+    request, runtime, stopped, _gateway, _game_over = undecided
     request.update(provider="zai_coding_plan", model="glm-5.3", reasoning="max", username="GLM 2")
-    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
 
     def start(_prompt, out, _err, _url, *, model, reasoning, tool_timeout_seconds):
         assert (model, reasoning) == ("glm-5.3", "max")
@@ -1097,6 +1096,33 @@ def test_match_won_in_the_first_game_needs_no_further_player(match):
     assert manifest["match_result"] == "Opponent has quit the match."
     start.assert_called_once()
     assert len(stopped) == 2
+
+
+def test_a_model_that_fails_as_a_match_game_ends_keeps_the_result_and_the_match_goes_on(match):
+    request, runtime, _stopped, _gateways, write = match
+    starts = []
+
+    def start(_prompt, out, *_args, **_kwargs):
+        starts.append(True)
+        if len(starts) == 1:
+            # Game 1 is decided, but the model's provider is at capacity before it reports it.
+            write("Game over: game 1")
+            write("Match continues: You need one more win to win the match.")
+            write("Game started: gameId=second")
+            return codex_failure(out, CAPACITY)
+        write("Game over: game 2")
+        write("Match over: You won the match!")
+        return SimpleNamespace(poll=lambda: 0, returncode=0)
+
+    assert seat.run_player(request, runtime=runtime, start_player=start) == 0
+    manifest = json.loads((Path(request["run"]) / "manifest.json").read_text())
+    assert manifest["status"] == "completed"
+    assert manifest["match_result"] == "You won the match!"
+    assert [game["game"] for game in manifest["games"]] == [1, 2]
+    assert manifest["games"][0]["player_error"] == CAPACITY
+    assert "player_error" not in manifest["games"][1]
+    assert "recoveries" not in manifest
+    assert len(starts) == 2
 
 
 def test_bridge_leaving_between_games_without_a_match_result_is_a_failure(match):

@@ -345,7 +345,8 @@ def run_player(request, *, start_player=None, runtime=None):
 
     def play_attempt(number, attempt, prompt, gateway, usage):
         """Run one player process on this game: (terminal_reason, None, False) once the game is decided for
-        this player, or (None, why it stopped, whether the same model would stop again) when it stopped first."""
+        this player, or (None, why it stopped, whether the same model would stop again) when it stopped first.
+        A player that fails as its game is decided gives (terminal_reason, why it failed, False)."""
 
         def name(base):
             return retry_file(game_file(base, number), attempt)
@@ -418,8 +419,8 @@ def run_player(request, *, start_player=None, runtime=None):
             return None, f"the model sent nothing for {QUIET_SECONDS} seconds", False
         reason = player.failure_reason(trace) or f"see {events.name}"
         if terminal_reason is not None:
-            # The game is over, so another player would have nothing left to play.
-            raise RuntimeError(f"{player.label} stopped before a confirmed game result: {reason}")
+            # The game is over and its result stands. A model that still fails gets its retries in the next game.
+            return terminal_reason, reason, False
         return None, reason, player.lasting_failure(trace)
 
     def wait_to_retry(number, seconds):
@@ -491,7 +492,8 @@ def run_player(request, *, start_player=None, runtime=None):
         tries = 0
         while True:
             terminal_reason, reason, lasting = play_attempt(number, attempt, prompt, gateway, usage)
-            if reason is None:
+            if terminal_reason is not None:
+                player_error = reason
                 if terminal_reason == "player_eliminated" and wait_for_return(number):
                     attempt += 1
                     manifest.setdefault("recoveries", []).append(
@@ -534,6 +536,7 @@ def run_player(request, *, start_player=None, runtime=None):
             if terminal_reason is not None:
                 # The game ended while no player was connected (the others won, or the table ended it).
                 gateway.finish_game()
+                player_error = None
                 break
             gateway.new_player()
         manifest["games"].append(
@@ -550,6 +553,8 @@ def run_player(request, *, start_player=None, runtime=None):
                     else {}
                 ),
                 **({"player_restarts": attempt} if attempt else {}),
+                # The model failed just as the game was decided; the result was kept.
+                **({"player_error": player_error} if player_error else {}),
                 **({"model": f"{playing['provider'].id} {playing['model']}"} if "model_switch" in manifest else {}),
                 "usage": usage,
             }
