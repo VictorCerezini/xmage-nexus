@@ -21,6 +21,7 @@ import mage.server.recovery.SavedTable;
 import mage.server.recovery.TableRecovery;
 import mage.server.util.ConfigFactory;
 import mage.server.util.ConfigWrapper;
+import mage.view.TableView;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -137,13 +138,11 @@ public class TableRecoveryTest extends CardTestPlayerBase {
         Assert.assertEquals(Arrays.asList(tableId + ".previous.failed", tableId + ".table.failed"), fileNames(folder));
         Assert.assertTrue("set aside, not tried again", recovery.loadAll().isEmpty());
 
-        // a table brought back takes its saves to its new id; the end of its game deletes them
-        UUID newTableId = UUID.randomUUID();
+        // the end of its game deletes its saves
         Assert.assertTrue(recovery.save(tableId, savedTable(recovery.getServerVersion(), currentGame)));
         Assert.assertTrue(recovery.waitForWrites(30_000));
-        recovery.rename(tableId, newTableId);
-        Assert.assertEquals(newTableId, recovery.loadAll().get(0).getSavedTableId());
-        recovery.delete(newTableId);
+        Assert.assertEquals(tableId, recovery.loadAll().get(0).getSavedTableId());
+        recovery.delete(tableId);
         Assert.assertTrue(recovery.waitForWrites(30_000));
         Assert.assertTrue(recovery.loadAll().isEmpty());
         Assert.assertEquals(Arrays.asList(tableId + ".previous.failed", tableId + ".table.failed"), fileNames(folder));
@@ -168,13 +167,18 @@ public class TableRecoveryTest extends CardTestPlayerBase {
         List<SavedTable.SavedSeat> seats = Arrays.asList(
                 new SavedTable.SavedSeat(PlayerType.HUMAN, playerA.getId(), "PlayerA", deckA, 1, false, 0),
                 new SavedTable.SavedSeat(PlayerType.HUMAN, playerB.getId(), "PlayerB", deckB, 0, false, 0));
-        recovery.save(UUID.randomUUID(), new SavedTable(recovery.getServerVersion(), duelOptions(), "PlayerA", seats, 2, 0, currentGame));
+        UUID tableId = UUID.randomUUID();
+        recovery.save(tableId, new SavedTable(recovery.getServerVersion(), duelOptions(), "PlayerA", seats, 2, 0, currentGame));
         Assert.assertTrue(recovery.waitForWrites(30_000));
-        SavedTable saved = recovery.loadAll().get(0).getTable();
+        TableRecovery.Restorable restorable = recovery.loadAll().get(0);
+        SavedTable saved = restorable.getTable();
 
-        TableController tableController = new TableController(managers, roomId, saved);
+        TableController tableController = new TableController(managers, roomId, restorable.getSavedTableId(), saved);
         Match match = tableController.getMatch();
+        Assert.assertEquals("the id it had", tableId, tableController.getTable().getId());
         Assert.assertEquals(TableState.DUELING, tableController.getTable().getState());
+        Assert.assertTrue("the lobby shows it waits for its players",
+                new TableView(tableController.getTable()).isWaitingForReturningPlayers());
         Assert.assertSame("the saved game is the match's game", saved.getGame(), match.getGame());
         Assert.assertEquals(tableController.getTable().getId(), saved.getGame().getTableId());
         Assert.assertEquals(2, match.getNumGames());

@@ -87,14 +87,15 @@ public class TableController {
      * game as they were at the start of a turn. Its players come back by name (seatReturningUser), its
      * host too, and the game goes on from that turn's beginning once they're back (startRestoredGame).
      */
-    public TableController(ManagerFactory managerFactory, UUID roomId, SavedTable saved) throws GameException {
+    public TableController(ManagerFactory managerFactory, UUID roomId, UUID tableId, SavedTable saved) throws GameException {
         this.managerFactory = managerFactory;
         this.timeoutExecutor = managerFactory.threadExecutor().getTimeoutExecutor();
         this.userId = null; // the host isn't back yet
         this.options = saved.getOptions();
         this.match = GameFactory.instance.createMatch(options.getGameType(), options);
         this.controllerName = saved.getOwnerName();
-        this.table = new Table(roomId, options.getGameType(), options.getName(), controllerName, DeckValidatorFactory.instance.createDeckValidator(options.getDeckType()),
+        // the id it had: its players' clients and model seats find it by it
+        this.table = new Table(tableId, roomId, options.getGameType(), options.getName(), controllerName, DeckValidatorFactory.instance.createDeckValidator(options.getDeckType()),
                 options.getPlayerTypes(), new TableRecorderImpl(managerFactory.userManager()), match, options.getBannedUsers(), options.isPlaneChase());
         this.chatId = managerFactory.chatManager().createTableChatSession(table);
         this.restored = true;
@@ -127,6 +128,7 @@ public class TableController {
         match.restoreGame(game, saved.getStartedGames(), saved.getDraws());
         match.startMatch();
         table.initGame();
+        table.setWaitingForReturningPlayers(true); // the lobby shows it until the game goes on
     }
 
     /**

@@ -454,6 +454,12 @@ public class GameController implements GameCallback {
             GameWorker worker = restored
                     ? new GameWorker(game, new ArrayList<>(restoredGoOnWithout), this)
                     : new GameWorker(game, choosingPlayerId, this);
+            if (restored) {
+                Table table = managerFactory.tableManager().getTable(tableId);
+                if (table != null) {
+                    table.setWaitingForReturningPlayers(false);
+                }
+            }
             gameFuture = gameExecutor.submit(worker);
             try {
                 Thread.sleep(1000);

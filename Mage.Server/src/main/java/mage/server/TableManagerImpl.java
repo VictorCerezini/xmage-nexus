@@ -63,9 +63,9 @@ public class TableManagerImpl implements TableManager {
     public void restoreSavedTables(UUID roomId) {
         for (TableRecovery.Restorable saved : recovery.loadAll()) {
             try {
-                TableController tableController = new TableController(managerFactory, roomId, saved.getTable());
+                // with the id it was saved under, which its saves keep
+                TableController tableController = new TableController(managerFactory, roomId, saved.getSavedTableId(), saved.getTable());
                 Table table = tableController.getTable();
-                recovery.rename(saved.getSavedTableId(), table.getId());
                 putControllers(table.getId(), tableController);
                 putTables(table.getId(), table);
                 managerFactory.gamesRoomManager().getRoom(roomId).ifPresent(room -> room.addTable(table));

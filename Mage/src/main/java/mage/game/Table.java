@@ -46,6 +46,7 @@ public class Table implements Serializable {
     private TableRecorder recorder;
     private Set<String> bannedUsernames;
     private boolean isPlaneChase;
+    private volatile boolean waitingForReturningPlayers; // brought back after the server stopped, its game waits for its players
 
     @FunctionalInterface
     public interface TableRecorder {
@@ -65,7 +66,15 @@ public class Table implements Serializable {
     }
 
     public Table(UUID roomId, String gameType, String name, String controllerName, DeckValidator validator, List<PlayerType> playerTypes, TableRecorder recorder, Match match, Set<String> bannedUsernames, boolean isPlaneChase) {
-        this(roomId, gameType, name, controllerName, validator, playerTypes, recorder, bannedUsernames, isPlaneChase);
+        this(UUID.randomUUID(), roomId, gameType, name, controllerName, validator, playerTypes, recorder, match, bannedUsernames, isPlaneChase);
+    }
+
+    /**
+     * A match table with a given id: a table brought back after the server stopped keeps the one its
+     * players knew it by.
+     */
+    public Table(UUID tableId, UUID roomId, String gameType, String name, String controllerName, DeckValidator validator, List<PlayerType> playerTypes, TableRecorder recorder, Match match, Set<String> bannedUsernames, boolean isPlaneChase) {
+        this(tableId, roomId, gameType, name, controllerName, validator, playerTypes, recorder, bannedUsernames, isPlaneChase);
         this.match = match;
         this.match.setTableId(this.getId());
         this.isTournament = false;
@@ -75,7 +84,11 @@ public class Table implements Serializable {
     }
 
     protected Table(UUID roomId, String gameType, String name, String controllerName, DeckValidator validator, List<PlayerType> playerTypes, TableRecorder recorder, Set<String> bannedUsernames, boolean isPlaneChase) {
-        this.tableId = UUID.randomUUID();
+        this(UUID.randomUUID(), roomId, gameType, name, controllerName, validator, playerTypes, recorder, bannedUsernames, isPlaneChase);
+    }
+
+    protected Table(UUID tableId, UUID roomId, String gameType, String name, String controllerName, DeckValidator validator, List<PlayerType> playerTypes, TableRecorder recorder, Set<String> bannedUsernames, boolean isPlaneChase) {
+        this.tableId = tableId;
         this.tableIndex = GLOBAL_INDEX.incrementAndGet();
         this.roomId = roomId;
         this.numSeats = playerTypes.size();
@@ -109,6 +122,17 @@ public class Table implements Serializable {
 
     public UUID getParentTableId() {
         return parentTableId;
+    }
+
+    /**
+     * The table came back after the server stopped and its game waits for its players to come back.
+     */
+    public boolean isWaitingForReturningPlayers() {
+        return waitingForReturningPlayers;
+    }
+
+    public void setWaitingForReturningPlayers(boolean waitingForReturningPlayers) {
+        this.waitingForReturningPlayers = waitingForReturningPlayers;
     }
 
     public UUID getRoomId() {

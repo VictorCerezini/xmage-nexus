@@ -109,22 +109,6 @@ public class TableRecovery {
     }
 
     /**
-     * A table brought back gets a new id: its saves go with it.
-     */
-    public void rename(UUID fromTableId, UUID toTableId) {
-        for (String suffix : new String[]{SAVE, PREVIOUS}) {
-            Path from = path(fromTableId, suffix);
-            if (Files.exists(from)) {
-                try {
-                    Files.move(from, path(toTableId, suffix), StandardCopyOption.REPLACE_EXISTING);
-                } catch (IOException e) {
-                    logger.warn("Can't rename the recovery save " + from + ": " + e);
-                }
-            }
-        }
-    }
-
-    /**
      * Sets a table's saves aside, so they aren't read again on the next start.
      */
     public void setAside(UUID tableId) {
