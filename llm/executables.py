@@ -1,4 +1,5 @@
-"""Where the player CLIs are installed: PATH, npm's launchers and the Claude desktop app's own Claude Code."""
+"""Where the player CLIs are installed: PATH, npm's launchers and the Claude desktop app's own Claude Code;
+the Antigravity CLI (agy) on PATH."""
 
 import os
 import shutil
@@ -43,4 +44,6 @@ def detect():
         "codex_executable": native_executable("codex", CODEX_NPM_EXE),
         "claude_executable": find_claude(),
         "opencode_executable": native_executable("opencode", OPENCODE2_NPM_EXE, OPENCODE_NPM_EXE),
+        # The Antigravity CLI's installer puts agy.exe on PATH, next to a shell script named agy.
+        "agy_executable": shutil.which("agy.exe"),
     }

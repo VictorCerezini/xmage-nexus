@@ -1,12 +1,13 @@
 """Write llm/settings.local.json: where Java and the player CLIs are. It never holds credentials.
 
-python -m llm.configure [--codex PATH] [--claude PATH] [--opencode PATH] [--java-home PATH]
+python -m llm.configure [--codex PATH] [--claude PATH] [--opencode PATH] [--agy PATH] [--java-home PATH]
                         [--opencode-home PATH] [--player-cwd PATH] [--from-mage-bench REPO]
 
 CLIs not given are looked up on PATH, and Claude Code also in the Claude desktop app. --from-mage-bench
 takes a mage-bench-windows checkout's executables and its isolated OpenCode sign-in folder, so nothing
 has to be signed in again and no key is copied. Each CLI keeps its own sign-in: codex login,
-claude auth login --claudeai, and python -m llm.sign_in for OpenRouter, Z.ai, OpenCode Go and OpenCode Zen.
+claude auth login --claudeai, agy (Google), and python -m llm.sign_in for OpenRouter, Z.ai, OpenCode Go and
+OpenCode Zen.
 """
 
 import argparse
@@ -15,6 +16,8 @@ import sys
 from pathlib import Path
 
 from llm import executables, paths
+
+PLAYER_CLIS = ("codex_executable", "claude_executable", "opencode_executable", "agy_executable")
 
 
 def from_mage_bench(repo):
@@ -39,18 +42,22 @@ def resolve(args):
         "codex_executable": args.codex,
         "claude_executable": args.claude,
         "opencode_executable": args.opencode,
+        "agy_executable": args.agy,
         "java_home": args.java_home,
         "opencode_home": args.opencode_home,
         "player_cwd": args.player_cwd,
     }
     values.update({key: value for key, value in given.items() if value})
-    for key in ("codex_executable", "claude_executable", "opencode_executable"):
+    for key in PLAYER_CLIS:
         if values[key]:
             if not Path(values[key]).is_file():
                 raise ValueError(f"{key} does not exist: {values[key]}")
             values[key] = str(Path(values[key]).resolve())
-    if not any(values[key] for key in ("codex_executable", "claude_executable", "opencode_executable")):
-        raise ValueError("Install the Codex CLI, Claude Code or OpenCode, or pass --codex / --claude / --opencode")
+    if not any(values[key] for key in PLAYER_CLIS):
+        raise ValueError(
+            "Install the Codex CLI, Claude Code, OpenCode or the Antigravity CLI, "
+            "or pass --codex / --claude / --opencode / --agy"
+        )
     if values["java_home"] and not (Path(values["java_home"]) / "bin").is_dir():
         raise ValueError(f"java_home has no bin folder: {values['java_home']}")
     for key in ("java_home", "opencode_home", "player_cwd"):
@@ -64,6 +71,7 @@ def main(argv):
     parser.add_argument("--codex", help="native codex.exe")
     parser.add_argument("--claude", help="claude.exe")
     parser.add_argument("--opencode", help="native opencode.exe")
+    parser.add_argument("--agy", help="agy.exe (Antigravity CLI)")
     parser.add_argument("--java-home", help="JDK 17+ for the bridge (default: JAVA_HOME, then java on PATH)")
     parser.add_argument("--opencode-home", help="OpenCode's isolated home with the OpenRouter/Z.ai/Go/Zen keys")
     parser.add_argument("--player-cwd", help="empty working folder for the player CLIs")

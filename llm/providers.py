@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from llm import (
+    antigravity_client,
     claude_client,
     model_catalog,
     opencode_client,
@@ -96,6 +97,19 @@ PROVIDERS = {
             require_game_only_events=claude_client.require_game_only_events,
             usage=claude_client.usage,
             failure_reason=claude_client.failure_reason,
+        ),
+        Provider(
+            id=antigravity_client.PROVIDER,
+            label=antigravity_client.NAME,
+            auth=antigravity_client.AUTH,
+            events_file="agy-events.jsonl",
+            stderr_file="agy-stderr.log",
+            discover=antigravity_client.discover,
+            validate_selection=antigravity_client.validate_selection,
+            start=antigravity_client.start,
+            require_game_only_events=antigravity_client.require_game_only_events,
+            usage=antigravity_client.usage,
+            failure_reason=antigravity_client.failure_reason,
         ),
         Provider(
             id=openrouter_client.PROVIDER,

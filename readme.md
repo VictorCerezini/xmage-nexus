@@ -275,7 +275,7 @@ node scripts/build.mjs
 
 ### Variant C — Play against a language model (Windows)
 
-A table can seat ChatGPT, Claude, an OpenRouter free model or Z.ai GLM instead of a human. Each model plays through its own CLI (Codex, Claude Code, OpenCode) on your existing sign-in, run from an isolated home, so nothing is signed in again and no key enters the repository. Model seats run on this computer only: with `--llm` the proxy refuses to start unless it listens on loopback for local pages.
+A table can seat ChatGPT, Claude, Google (the models of your Antigravity subscription), an OpenRouter free model or Z.ai GLM instead of a human. Each model plays through its own CLI (Codex, Claude Code, Antigravity CLI, OpenCode) on your existing sign-in, run from an isolated home, so nothing is signed in again and no key enters the repository. Model seats run on this computer only: with `--llm` the proxy refuses to start unless it listens on loopback for local pages.
 
 One-time setup on top of Variant B (sign-in and details in [`llm/README.md`](llm/README.md)):
 

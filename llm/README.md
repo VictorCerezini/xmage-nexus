@@ -8,6 +8,7 @@ the game as MCP tools on loopback) and starts one CLI player per game:
 |---|---|---|
 | ChatGPT (`chatgpt_subscription`) | Codex CLI | your Codex ChatGPT login (`codex login`) |
 | Claude (`claude_subscription`) | Claude Code | your Claude subscription login (`claude auth login --claudeai`) |
+| Google (`google_subscription`) | Antigravity CLI (`agy`) | your Google login in the Antigravity CLI (start `agy` once and sign in) |
 | OpenRouter free models (`openrouter_free`) | OpenCode | key in the isolated OpenCode home (`python -m llm.sign_in openrouter`) |
 | Z.ai GLM Coding Plan (`zai_coding_plan`) | OpenCode | key in the isolated OpenCode home (`python -m llm.sign_in zai`) |
 | OpenCode Go (`opencode_go`) | OpenCode | Go subscription key in the isolated OpenCode home (`python -m llm.sign_in opencode-go`) |
@@ -25,7 +26,7 @@ No API key is read from or written to the repository. The supervisor came from
 - An XMage server built from the engine branch `llm-seats-engine` (short IDs,
   sequence counter, structured events, lazy card loading). The bridge does not
   compile against stock 1.4.63 artifacts.
-- At least one of the three CLIs, signed in.
+- At least one of the four CLIs, signed in.
 
 ## Setup
 
@@ -39,8 +40,8 @@ llm/.venv/Scripts/python -m llm.configure
 
 `llm.configure` writes `llm/settings.local.json` (ignored): the CLI executables,
 and optionally `java_home`, `opencode_home` and `player_cwd`. It never reads or
-copies a credential. CLIs not given with `--codex`, `--claude` or `--opencode`
-are looked up on `PATH`, and Claude Code also in the Claude desktop app.
+copies a credential. CLIs not given with `--codex`, `--claude`, `--opencode` or
+`--agy` are looked up on `PATH`, and Claude Code also in the Claude desktop app.
 
 `--from-mage-bench <checkout>` reuses a mage-bench-windows setup: its
 executables and its isolated OpenCode home, so OpenRouter and Z.ai need no new
@@ -79,8 +80,8 @@ folder to every supervisor process as `NEXUS_LLM_HOME`, and then:
   model list", and a missing OpenRouter, Z.ai, OpenCode Go or OpenCode Zen key with the PowerShell line
   that runs `llm.sign_in` with the bundled Python and that folder.
 
-The CLIs are not bundled: Codex, Claude Code and OpenCode come from the
-machine. OpenCode 1 (npm `opencode-ai`) and OpenCode 2 (npm `@opencode/cli`) both
+The CLIs are not bundled: Codex, Claude Code, OpenCode and the Antigravity CLI
+come from the machine. OpenCode 1 (npm `opencode-ai`) and OpenCode 2 (npm `@opencode/cli`) both
 work. OpenCode 2 plays through a private, password-protected server for each
 seat, never its background service. It keeps keys in its own store, and imports
 the keys OpenCode 1 saved when it first opens the isolated OpenCode home. Model seats offer the ChatGPT models
@@ -140,8 +141,8 @@ All run from the repository root with `llm/.venv/Scripts/python`.
   login at once instead of after the proxy's grace period.
 - `-m llm.sign_in openrouter|zai|opencode-go|opencode-zen`: runs OpenCode's own key prompt with its home
   redirected to the isolated OpenCode home (OpenCode 2: with a private server of its own, `--standalone`).
-- `-m llm.subscription_client`, `-m llm.claude_client`: one-shot connection
-  checks that ask the model for a fixed reply without game tools.
+- `-m llm.subscription_client`, `-m llm.claude_client`, `-m llm.antigravity_client`:
+  one-shot connection checks that ask the model for a fixed reply without game tools.
 
 ## Run folder
 
@@ -204,6 +205,14 @@ The bridge's lazily loaded card database is shared by all seats in
 - Each CLI runs from an empty folder (`.run/llm/player-sandbox` unless
   configured), with built-in tools, project instructions and user settings off.
   Credential overrides are removed from its environment.
+- The Antigravity CLI runs with a home folder of its own in the run folder
+  (`antigravity-home`, as `USERPROFILE`), so this computer's agy setup (MCP
+  servers, rules, skills, plugins, hooks, conversations) is not read or changed;
+  the Google sign-in comes from the system keyring. There it plays as a custom
+  agent with the CLI's built-in tools excluded, so only the game tools
+  (`mcp_mage_<tool>`) are offered, and its permission rules deny commands, file
+  access and URLs as well. `agy` names one model per reasoning level
+  (`gemini-4-hydrogen-high`); the picker shows each model once with its levels.
 - Codex pre-approves only `concede` (`mage_concede` for the `mcp` engine),
   which the gateway marks destructive, and
   only through that run's `-c` overrides; the user's Codex config is not read

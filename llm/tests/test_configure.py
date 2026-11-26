@@ -9,7 +9,7 @@ from llm import catalog, configure, executables, paths, sign_in
 
 
 def arguments(**values):
-    names = ("codex", "claude", "opencode", "java_home", "opencode_home", "player_cwd", "from_mage_bench")
+    names = ("codex", "claude", "opencode", "agy", "java_home", "opencode_home", "player_cwd", "from_mage_bench")
     return SimpleNamespace(**{name: values.get(name) for name in names})
 
 
@@ -42,6 +42,12 @@ def test_an_explicit_path_overrides_discovery(nothing_on_path, tmp_path):
     claude = tmp_path / "claude.exe"
     claude.write_text("")
     assert configure.resolve(arguments(claude=str(claude)))["claude_executable"] == str(claude.resolve())
+
+
+def test_the_antigravity_cli_alone_is_enough(nothing_on_path, tmp_path):
+    agy = tmp_path / "agy.exe"
+    agy.write_text("")
+    assert configure.resolve(arguments(agy=str(agy)))["agy_executable"] == str(agy.resolve())
 
 
 def test_a_missing_executable_is_rejected(nothing_on_path, tmp_path):

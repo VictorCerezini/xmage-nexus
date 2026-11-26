@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from llm import claude_client, executables, opencode_client, paths, subscription_client
+from llm import antigravity_client, claude_client, executables, opencode_client, paths, subscription_client
 
 
 @pytest.fixture
@@ -16,7 +16,8 @@ def desktop_home(tmp_path, monkeypatch):
 
 
 def installed(monkeypatch, **found):
-    detected = {"codex_executable": None, "claude_executable": None, "opencode_executable": None}
+    names = ("codex_executable", "claude_executable", "opencode_executable", "agy_executable")
+    detected = dict.fromkeys(names)
     monkeypatch.setattr(executables, "detect", lambda: {**detected, **found})
 
 
@@ -29,6 +30,7 @@ def test_desktop_settings_need_no_configure_and_use_the_bundled_java(desktop_hom
         "codex_executable": "C:/npm/codex.exe",
         "claude_executable": None,
         "opencode_executable": None,
+        "agy_executable": None,
         "java_home": "C:/Nexus/jre",
         "server_dir": "C:/Nexus/server",
     }
@@ -64,6 +66,7 @@ def test_a_checkout_still_needs_configure(tmp_path, monkeypatch):
         (subscription_client.executable, "Codex is not installed: install it, sign in with codex login,"),
         (claude_client.executable, "Claude Code is not installed: install it, sign in with claude auth login"),
         (opencode_client.executable, "OpenCode is not installed: install it, then refresh the model list"),
+        (antigravity_client.executable, "Antigravity CLI is not installed: install it, sign in with agy,"),
     ],
 )
 def test_desktop_explains_a_missing_cli_without_configure(desktop_home, monkeypatch, command, message):
