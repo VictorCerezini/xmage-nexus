@@ -78,16 +78,16 @@ public final class BridgePublishedQueryState {
         return projectedActionChoices;
     }
 
-    public void projectGameState(GameView gameView, int round, String cause) {
+    public void projectGameState(GameView gameView, String cause) {
         if (!processor.isProcessorThread()) {
             throw new IllegalStateException("projectGameState must run on the bridge processor thread");
         }
         BridgeProjectionInputs projectionInputs = projectionInputs();
         BridgePublishedQueryBuilder.BridgePublishedGameStateBuild built =
-            queryBuilder.buildPublishedGameState(gameView, round, projectionInputs.currentPlayerId());
+            queryBuilder.buildPublishedGameState(gameView, projectionInputs.currentPlayerId());
         BridgePublishedGameState previous = projectedGameState;
         projectedGameState = built.state();
-        projectedActionContext = queryBuilder.buildProjectedActionContext(gameView, built.state(), round);
+        projectedActionContext = queryBuilder.buildProjectedActionContext(gameView, built.state());
         projectedGameView = gameView;
         projectActionChoices(cause, projectionInputs);
         traceProjectedGameStateChange(cause, previous, built.state(), built.payload());

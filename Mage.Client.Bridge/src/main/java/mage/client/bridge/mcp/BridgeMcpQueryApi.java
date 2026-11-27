@@ -12,7 +12,6 @@ import mage.client.bridge.tools.GetOracleTextTool;
 import mage.game.BridgeLogEntry;
 import org.apache.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -59,21 +58,10 @@ public final class BridgeMcpQueryApi {
                 .filter(entry -> entry.seq() >= effectiveCursor)
                 .toList();
 
-            Map<String, Integer> priorTurns = new HashMap<>();
-            for (BridgePublishedLogEntry entry : allEntries) {
-                if (entry.seq() >= effectiveCursor) {
-                    break;
-                }
-                if (!entry.isBridgeEvent()) {
-                    continue;
-                }
-                BridgeLogEntry event = entry.bridgeEvent();
-                if ("BEGIN_TURN".equals(event.type())) {
-                    priorTurns.merge(event.activePlayer(), 1, Integer::sum);
-                }
-            }
+            boolean afterFirstTurn = allEntries.stream()
+                .anyMatch(entry -> entry.seq() < effectiveCursor && isBeginTurn(entry));
 
-            String rendered = renderGameLogFlat(responseEntries, priorTurns);
+            String rendered = renderGameLogFlat(responseEntries, afterFirstTurn);
             GetGameLogTool.Result result = buildGameLogResult(snapshot, rendered, null, maxChars);
             if (effectiveCursor != cursor) {
                 result.cursor_reset = true;
@@ -81,62 +69,54 @@ public final class BridgeMcpQueryApi {
             return result;
         }
 
-        String rendered = renderGameLogFlat(allEntries, Map.of());
+        String rendered = renderGameLogFlat(allEntries, false);
         return buildGameLogResult(snapshot, rendered, rendered.length(), maxChars);
     }
 
-    public GetGameLogTool.Result getGameLogSinceTurn(String player, int sinceTurn) {
-        String effectivePlayer = player != null ? player : username;
+    /** The log from the game's turn sinceTurn on (the game's own turn number, as the context's "T16"). */
+    public GetGameLogTool.Result getGameLogSinceTurn(int sinceTurn) {
         BridgeGameLogSnapshot snapshot = snapshotGameLog();
         List<BridgePublishedLogEntry> allEntries = snapshot.entries();
 
-        String allRendered = renderGameLogFlat(allEntries, Map.of());
+        String allRendered = renderGameLogFlat(allEntries, false);
 
-        Map<String, Integer> priorTurns = new HashMap<>();
+        // the first game event of that turn or a later one, after setup; with take-backs the log
+        // keeps what was undone, so this is its first time at that turn
         int startCursor = -1;
+        boolean seenFirstTurn = false;
         for (BridgePublishedLogEntry entry : allEntries) {
             if (!entry.isBridgeEvent()) {
                 continue;
             }
-            BridgeLogEntry event = entry.bridgeEvent();
-            if ("BEGIN_TURN".equals(event.type())) {
-                int count = priorTurns.merge(event.activePlayer(), 1, Integer::sum);
-                if (effectivePlayer.equals(event.activePlayer()) && count == sinceTurn) {
-                    priorTurns.merge(effectivePlayer, -1, Integer::sum);
-                    startCursor = entry.seq();
-                    break;
-                }
+            seenFirstTurn |= isBeginTurn(entry);
+            if (seenFirstTurn && entry.bridgeEvent().turn() >= sinceTurn) {
+                startCursor = entry.seq();
+                break;
             }
         }
 
-        if (startCursor >= 0) {
-            int effectiveCursor = startCursor;
-            List<BridgePublishedLogEntry> subset = allEntries.stream()
-                .filter(entry -> entry.seq() >= effectiveCursor)
-                .toList();
-            GetGameLogTool.Result result = buildGameLogResult(
-                    snapshot,
-                    renderGameLogFlat(subset, priorTurns),
-                    allRendered.length(),
-                    null
-            );
+        if (startCursor < 0) {
+            GetGameLogTool.Result result = buildGameLogResult(snapshot, "", allRendered.length(), null);
             result.truncated = false;
-            result.since_turn = sinceTurn;
-            result.since_player = effectivePlayer;
             return result;
         }
-
-        int totalPlayerTurns = priorTurns.getOrDefault(effectivePlayer, 0);
-        if (totalPlayerTurns > 0 && sinceTurn <= totalPlayerTurns) {
-            GetGameLogTool.Result result = buildGameLogResult(snapshot, allRendered, allRendered.length(), null);
-            result.truncated = true;
-            result.since_player = effectivePlayer;
-            return result;
-        }
-
-        GetGameLogTool.Result result = buildGameLogResult(snapshot, "", allRendered.length(), null);
+        int effectiveCursor = startCursor;
+        List<BridgePublishedLogEntry> subset = allEntries.stream()
+            .filter(entry -> entry.seq() >= effectiveCursor)
+            .toList();
+        GetGameLogTool.Result result = buildGameLogResult(
+                snapshot,
+                renderGameLogFlat(subset, true),
+                allRendered.length(),
+                null
+        );
         result.truncated = false;
+        result.since_turn = sinceTurn;
         return result;
+    }
+
+    private static boolean isBeginTurn(BridgePublishedLogEntry entry) {
+        return entry.isBridgeEvent() && "BEGIN_TURN".equals(entry.bridgeEvent().type());
     }
 
     public GetGameHistoryTool.Result getGameHistory(Integer sinceTurn, Integer sinceCursor) {
@@ -196,10 +176,8 @@ public final class BridgeMcpQueryApi {
         return snapshotForRead().gameState();
     }
 
-    private String renderGameLogFlat(
-            List<BridgePublishedLogEntry> entries,
-            Map<String, Integer> initialTurnCounts) {
-        return BridgeGameLogFormatter.renderGameLogFlat(entries, initialTurnCounts);
+    private String renderGameLogFlat(List<BridgePublishedLogEntry> entries, boolean afterFirstTurn) {
+        return BridgeGameLogFormatter.renderGameLogFlat(entries, afterFirstTurn);
     }
 
     private GetGameStateTool.Result buildGameStateFromPublished(Long snapshotId, BridgePublishedGameState snapshot) {

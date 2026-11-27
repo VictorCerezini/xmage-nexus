@@ -24,7 +24,7 @@ public class GetGameStateTool {
         @ResultField(description = "Snapshot matched (no changes)")
         public Boolean unchanged;
 
-        @ResultField(description = "Turn number")
+        @ResultField(description = "The game's turn number, as the game shows it (every player's turn counts)")
         public Integer turn;
 
         @ResultField(description = "Current phase")

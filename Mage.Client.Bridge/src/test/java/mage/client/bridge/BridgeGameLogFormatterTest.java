@@ -7,7 +7,6 @@ import mage.game.BridgeLogEntry;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,9 +22,9 @@ class BridgeGameLogFormatterTest {
             new BridgePublishedLogEntry(4, bridgeLogEntry(2, "LAND_PLAYED", 1, "Alice", "Alice", "Island", null), null)
         );
 
-        assertThat(BridgeGameLogFormatter.renderGameLogFlat(entries, Map.of()))
+        assertThat(BridgeGameLogFormatter.renderGameLogFlat(entries, false))
             .isEqualTo(String.join("\n",
-                "Alice turn 1:",
+                "Turn 1 (Alice):",
                 "[Chat] Zoe: alpha",
                 "[Chat] Bob: zeta",
                 "Alice played Island"
@@ -42,13 +41,48 @@ class BridgeGameLogFormatterTest {
             new BridgePublishedLogEntry(4, bridgeLogEntry(4, "LAND_PLAYED", 1, "Alice", "Alice", "Island", null), null)
         );
 
-        assertThat(BridgeGameLogFormatter.renderGameLogFlat(entries, Map.of()))
+        assertThat(BridgeGameLogFormatter.renderGameLogFlat(entries, false))
             .isEqualTo(String.join("\n",
                 "[System] Table ready",
                 "[Chat] Bob: glhf",
-                "Alice turn 1:",
+                "Turn 1 (Alice):",
                 "Alice played Island"
             ));
+    }
+
+    @Test
+    void renderGameLogFlatNamesTheTurnAgainWhenATakeBackReturnsToIt() {
+        // the game was on turn 17 (Bob's) and went back to turn 16 (Alice's), mid-turn: no new BEGIN_TURN
+        List<BridgePublishedLogEntry> entries = List.of(
+            new BridgePublishedLogEntry(0, bridgeLogEntry(0, "BEGIN_TURN", 16, "Alice", "Alice", null, null), null),
+            new BridgePublishedLogEntry(1, bridgeLogEntry(1, "LAND_PLAYED", 16, "Alice", "Alice", "Island", null), null),
+            new BridgePublishedLogEntry(2, bridgeLogEntry(2, "BEGIN_TURN", 17, "Bob", "Bob", null, null), null),
+            new BridgePublishedLogEntry(3, bridgeLogEntry(3, "LAND_PLAYED", 17, "Bob", "Bob", "Swamp", null), null),
+            new BridgePublishedLogEntry(4, null,
+                "Player request: Alice goes back 3 priorities (turn 16, Precombat Main, Alice had priority)"),
+            new BridgePublishedLogEntry(5, bridgeLogEntry(4, "SPELL_CAST", 16, "Alice", "Alice", "Opt", null), null)
+        );
+
+        assertThat(BridgeGameLogFormatter.renderGameLogFlat(entries, false))
+            .isEqualTo(String.join("\n",
+                "Turn 16 (Alice):",
+                "Alice played Island",
+                "Turn 17 (Bob):",
+                "Bob played Swamp",
+                "Player request: Alice goes back 3 priorities (turn 16, Precombat Main, Alice had priority)",
+                "Turn 16 (Alice):",
+                "Alice cast Opt"
+            ));
+    }
+
+    @Test
+    void renderGameLogFlatNamesTheTurnOfASliceThatStartsMidTurn() {
+        List<BridgePublishedLogEntry> entries = List.of(
+            new BridgePublishedLogEntry(7, bridgeLogEntry(7, "SPELL_CAST", 9, "Bob", "Bob", "Shock", "Alice"), null)
+        );
+
+        assertThat(BridgeGameLogFormatter.renderGameLogFlat(entries, true))
+            .isEqualTo("Turn 9 (Bob):\nBob cast Shock targeting Alice");
     }
 
     @Test

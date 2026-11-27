@@ -184,7 +184,7 @@ public final class BridgeCallbackProcessorService
             return null;
         }
         var summary = new StringBuilder();
-        summary.append("T").append(processorState.gameState().currentRound());
+        summary.append("T").append(gameView.getTurn());
         if (gameView.getPhase() != null) {
             summary.append(" ").append(gameView.getPhase());
         }

@@ -189,14 +189,14 @@ class BridgeCallbackHandlerTest {
     }
 
     @Test
-    void getGameLogChunkUsesAbsolutePerPlayerTurnsForCursorSlices() throws Exception {
+    void getGameLogChunkUsesTheGamesTurnNumbersForCursorSlices() throws Exception {
         BridgeMageClient client = new BridgeMageClient("Alice");
         BridgeCallbackHandler handler = client.getCallbackHandler();
         setCachedBridgeEvents(handler, sampleBridgeLogEvents());
 
         var result = handler.getGameLogChunk(0, 4);
 
-        assertThat(result.log).isEqualTo("Alice turn 2:\nAlice cast Lightning Bolt targeting Bob");
+        assertThat(result.log).isEqualTo("Turn 3 (Alice):\nAlice cast Lightning Bolt targeting Bob");
         assertThat(result.total_length).isNull();
         assertThat(result.truncated).isFalse();
         assertThat(result.cursor).isEqualTo(6);
@@ -219,19 +219,53 @@ class BridgeCallbackHandlerTest {
     }
 
     @Test
-    void getGameLogSinceTurnDefaultsToClientPlayer() throws Exception {
+    void getGameLogSinceTurnStartsAtThatGameTurnWhoeverPlaysIt() throws Exception {
         BridgeMageClient client = new BridgeMageClient("Alice");
         BridgeCallbackHandler handler = client.getCallbackHandler();
         setCachedBridgeEvents(handler, sampleBridgeLogEvents());
 
-        var result = handler.getGameLogSinceTurn(null, 2);
+        var result = handler.getGameLogSinceTurn(2);
 
-        assertThat(result.log).isEqualTo("Alice turn 2:\nAlice cast Lightning Bolt targeting Bob");
+        assertThat(result.log).isEqualTo(String.join("\n",
+            "Turn 2 (Bob):",
+            "Bob played Swamp",
+            "Turn 3 (Alice):",
+            "Alice cast Lightning Bolt targeting Bob"
+        ));
         assertThat(result.total_length).isEqualTo(sampleBridgeLogText().length());
         assertThat(result.truncated).isFalse();
         assertThat(result.cursor).isEqualTo(6);
         assertThat(result.since_turn).isEqualTo(2);
-        assertThat(result.since_player).isEqualTo("Alice");
+
+        var notYet = handler.getGameLogSinceTurn(4);
+        assertThat(notYet.log).isEmpty();
+        assertThat(notYet.since_turn).isNull();
+    }
+
+    @Test
+    void getGameLogSinceTurnStartsAtTheFirstTimeTheGameReachedThatTurn() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("Alice");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        // turn 3 is taken back to turn 2 (Bob's), which then goes on
+        setCachedBridgeEvents(handler, List.of(
+            bridgeLogEntry(0, "BEGIN_TURN", 1, "Alice", "Alice", null, null),
+            bridgeLogEntry(1, "BEGIN_TURN", 2, "Bob", "Bob", null, null),
+            bridgeLogEntry(2, "LAND_PLAYED", 2, "Bob", "Bob", "Swamp", null),
+            bridgeLogEntry(3, "BEGIN_TURN", 3, "Alice", "Alice", null, null),
+            bridgeLogEntry(4, "SPELL_CAST", 3, "Alice", "Alice", "Lightning Bolt", "Bob"),
+            bridgeLogEntry(5, "SPELL_CAST", 2, "Bob", "Bob", "Duress", "Alice")
+        ));
+
+        var result = handler.getGameLogSinceTurn(2);
+
+        assertThat(result.log).isEqualTo(String.join("\n",
+            "Turn 2 (Bob):",
+            "Bob played Swamp",
+            "Turn 3 (Alice):",
+            "Alice cast Lightning Bolt targeting Bob",
+            "Turn 2 (Bob):",
+            "Bob cast Duress targeting Alice"
+        ));
     }
 
     @Test
@@ -976,7 +1010,7 @@ class BridgeCallbackHandlerTest {
 
         assertThat(log.cursor).isEqualTo(3);
         assertThat(history.cursor).isEqualTo(3);
-        assertThat(log.log).contains("TestPlayer turn 1:");
+        assertThat(log.log).contains("Turn 3 (TestPlayer):");
         assertThat(history.event_count).isEqualTo(3);
     }
 
@@ -998,7 +1032,7 @@ class BridgeCallbackHandlerTest {
 
         assertThat(result.cursor_reset).isTrue();
         assertThat(result.cursor).isEqualTo(2);
-        assertThat(result.log).contains("Alice turn 1:");
+        assertThat(result.log).contains("Turn 4 (Alice):");
         assertThat(result.log).contains("Alice cast Shock targeting Bob");
     }
 
@@ -2829,6 +2863,66 @@ class BridgeCallbackHandlerTest {
     }
 
     @Test
+    void contextAndGameStateShowTheGamesTurnNumberAndGoBackWithATakeBack() throws Exception {
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        BridgeProcessor processor = (BridgeProcessor) getDirectField(handler, "processor");
+        BridgeDecisionState decisionState = (BridgeDecisionState) getProcessorStateField(handler, "decisionState");
+
+        UUID gameId = UUID.randomUUID();
+        UUID tableId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID opponentId = UUID.randomUUID();
+        List<PlayerView> players = List.of(
+            playerView(playerId, "TestPlayer", "p2"),
+            playerView(opponentId, "Opponent", "p3")
+        );
+        GameView turn18 = gameView(12, players, new CardsView());
+        setIntField(turn18, "turn", 18);
+        // the game went back to turn 16: a newer view with an older turn
+        GameView backAtTurn16 = gameView(13, players, new CardsView());
+        setIntField(backAtTurn16, "turn", 16);
+
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> switch (method.getName()) {
+                case "joinGame" -> true;
+                case "getGameChatId" -> Optional.empty();
+                default -> defaultReturnValue(method.getReturnType());
+            }
+        ));
+        handler.handleCallback(new ClientCallback(
+            ClientCallbackMethod.START_GAME,
+            gameId,
+            new TableClientMessage().withTable(tableId, null).withPlayer(playerId),
+            false
+        ));
+        handler.handleCallback(new ClientCallback(ClientCallbackMethod.GAME_INIT, gameId, turn18, false));
+        handler.awaitProcessorIdle();
+        processor.submit(BridgeCommand.of(() -> {
+            decisionState.replacePendingAction(new PendingAction(
+                gameId,
+                ClientCallbackMethod.GAME_SELECT,
+                new GameClientMessage((GameView) null, Collections.<String, Serializable>emptyMap(), "Pass"),
+                "Pass",
+                12
+            ));
+            return null;
+        }));
+
+        // turn 18 of a two-player game is each player's 9th turn: the game says 18, so the model does too
+        assertThat(handler.getActionChoices(null).context).startsWith("T18 ");
+        assertThat(handler.getGameState(null).turn).isEqualTo(18);
+
+        handler.handleCallback(new ClientCallback(ClientCallbackMethod.GAME_UPDATE, gameId, backAtTurn16, false));
+        handler.awaitProcessorIdle();
+
+        assertThat(handler.getActionChoices(null).context).startsWith("T16 ");
+        assertThat(handler.getGameState(null).turn).isEqualTo(16);
+    }
+
+    @Test
     void publishesGameStateSnapshotIdBeforeFirstMcpRead() throws Exception {
         BridgeMageClient client = new BridgeMageClient("TestPlayer");
         BridgeCallbackHandler handler = client.getCallbackHandler();
@@ -3216,7 +3310,7 @@ class BridgeCallbackHandlerTest {
 
         processor.submit(BridgeCommand.of(() -> {
             gameState.activateGame(gameId, playerId);
-            publishedQueryState.projectGameState(view, 1, "test_init");
+            publishedQueryState.projectGameState(view, "test_init");
             decisionState.replacePendingAction(pendingAction);
             return null;
         }));
@@ -3555,7 +3649,7 @@ class BridgeCallbackHandlerTest {
 
         processor.submit(BridgeCommand.of(() -> {
             gameState.activateGame(gameId, playerId);
-            publishedQueryState.projectGameState(initialView, 1, "test_init");
+            publishedQueryState.projectGameState(initialView, "test_init");
             decisionState.replacePendingAction(initialAction);
             return null;
         }));
@@ -3626,7 +3720,7 @@ class BridgeCallbackHandlerTest {
         processor.submit(BridgeCommand.of(() -> {
             gameState.activateGame(gameId, playerId);
             interactionState.advanceTurn(initialView);
-            publishedQueryState.projectGameState(initialView, 1, "test_init");
+            publishedQueryState.projectGameState(initialView, "test_init");
             interactionState.markFailedManaCast(spellId);
             decisionState.replacePendingAction(pendingAction);
             return null;
@@ -6613,11 +6707,11 @@ class BridgeCallbackHandlerTest {
 
     private static String sampleBridgeLogText() {
         return String.join("\n",
-            "Alice turn 1:",
+            "Turn 1 (Alice):",
             "Alice played Island",
-            "Bob turn 1:",
+            "Turn 2 (Bob):",
             "Bob played Swamp",
-            "Alice turn 2:",
+            "Turn 3 (Alice):",
             "Alice cast Lightning Bolt targeting Bob"
         );
     }
@@ -6794,7 +6888,7 @@ class BridgeCallbackHandlerTest {
             (BridgePublishedQueryState) getDirectField(handler, "publishedQueryState");
         processor.submit(BridgeCommand.of(() -> {
             gameState.activateGame(gameId, playerId);
-            publishedQueryState.projectGameState(view, 1, "test_init");
+            publishedQueryState.projectGameState(view, "test_init");
             decisionState.replacePendingAction(pendingAction);
             return null;
         }));
@@ -7260,7 +7354,7 @@ class BridgeCallbackHandlerTest {
 
         processor.submit(BridgeCommand.of(() -> {
             gameState.activateGame(gameId, playerId);
-            publishedQueryState.projectGameState(view, 1, "test_init");
+            publishedQueryState.projectGameState(view, "test_init");
             decisionState.replacePendingAction(pendingAction);
             return null;
         }));

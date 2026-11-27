@@ -5,9 +5,7 @@ import mage.client.bridge.tools.GetGameHistoryTool;
 import mage.client.bridge.tools.GetGameLogTool;
 import mage.game.BridgeLogEntry;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public final class BridgeGameLogFormatter {
 
@@ -79,15 +77,22 @@ public final class BridgeGameLogFormatter {
         return result;
     }
 
+    /**
+     * The log as lines, under a "Turn N (player):" line for each turn. N is the game's own turn
+     * number (every player's turn counts), the one the game, its messages and the model's context
+     * show. A turn's line comes again when the game goes back to it (a take-back or a rollback).
+     *
+     * @param afterFirstTurn whether the game's first turn began before these entries; until it
+     *                       begins, game events (setup) are left out
+     */
     public static String renderGameLogFlat(
             List<BridgePublishedLogEntry> entries,
-            Map<String, Integer> initialTurnCounts
+            boolean afterFirstTurn
     ) {
         StringBuilder sb = new StringBuilder();
-        Map<String, Integer> perPlayerTurns = new HashMap<>(initialTurnCounts);
-        String lastTurnHeader = null;
+        Integer headerTurn = null;
 
-        boolean seenFirstTurn = !initialTurnCounts.isEmpty();
+        boolean seenFirstTurn = afterFirstTurn;
         for (BridgePublishedLogEntry entry : entries) {
             if (!entry.isBridgeEvent()) {
                 if (sb.length() > 0) {
@@ -105,17 +110,14 @@ public final class BridgeGameLogFormatter {
                 }
             }
 
-            if ("BEGIN_TURN".equals(bridgeEvent.type())) {
-                String active = bridgeEvent.activePlayer();
-                int playerTurn = perPlayerTurns.merge(active, 1, Integer::sum);
-                String header = active + " turn " + playerTurn + ":";
-                if (!header.equals(lastTurnHeader)) {
-                    if (sb.length() > 0) {
-                        sb.append("\n");
-                    }
-                    sb.append(header);
-                    lastTurnHeader = header;
+            if (headerTurn == null || headerTurn != bridgeEvent.turn()) {
+                if (sb.length() > 0) {
+                    sb.append("\n");
                 }
+                sb.append(turnHeader(bridgeEvent));
+                headerTurn = bridgeEvent.turn();
+            }
+            if ("BEGIN_TURN".equals(bridgeEvent.type())) {
                 continue;
             }
 
@@ -129,6 +131,12 @@ public final class BridgeGameLogFormatter {
         }
 
         return sb.toString();
+    }
+
+    private static String turnHeader(BridgeLogEntry entry) {
+        return "Turn " + entry.turn()
+            + (entry.activePlayer() != null ? " (" + entry.activePlayer() + ")" : "")
+            + ":";
     }
 
     public static String formatPhaseStep(String phase, String step) {

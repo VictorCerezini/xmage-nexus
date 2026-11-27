@@ -30,7 +30,8 @@ public class ActionResult {
         conditional = "action_pending")
     public String respond_with;
 
-    @ResultField(description = "Turn/phase context, e.g. T3 PRECOMBAT_MAIN (Player1) YOUR_MAIN",
+    @ResultField(description = "Turn/phase context, e.g. T3 PRECOMBAT_MAIN (Player1) YOUR_MAIN; "
+        + "T3 is the game's turn 3, as the game shows it (every player's turn counts)",
         conditional = "action_pending")
     public String context;
 

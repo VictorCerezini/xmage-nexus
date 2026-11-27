@@ -1,6 +1,5 @@
 package mage.client.bridge.processor;
 
-import mage.client.bridge.RoundTracker;
 import mage.view.GameView;
 import org.apache.log4j.Logger;
 
@@ -20,7 +19,6 @@ public final class BridgeGameState {
     private String gameResult = null;
     private long generation = 0;
     private GameView lastGameView = null;
-    private final RoundTracker roundTracker = new RoundTracker();
     private long lastCallbackReceivedAt = 0;
     private long lastActionableCallbackAt = 0;
 
@@ -109,7 +107,6 @@ public final class BridgeGameState {
             return false;
         }
         lastGameView = gameView;
-        roundTracker.update(gameView);
         int oldSeq = old != null ? old.getGameSeq() : -1;
         int newSeq = gameView.getGameSeq();
         if (oldSeq != newSeq) {
@@ -124,14 +121,6 @@ public final class BridgeGameState {
 
     public GameView lastGameView() {
         return lastGameView;
-    }
-
-    public int updateRound(GameView gameView) {
-        return roundTracker.update(gameView);
-    }
-
-    public int currentRound() {
-        return roundTracker.getGameRound();
     }
 
     public void recordCallbackArrival(boolean actionable) {
@@ -217,6 +206,5 @@ public final class BridgeGameState {
         gameResult = null;
         lastGameView = null;
         lastActionableCallbackAt = 0;
-        roundTracker.reset();
     }
 }

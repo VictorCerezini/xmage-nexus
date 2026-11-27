@@ -126,8 +126,7 @@ public final class BridgePublishedQueryBuilder {
 
     public BridgeProjectedActionContext buildProjectedActionContext(
             GameView gameView,
-            BridgePublishedGameState projectedGameState,
-            int currentRound
+            BridgePublishedGameState projectedGameState
     ) {
         if (gameView == null || !projectedGameState.available()) {
             return BridgeProjectedActionContext.empty();
@@ -136,7 +135,8 @@ public final class BridgePublishedQueryBuilder {
         boolean isMyTurn = username.equals(gameView.getActivePlayerName());
         boolean isMainPhase = gameView.getPhase() != null && gameView.getPhase().isMain();
         var ctx = new StringBuilder();
-        ctx.append("T").append(currentRound);
+        // the game's own turn number, as the game and its log show it; a take-back sets it back too
+        ctx.append("T").append(gameView.getTurn());
         if (gameView.getPhase() != null) {
             ctx.append(" ").append(gameView.getPhase());
         }
@@ -253,7 +253,6 @@ public final class BridgePublishedQueryBuilder {
 
     BridgePublishedGameStateBuild buildPublishedGameState(
             GameView gameView,
-            int currentRound,
             UUID currentPlayerId) {
         UUID myPlayerId = resolveMyPlayerId(gameView, currentPlayerId);
         List<Map<String, Object>> players = freezeMapList(
@@ -267,7 +266,7 @@ public final class BridgePublishedQueryBuilder {
         var state = new GetGameStateTool.Result();
         state.available = true;
         state.game_seq = gameView.getGameSeq();
-        state.turn = currentRound;
+        state.turn = gameView.getTurn();
         state.phase = gameView.getPhase() != null ? gameView.getPhase().toString() : null;
         state.step = gameView.getStep() != null ? gameView.getStep().toString() : null;
         state.active_player = gameView.getActivePlayerName();

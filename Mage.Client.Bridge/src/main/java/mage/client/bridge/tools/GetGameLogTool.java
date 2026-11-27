@@ -30,30 +30,27 @@ public class GetGameLogTool {
         @ResultField(description = "Turn number the log starts from",
             conditional = "when since_turn parameter was used")
         public Integer since_turn;
-
-        @ResultField(description = "Player whose turn the log starts from",
-            conditional = "when since_turn parameter was used")
-        public String since_player;
     }
 
     @Tool(
         name = "get_game_log",
-        description = "Get game log text. Use since_turn for turn-based recap, "
+        description = "Get game log text, under a \"Turn N (player):\" line per turn. "
+            + "Use since_turn for turn-based recap, "
             + "cursor for incremental updates, or max_chars for recent text."
     )
     public static Result execute(
             BridgeCallbackHandler handler,
             @Param(description = "Max chars to return (0 or omit for all)") Integer max_chars,
             @Param(description = "Cursor from previous call for incremental updates. Mutually exclusive with since_turn.") Integer cursor,
-            @Param(description = "Get log from this turn number onward. Mutually exclusive with cursor.") Integer since_turn,
-            @Param(description = "Player for since_turn filter (defaults to you)") String since_player) {
+            @Param(description = "Get log from this game turn onward: the number after T in context "
+                + "(every player's turn counts). Mutually exclusive with cursor.") Integer since_turn) {
 
         if (since_turn != null && cursor != null) {
             throw new RuntimeException("since_turn and cursor are mutually exclusive — provide one or neither");
         }
 
         if (since_turn != null) {
-            return handler.getGameLogSinceTurn(since_player, since_turn);
+            return handler.getGameLogSinceTurn(since_turn);
         }
 
         int mc = max_chars != null ? max_chars : 0;
@@ -63,7 +60,7 @@ public class GetGameLogTool {
     public static List<Map<String, Object>> examples() {
         return List.of(
             example("Truncated log", json(
-                "log", "Alice turn 3:\nAlice cast Lightning Bolt targeting Bob",
+                "log", "Turn 5 (Alice):\nAlice cast Lightning Bolt targeting Bob",
                 "total_length", 523,
                 "truncated", true,
                 "cursor", 42)),
@@ -73,11 +70,10 @@ public class GetGameLogTool {
                 "truncated", false,
                 "cursor", 45)),
             example("Since turn recap", json(
-                "log", "Bob turn 2:\nBob cast Sol Ring\nAlice turn 3:\nAlice played Forest",
+                "log", "Turn 4 (Bob):\nBob cast Sol Ring\nTurn 5 (Alice):\nAlice played Forest",
                 "total_length", 540,
                 "truncated", false,
                 "cursor", 50,
-                "since_turn", 2,
-                "since_player", "Bob")));
+                "since_turn", 4)));
     }
 }

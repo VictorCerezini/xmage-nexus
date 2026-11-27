@@ -164,11 +164,7 @@ public class BridgeCallbackHandler {
             this::advancePendingFlows,
             client::stop,
             processorServices::clearShortIds,
-            (gameView, source) -> publishedQueryStateRef.get().projectGameState(
-                gameView,
-                processorState.gameState().currentRound(),
-                source
-            ),
+            (gameView, source) -> publishedQueryStateRef.get().projectGameState(gameView, source),
             CHAT_DEDUP_WINDOW_MS,
             () -> submittedDeck,
             () -> {
@@ -230,11 +226,7 @@ public class BridgeCallbackHandler {
             client::isRunning,
             this::logError,
             this::logBridgeEvent,
-            (gameView, source) -> publishedQueryState.projectGameState(
-                gameView,
-                processorState.gameState().currentRound(),
-                source
-            )
+            (gameView, source) -> publishedQueryState.projectGameState(gameView, source)
         );
         this.chooseActionFlowManager = new BridgeChooseActionFlowManager(
             processor,
@@ -640,12 +632,11 @@ public class BridgeCallbackHandler {
     }
 
     /**
-     * Return game log entries starting from a specific player's Nth per-player turn.
-     * Computes per-player turn numbers from BEGIN_TURN bridge events at read time.
-     * If player is null, defaults to this client's player name.
+     * Return game log entries from the game's turn sinceTurn on: the game's own turn number,
+     * where every player's turn counts, as the context's "T16" and the game show it.
      */
-    public GetGameLogTool.Result getGameLogSinceTurn(String player, int sinceTurn) {
-        return mcpQueryApi.getGameLogSinceTurn(player, sinceTurn);
+    public GetGameLogTool.Result getGameLogSinceTurn(int sinceTurn) {
+        return mcpQueryApi.getGameLogSinceTurn(sinceTurn);
     }
 
     /**
