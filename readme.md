@@ -19,6 +19,12 @@
   </tr>
 </table>
 
+## What's new in 0.9.12
+
+- **Model seats answer you in chat** (Windows): with **Can talk in the game chat** ticked, a model seat now answers when you talk to it, ask it something or tease it, in one short message. Claude seats used to stay silent: the old wording made answering optional, and Claude went straight back to playing.
+- **A reminder when the model skips a chat**: if the model goes back to waiting without answering, it gets your message again with a reminder, once. Game notices, like an accepted rollback, need no answer.
+- **New components**: the model-seat files changed, so the app downloads its components again the first time it starts after the update.
+
 ## What's new in 0.9.11
 
 - **Ctrl+Z goes back one priority at a time, whoever had it**: going back used to count only your own priorities. With no mana open (smart stops passing for you), one Ctrl+Z could jump back a whole round without you noticing. Now each step back is the last priority anyone had, newest first, model seats included.
