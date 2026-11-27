@@ -225,6 +225,16 @@ def test_after_the_game_ended_reports_still_reach_the_gateway_and_the_question_i
         assert gateway.problem_reports == 1
 
 
+def test_the_game_ended_answer_says_who_won(serve):
+    with serve([decision()]) as (gateway, post, _received, _saved):
+        post("get_action_choices")
+        gateway.finish_game("Player Opponent is the winner")
+        assert value(post("pass_priority"))["game_result"] == "Player Opponent is the winner"
+        gateway.resume_game()
+        gateway.finish_game()
+        assert "game_result" not in value(post("pass_priority"))
+
+
 def test_an_empty_report_is_refused_and_not_saved(serve):
     with serve([]) as (gateway, post, _received, _saved):
         answer = post(REPORT_TOOL, {"problem": "  "})

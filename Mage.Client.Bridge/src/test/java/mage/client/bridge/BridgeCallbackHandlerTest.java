@@ -6,6 +6,7 @@ import mage.client.bridge.processor.BridgeChooseActionFlowManager;
 import mage.client.bridge.processor.BridgeChooseActionInput;
 import mage.client.bridge.processor.BridgeChooseActionStartResult;
 import mage.client.bridge.processor.BridgeCallbackEvent;
+import mage.client.bridge.processor.BridgeCallbackProcessorService;
 import mage.client.bridge.processor.BridgeCommand;
 import mage.client.bridge.processor.BridgeConcedeFlow;
 import mage.client.bridge.processor.BridgeConcedeFlowManager;
@@ -32,6 +33,7 @@ import mage.client.bridge.tools.GetGameHistoryTool;
 import mage.client.bridge.tools.GetGameStateTool;
 import mage.client.bridge.tools.GetOracleTextTool;
 import mage.constants.CardType;
+import mage.constants.ManaType;
 import mage.constants.PlayerAction;
 import mage.game.BridgeLogEntry;
 import mage.constants.PhaseStep;
@@ -46,6 +48,7 @@ import mage.util.MultiAmountMessage;
 import mage.util.ShortIdRegistry;
 import mage.util.SubTypes;
 import mage.view.AbilityPickerView;
+import mage.view.AbilityView;
 import mage.view.CardView;
 import mage.view.CardsView;
 import mage.view.ChatMessage;
@@ -1155,6 +1158,39 @@ class BridgeCallbackHandlerTest {
     }
 
     @Test
+    void gameOverResultSaysWhoWon() throws Exception {
+        UUID gameId = UUID.randomUUID();
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> defaultReturnValue(method.getReturnType())
+        ));
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        handler.setKeepAliveAfterGame(true);
+        addActiveGame(handler, gameId);
+
+        handler.handleCallback(new ClientCallback(
+            ClientCallbackMethod.GAME_OVER,
+            gameId,
+            new GameClientMessage(gameView(9), Collections.<String, Serializable>emptyMap(),
+                "Player <font color='#20B2AA'>TestPlayer</font> is the winner"),
+            false
+        ));
+        handler.awaitProcessorIdle();
+
+        ActionResult result = handler.passPriority(null, null);
+        assertThat(result.stop_reason).isEqualTo("game_over");
+        assertThat(result.game_over).isTrue();
+        assertThat(result.game_result).isEqualTo("Player TestPlayer is the winner (you)");
+        assertThat(BridgeCallbackProcessorService.gameResultForModel("Player Opponent is the winner", "TestPlayer"))
+            .isEqualTo("Player Opponent is the winner");
+        // "TestPlayer 2" winning is not this player winning
+        assertThat(BridgeCallbackProcessorService.gameResultForModel("Player TestPlayer 2 is the winner", "TestPlayer"))
+            .isEqualTo("Player TestPlayer 2 is the winner");
+    }
+
+    @Test
     void concedeWaitsForGameOverOnProcessorFlow() throws Exception {
         UUID gameId = UUID.randomUUID();
         UUID playerId = UUID.randomUUID();
@@ -1294,6 +1330,32 @@ class BridgeCallbackHandlerTest {
         assertThat(targets).singleElement().satisfies(target ->
             assertThat((Map<String, Object>) target).containsEntry("name", "TestPlayer (you)")
         );
+    }
+
+    @Test
+    void triggerOrderChoicesNameTheirSourceCardAndRule() throws Exception {
+        // Triggers that happen together are offered as AbilityViews the server names "Ability".
+        UUID playerId = UUID.randomUUID();
+        UUID hulkTrigger = UUID.randomUUID();
+        UUID selvalaTrigger = UUID.randomUUID();
+        CardsView choices = new CardsView();
+        choices.put(hulkTrigger, abilityView(hulkTrigger, cardView(UUID.randomUUID(), "p3", "Hulk, Always Angry"),
+            "Whenever Hulk attacks, destroy all artifacts."));
+        choices.put(selvalaTrigger, abilityView(selvalaTrigger,
+            cardView(UUID.randomUUID(), "p4", "Selvala, Heart of the Wilds"),
+            "Whenever another creature enters, its controller may draw a card if its power is the greatest."));
+        GameView view = gameView(7, List.of(playerView(playerId, "TestPlayer", "p2")), new CardsView());
+
+        Map<String, Object> hulk = new LinkedHashMap<>();
+        Map<String, Object> selvala = new LinkedHashMap<>();
+        cardFormatter().buildTargetInfo(hulk, hulkTrigger, choices, view, playerId);
+        cardFormatter().buildTargetInfo(selvala, selvalaTrigger, choices, view, playerId);
+
+        assertThat(hulk)
+            .containsEntry("name", "Hulk, Always Angry")
+            .containsEntry("target_type", "ability")
+            .containsEntry("rules", List.of("Whenever Hulk attacks, destroy all artifacts."));
+        assertThat(selvala).containsEntry("name", "Selvala, Heart of the Wilds");
     }
 
     @Test
@@ -5936,8 +5998,9 @@ class BridgeCallbackHandlerTest {
 
     @Test
     void aManaPlanPaysASignetsOwnCostWithALandTheSpellNoLongerNeeds() throws Exception {
-        // Codex game, v0.7.9: mana_plan "p77,p43,p211,p22" for Queen Marchesa. The Signet's {1} took the next
-        // entry, the Pathway (the only black source), and {B} was left unpaid. The Plains pays it instead.
+        // Codex game, v0.7.9: a mana_plan for Queen Marchesa where the Signet's {1} took the next entry, the
+        // Pathway (the only black source), and {B} was left unpaid. The Signet goes first, and the Mountain pays
+        // its {1} instead of the Pathway listed before it.
         BridgeMageClient client = new BridgeMageClient("TestPlayer");
         BridgeCallbackHandler handler = client.getCallbackHandler();
         UUID gameId = UUID.randomUUID();
@@ -5966,18 +6029,19 @@ class BridgeCallbackHandlerTest {
 
         BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
         interactions.advanceTurn(gameView(70, List.of(player), new CardsView()));
-        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p77"), new BridgeManaPlanEntry("tap", "p43"),
-            new BridgeManaPlanEntry("tap", "p211"), new BridgeManaPlanEntry("tap", "p22")), true);
+        interactions.setManaPlan(new ArrayList<>(List.of(new BridgeManaPlanEntry("tap", "p211"),
+            new BridgeManaPlanEntry("tap", "p43"), new BridgeManaPlanEntry("tap", "p77"),
+            new BridgeManaPlanEntry("tap", "p22"))), false);
 
         payAutomatically(handler, manaPrompt(gameId, player, playerId, 70, "Pay {1}{R}{W}{B}" + queen, untapped));
-        untapped.remove(mountainId);
-        payAutomatically(handler, manaPrompt(gameId, player, playerId, 71, "Pay {1}{W}{B}" + queen, untapped));
         untapped.remove(signetId);
-        payAutomatically(handler, manaPrompt(gameId, player, playerId, 72, "Pay {1}" + paidFor(signetId, "Boros Signet"), untapped));
-        untapped.remove(plainsId);
-        payAutomatically(handler, manaPrompt(gameId, player, playerId, 73, "Pay {B}" + queen, untapped));
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 71, "Pay {1}" + paidFor(signetId, "Boros Signet"), untapped));
+        untapped.remove(mountainId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 72, "Pay {1}{B}" + queen, untapped));
+        untapped.remove(pathwayId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 73, "Pay {1}" + queen, untapped));
 
-        assertThat(tapped).containsExactly(mountainId, signetId, plainsId, pathwayId);
+        assertThat(tapped).containsExactly(signetId, mountainId, pathwayId, plainsId);
         assertThat(cancels.get()).isZero();
     }
 
@@ -6046,6 +6110,194 @@ class BridgeCallbackHandlerTest {
 
         assertThat(result.success).isTrue();
         assertThat(tapped).containsExactly(signetId, plainsId, pathwayId);
+    }
+
+    @Test
+    void aManaPlanTapsASourceThatCostsManaBeforeThePlainSourcesThatPayIt() throws Exception {
+        // ChatGPT game, v0.9.11: mana_plan "p23,p19,p18" (Sol Ring, Desolate Mire, Battlefield Forge) for Queen
+        // Marchesa {1}{R}{W}{B}, auto_tap=false. The Mire's {1} took the Forge, and {R} was left unpaid. The Mire
+        // goes first now, Sol Ring pays its {1}, and the {C} Sol Ring has left pays the spell's {1}.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID queenId = UUID.randomUUID();
+        UUID solRingId = UUID.randomUUID();
+        UUID mireId = UUID.randomUUID();
+        UUID forgeId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        client.setSession(manaSession(sent, cancels));
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putPermanents(player, solRingId, "p23", "Sol Ring", mireId, "p19", "Desolate Mire",
+            forgeId, "p18", "Battlefield Forge");
+        registerShortId(handler, solRingId, "p23");
+        registerShortId(handler, mireId, "p19");
+        registerShortId(handler, forgeId, "p18");
+        Map<UUID, PlayableObjectStats> untapped = new LinkedHashMap<>();
+        untapped.put(solRingId, manaStats("{T}: Add {C}{C}."));
+        untapped.put(mireId, manaStats("{1}, {T}: Add {W}{B}."));
+        untapped.put(forgeId, manaStats("{T}: Add {C}.", "{T}: Add {R} or {W}. Battlefield Forge deals 1 damage to you."));
+        String queen = paidFor(queenId, "Queen Marchesa");
+
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(80, List.of(player), new CardsView()));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p23"), new BridgeManaPlanEntry("tap", "p19"),
+            new BridgeManaPlanEntry("tap", "p18")), false);
+
+        setField(player, "manaPool", manaPoolView(0, 0, 0, 0, 0, 0));
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 80, "Pay {1}{R}{W}{B}" + queen, untapped));
+        untapped.remove(mireId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 81, "Pay {1}" + paidFor(mireId, "Desolate Mire"), untapped));
+        untapped.remove(solRingId);
+        setField(player, "manaPool", manaPoolView(0, 0, 0, 0, 0, 1));
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 82, "Pay {1}{R}" + queen, untapped));
+        untapped.remove(forgeId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 83, "Pay {1}" + queen, untapped));
+
+        assertThat(sent).containsExactly(mireId, solRingId, forgeId, ManaType.COLORLESS);
+        assertThat(cancels.get()).isZero();
+    }
+
+    @Test
+    void aSourcesOwnCostIsPaidWithTheManaLeftInThePool() throws Exception {
+        // The same board paid by hand: Sol Ring paid the spell's {1} and its other {C} floats. The model taps the
+        // Mire, and its {1} is paid with that {C} rather than the Forge the spell needs for {R}.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID queenId = UUID.randomUUID();
+        UUID mireId = UUID.randomUUID();
+        UUID forgeId = UUID.randomUUID();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+
+        PlayerView floating = playerView(playerId, "TestPlayer", "p99");
+        PlayerView spent = playerView(playerId, "TestPlayer", "p99");
+        for (PlayerView player : List.of(floating, spent)) {
+            putPermanents(player, mireId, "p19", "Desolate Mire", forgeId, "p18", "Battlefield Forge");
+        }
+        setField(floating, "manaPool", manaPoolView(0, 0, 0, 0, 0, 1));
+        setField(spent, "manaPool", manaPoolView(0, 0, 0, 0, 0, 0));
+        PlayableObjectStats forge = manaStats("{T}: Add {C}.", "{T}: Add {R} or {W}. Battlefield Forge deals 1 damage to you.");
+        Map<UUID, PlayableObjectStats> untapped = new LinkedHashMap<>();
+        untapped.put(mireId, manaStats("{1}, {T}: Add {W}{B}."));
+        untapped.put(forgeId, forge);
+        String queen = paidFor(queenId, "Queen Marchesa");
+        PendingAction first = manaPrompt(gameId, floating, playerId, 90, "Pay {R}{W}{B}" + queen, untapped);
+        GameClientMessage mireCost = (GameClientMessage) manaPrompt(gameId, floating, playerId, 91,
+            "Pay {1}" + paidFor(mireId, "Desolate Mire"), Map.of(forgeId, forge)).data();
+        GameClientMessage red = (GameClientMessage) manaPrompt(
+            gameId, spent, playerId, 92, "Pay {R}" + queen, Map.of(forgeId, forge)).data();
+        GameClientMessage priority = new GameClientMessage(gameView(93, List.of(spent), new CardsView()),
+            Collections.<String, Serializable>emptyMap(), "Play spells and abilities");
+
+        addActiveGame(handler, gameId, playerId);
+        setField(handler, "currentGameId", gameId);
+        setField(handler, "lastGameView", ((GameClientMessage) first.data()).getGameView());
+        registerShortId(handler, mireId, "p19");
+        registerShortId(handler, forgeId, "p18");
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(((GameClientMessage) first.data()).getGameView());
+        client.setSession((Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                if ("sendPlayerUUID".equals(method.getName()) || "sendPlayerManaType".equals(method.getName())) {
+                    sent.add(args[args.length - 1]);
+                    GameClientMessage next = switch (sent.size()) {
+                        case 1 -> mireCost;
+                        case 2 -> red;
+                        default -> priority;
+                    };
+                    enqueueCallback(handler, next == priority ? ClientCallbackMethod.GAME_SELECT
+                        : ClientCallbackMethod.GAME_PLAY_MANA, gameId, next);
+                    return true;
+                }
+                return defaultReturnValue(method.getReturnType());
+            }
+        ));
+        setField(handler, "pendingAction", first);
+
+        var result = handler.chooseAction(null, "p19", null, null, null, null, null, null, null, null, null);
+
+        assertThat(result.success).isTrue();
+        assertThat(sent).containsExactly(mireId, ManaType.COLORLESS, forgeId);
+    }
+
+    @Test
+    void aPlannedAbilityThatCannotPayASourcesOwnCostGivesWayToOneThatCan() throws Exception {
+        // ChatGPT game, v0.9.11: mana_plan for Bruce Banner with Thornspire Verge planned for its {R}. Selvala's
+        // own {G} took the Verge with that {R} ability, so the {G} stayed unpaid. Selvala goes first, and the
+        // Verge, tapped for Selvala's {G}, makes {G}.
+        BridgeMageClient client = new BridgeMageClient("TestPlayer");
+        BridgeCallbackHandler handler = client.getCallbackHandler();
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID spellId = UUID.randomUUID();
+        UUID vergeId = UUID.randomUUID();
+        UUID selvalaId = UUID.randomUUID();
+        UUID forestId = UUID.randomUUID();
+        AtomicInteger cancels = new AtomicInteger();
+        List<Object> sent = Collections.synchronizedList(new ArrayList<>());
+        client.setSession(manaSession(sent, cancels));
+
+        PlayerView player = playerView(playerId, "TestPlayer", "p99");
+        putPermanents(player, vergeId, "p29", "Thornspire Verge", selvalaId, "p28", "Selvala, Heart of the Wilds",
+            forestId, "p13", "Forest");
+        registerShortId(handler, vergeId, "p29");
+        registerShortId(handler, selvalaId, "p28");
+        registerShortId(handler, forestId, "p13");
+        String vergeRed = "{T}: Add {R}.";
+        String vergeGreen = "{T}: Add {G}. Activate only if you control a Forest.";
+        Map<UUID, PlayableObjectStats> untapped = new LinkedHashMap<>();
+        untapped.put(vergeId, manaStats(vergeRed, vergeGreen));
+        untapped.put(selvalaId, manaStats("{G}, {T}: Add X mana in any combination of colors, where X is the "
+            + "greatest power among creatures you control."));
+        untapped.put(forestId, manaStats("{T}: Add {G}."));
+        String spell = paidFor(spellId, "Bruce Banner");
+
+        BridgeInteractionState interactions = (BridgeInteractionState) getProcessorStateField(handler, "interactionState");
+        interactions.advanceTurn(gameView(100, List.of(player), new CardsView()));
+        interactions.setManaPlan(List.of(new BridgeManaPlanEntry("tap", "p29", 0), new BridgeManaPlanEntry("tap", "p28"),
+            new BridgeManaPlanEntry("tap", "p13")), false);
+
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 100, "Pay {2}{R}{G}" + spell, untapped));
+        untapped.remove(selvalaId);
+        payAutomatically(handler, manaPrompt(gameId, player, playerId, 101,
+            "Pay {G}" + paidFor(selvalaId, "Selvala, Heart of the Wilds"), untapped));
+        Map<UUID, String> vergeAbilities = numberedChoices(vergeRed, vergeGreen);
+        payAutomatically(handler, abilityPrompt(gameId, 102, vergeId, "Thornspire Verge", vergeAbilities));
+
+        UUID greenAbility = new ArrayList<>(vergeAbilities.keySet()).get(1);
+        assertThat(sent).containsExactly(selvalaId, vergeId, greenAbility);
+        assertThat(cancels.get()).isZero();
+    }
+
+    /** Records the ids tapped or chosen and the pool mana spent, in order, and counts cancels. */
+    private static Session manaSession(List<Object> sent, AtomicInteger cancels) {
+        return (Session) Proxy.newProxyInstance(
+            Session.class.getClassLoader(),
+            new Class<?>[]{Session.class},
+            (proxy, method, args) -> {
+                switch (method.getName()) {
+                    case "sendPlayerUUID", "sendPlayerManaType" -> {
+                        sent.add(args[args.length - 1]);
+                        return true;
+                    }
+                    case "sendPlayerBoolean" -> {
+                        if (Boolean.FALSE.equals(args[1])) {
+                            cancels.incrementAndGet();
+                        }
+                        return true;
+                    }
+                    default -> {
+                        return defaultReturnValue(method.getReturnType());
+                    }
+                }
+            }
+        );
     }
 
     @Test
@@ -6855,6 +7107,16 @@ class BridgeCallbackHandlerTest {
         setField(view, "sourceCard", sourceCard);
         setField(view, "rules", List.of(rule));
         setField(view, "targets", List.of(targetId));
+        setField(view, "cardTypes", List.of());
+        return view;
+    }
+
+    private static AbilityView abilityView(UUID id, CardView sourceCard, String rule) throws Exception {
+        AbilityView view = (AbilityView) UNSAFE.allocateInstance(AbilityView.class);
+        setField(view, "id", id);
+        setField(view, "name", "Ability");
+        setField(view, "sourceCard", sourceCard);
+        setField(view, "rules", List.of(rule));
         setField(view, "cardTypes", List.of());
         return view;
     }

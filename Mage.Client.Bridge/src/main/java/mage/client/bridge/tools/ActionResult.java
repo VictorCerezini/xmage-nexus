@@ -133,6 +133,9 @@ public class ActionResult {
     @ResultField(description = "Whether the game ended")
     public Boolean game_over;
 
+    @ResultField(description = "How the game ended, as the server announced it; \"(you)\" marks you as the winner")
+    public String game_result;
+
     @ResultField(description = "New chat messages")
     public List<String> recent_chat;
 

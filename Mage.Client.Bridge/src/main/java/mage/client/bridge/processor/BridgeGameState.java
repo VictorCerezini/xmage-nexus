@@ -16,6 +16,8 @@ public final class BridgeGameState {
     private UUID currentChatId = null;
     private boolean superseded = false;
     private boolean playerDead = false;
+    // How the last game ended, as the server announced it ("Player X is the winner"); null before that
+    private String gameResult = null;
     private long generation = 0;
     private GameView lastGameView = null;
     private final RoundTracker roundTracker = new RoundTracker();
@@ -76,6 +78,14 @@ public final class BridgeGameState {
 
     public void markPlayerDead() {
         playerDead = true;
+    }
+
+    public String gameResult() {
+        return gameResult;
+    }
+
+    public void setGameResult(String gameResult) {
+        this.gameResult = gameResult;
     }
 
     public void clearPlayerDead() {
@@ -152,6 +162,7 @@ public final class BridgeGameState {
         currentPlayerId = playerId;
         currentChatId = null;
         gameEverStarted = true;
+        gameResult = null;
     }
 
     public boolean isCurrentActiveGame(UUID gameId) {
@@ -203,6 +214,7 @@ public final class BridgeGameState {
         currentPlayerId = null;
         currentChatId = null;
         gameEverStarted = false;
+        gameResult = null;
         lastGameView = null;
         lastActionableCallbackAt = 0;
         roundTracker.reset();

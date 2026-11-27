@@ -386,6 +386,13 @@ def run_player(request, *, start_player=None, runtime=None):
             return "game_over" if "game_over" in mcp_game else None
         return native_terminal_reason(game_log(bridge_text(), request["username"], number), request["username"])
 
+    def game_result(number):
+        """Who won, for the model told the game ended: the server's words, with "(you)" when it is this player."""
+        name = winner(number)
+        if name is None:
+            return None
+        return f"Player {name} is the winner" + (" (you)" if name == request["username"] else "")
+
     def winner(number):
         if server:
             return mcp_engine.winner(mcp_game.get("game_over"))
@@ -431,7 +438,7 @@ def run_player(request, *, start_player=None, runtime=None):
                 poll_mcp_game()
             if ended_at is None and decided(number):
                 # The game is decided for this player; nothing it calls from now on reaches the next game.
-                gateway.finish_game()
+                gateway.finish_game(game_result(number))
                 ended_at = time.monotonic()
             if engine_stopped and ended_at is None:
                 raise RuntimeError(f"The {player.label} {engine_label} stopped during play")

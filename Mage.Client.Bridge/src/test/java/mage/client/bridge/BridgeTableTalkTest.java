@@ -46,6 +46,26 @@ class BridgeTableTalkTest {
         assertThat(String.valueOf(recentChat(handler))).isEqualTo("[Opponent: good luck, have fun]");
     }
 
+    @Test
+    @Timeout(30)
+    void theModelHearsWhenAPlayerTakesBackMovesEvenWithTableTalkOff() throws Exception {
+        BridgeCallbackHandler handler = new BridgeMageClient("TestPlayer").getCallbackHandler();
+
+        gameLog(handler, "<font color='#FFFF00'>Player request: <font color='#20B2AA'>Albin</font> goes back"
+            + " 2 priorities (turn 5, Precombat Main, <font color='#20B2AA'>Albin</font> had priority)</font>");
+
+        assertThat(String.valueOf(recentChat(handler))).isEqualTo("[[System] Moves were taken back: Albin goes"
+            + " back 2 priorities (turn 5, Precombat Main, Albin had priority). The game is now as it was at that"
+            + " point, and what happened after it is undone. Look at the game again before you act.]");
+    }
+
+    private static void gameLog(BridgeCallbackHandler handler, String message) {
+        ChatMessage line = new ChatMessage(null, message, new Date(), null, ChatMessage.MessageColor.BLACK,
+            ChatMessage.MessageType.GAME, null);
+        handler.handleCallback(new ClientCallback(ClientCallbackMethod.CHATMESSAGE, UUID.randomUUID(), line));
+        handler.awaitProcessorIdle();
+    }
+
     private static void talk(BridgeCallbackHandler handler, String user, String message) {
         ChatMessage chat = new ChatMessage(user, message, new Date(), null, ChatMessage.MessageColor.BLUE);
         handler.handleCallback(new ClientCallback(ClientCallbackMethod.CHATMESSAGE, UUID.randomUUID(), chat));

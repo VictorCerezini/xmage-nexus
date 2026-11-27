@@ -100,7 +100,7 @@ def harness(tmp_path, monkeypatch):
         fatal_error=None,
         idle_since=None,
         close=lambda: None,
-        finish_game=lambda: None,
+        finish_game=lambda *_: None,
         new_player=lambda: None,
         optimization_stats=lambda: {"policy": "gui-efficient-v2"},
         reports=True,
@@ -636,7 +636,7 @@ def test_a_game_that_ends_while_waiting_to_retry_is_not_replayed(undecided, monk
     request, runtime, _stopped, gateway, game_over = undecided
     monkeypatch.setattr(seat, "RETRY_DELAYS", (60,) * len(seat.RETRY_DELAYS))
     starts, finished = [], []
-    gateway.finish_game = lambda: finished.append(True)
+    gateway.finish_game = lambda *_: finished.append(True)
     # The others finish the game while no player is connected for this seat.
     monkeypatch.setattr(seat.time, "sleep", lambda _: starts and not finished and game_over())
 
@@ -656,7 +656,7 @@ def test_a_game_that_ends_while_waiting_to_retry_is_not_replayed(undecided, monk
 def test_a_rollback_brings_an_eliminated_player_back_into_the_game(undecided, monkeypatch):
     request, runtime, _stopped, gateway, game_over = undecided
     prompts, resumed = [], []
-    gateway.finish_game = lambda: None
+    gateway.finish_game = lambda *_: None
     gateway.resume_game = lambda: resumed.append(True)
 
     def start(prompt, out, *_args, **_kwargs):
@@ -685,7 +685,7 @@ def test_a_rollback_brings_an_eliminated_player_back_into_the_game(undecided, mo
 def test_an_eliminated_player_stays_until_the_game_ends_for_everyone(undecided, monkeypatch):
     request, runtime, _stopped, gateway, game_over = undecided
     starts, resumed = [], []
-    gateway.finish_game = lambda: None
+    gateway.finish_game = lambda *_: None
     gateway.resume_game = lambda: resumed.append(True)
 
     def start(_prompt, *_args, **_kwargs):
@@ -1030,7 +1030,7 @@ def match(harness, monkeypatch):
             problem_reports=len(gateways),
             said_all_worked=not gateways,
         )
-        gateway.finish_game = lambda: gateway.finished.append(True)
+        gateway.finish_game = lambda *_: gateway.finished.append(True)
         gateways.append(gateway)
         return gateway
 
@@ -1152,7 +1152,7 @@ def test_bridge_leaving_between_games_without_a_match_result_is_a_failure(match)
 def test_player_that_keeps_going_after_its_game_ended_is_stopped_and_the_result_kept(harness, monkeypatch):
     request, runtime, stopped, gateway = harness
     finished = []
-    gateway.finish_game = lambda: finished.append(True)
+    gateway.finish_game = lambda *_: finished.append(True)
     monkeypatch.setattr(seat, "REPORT_GRACE_SECONDS", 0)
     monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
     # The harness bridge log already reports the game over; this player never exits by itself.
@@ -1163,6 +1163,26 @@ def test_player_that_keeps_going_after_its_game_ended_is_stopped_and_the_result_
     assert manifest["terminal_reason"] == "game_over"
     assert finished == [True]
     assert agent in stopped
+
+
+def test_player_told_its_game_ended_hears_who_won(harness, monkeypatch):
+    request, runtime, _stopped, gateway = harness
+    results = []
+    gateway.finish_game = lambda game_result=None: results.append(game_result)
+    monkeypatch.setattr(seat, "REPORT_GRACE_SECONDS", 0)
+    monkeypatch.setattr(seat, "rpc", lambda *_: result({"available": True}))
+    launch = runtime.launch_bridge
+
+    def launch_with_winner(arguments, env, log, workdir):
+        bridge = launch(arguments, env, log, workdir)
+        log.write(f"[{request['username']}] Game over: Player {request['username']} is the winner\n")
+        log.flush()
+        return bridge
+
+    runtime.launch_bridge = launch_with_winner
+    agent = SimpleNamespace(poll=lambda: None)
+    assert seat.run_player(request, runtime=runtime, start_player=Mock(return_value=agent)) == 0
+    assert results == [f"Player {request['username']} is the winner (you)"]
 
 
 class FakeMcpServer:
@@ -1218,7 +1238,7 @@ def test_mcp_engine_joins_through_the_proxy_and_records_the_winner(mcp_harness):
     request, runtime, stopped, gateway, server, built = mcp_harness
     request["table_password"] = "table-secret"
     finished = []
-    gateway.finish_game = lambda: finished.append(True)
+    gateway.finish_game = lambda *_: finished.append(True)
     polls = iter([None, None])
     agent = SimpleNamespace(poll=lambda: next(polls, 0), returncode=0)
 
@@ -1414,7 +1434,7 @@ def test_a_seat_started_again_keeps_the_backup_that_had_taken_over(harness, monk
 def test_an_mcp_engine_seat_started_again_joins_no_table(mcp_harness, tmp_path):
     request, runtime, _stopped, gateway, server, _built = mcp_harness
     request["restored_from"] = str(tmp_path / "earlier-run-without-a-manifest")
-    gateway.finish_game = lambda: None
+    gateway.finish_game = lambda *_: None
     server.sessions = [
         {"gameId": "g1", "game": {"turn": 4}},
         {"gameId": "g1", "game": {"turn": 4}, "pendingPrompt": {"type": "priority"}},

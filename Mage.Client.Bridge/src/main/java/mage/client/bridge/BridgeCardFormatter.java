@@ -1,5 +1,6 @@
 package mage.client.bridge;
 
+import mage.view.AbilityView;
 import mage.view.CardView;
 import mage.view.CardsView;
 import mage.view.GameView;
@@ -22,16 +23,17 @@ public final class BridgeCardFormatter {
     }
 
     public String safeDisplayName(CardView cv) {
-        if (cv instanceof StackAbilityView sav) {
-            CardView sourceCard = sav.getSourceCard();
-            if (sourceCard != null) {
-                String sourceName = sourceCard.getDisplayName();
-                if (sourceName == null || sourceName.isEmpty()) {
-                    sourceName = sourceCard.getName();
-                }
-                if (sourceName != null && !sourceName.isEmpty()) {
-                    return sourceName;
-                }
+        // An ability on the stack, or one offered as a choice (the order of triggers that happen together), is
+        // named "Ability" by the server; its source card's name says which one it is.
+        CardView sourceCard = cv instanceof StackAbilityView sav ? sav.getSourceCard()
+            : cv instanceof AbilityView av ? av.getSourceCard() : null;
+        if (sourceCard != null) {
+            String sourceName = sourceCard.getDisplayName();
+            if (sourceName == null || sourceName.isEmpty()) {
+                sourceName = sourceCard.getName();
+            }
+            if (sourceName != null && !sourceName.isEmpty()) {
+                return sourceName;
             }
         }
         String name = cv.getDisplayName();
@@ -129,6 +131,13 @@ public final class BridgeCardFormatter {
                 }
                 if (pv.isTapped()) {
                     entry.put("tapped", true);
+                }
+            } else if (cv instanceof AbilityView) {
+                // Two abilities of one card share its name, so the rule text tells them apart.
+                entry.put("target_type", "ability");
+                List<String> rules = BridgePromptFormatting.stripHtmlList(cv.getRules());
+                if (rules != null && !rules.isEmpty()) {
+                    entry.put("rules", rules);
                 }
             } else {
                 entry.put("target_type", "card");

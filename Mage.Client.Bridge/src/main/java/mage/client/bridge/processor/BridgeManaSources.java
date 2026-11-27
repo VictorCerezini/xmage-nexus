@@ -102,6 +102,35 @@ final class BridgeManaSources {
         return found ? new Cost(colored, generic) : null;
     }
 
+    /**
+     * True when a mana ability costs mana too: "{G}, {T}: Add X mana ..." (Selvala), "{1}, {T}: Add {R}{W}." (a
+     * Signet), "{W/B}, {T}: Add ..." (a filter land). {T}, {Q}, energy, life and sacrifices are not mana.
+     */
+    static boolean costsMana(String ability) {
+        String text = ability == null ? null : NUMBERED.matcher(ability).replaceFirst("");
+        int colon = text == null ? -1 : text.indexOf(':');
+        if (colon < 0) {
+            return false;
+        }
+        Matcher matcher = SYMBOL.matcher(text.substring(0, colon));
+        while (matcher.find()) {
+            String symbol = matcher.group(1).trim().toUpperCase(Locale.ROOT);
+            if (!symbol.equals("T") && !symbol.equals("Q") && !symbol.equals("E")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** True when mana of these letters pays a colored symbol of the cost, or its generic part. */
+    static boolean paysPartOf(Cost cost, String colors) {
+        if (cost.generic() > 0) {
+            return true;
+        }
+        Unit unit = new Unit(-1, colors);
+        return cost.colored().stream().anyMatch(need -> pays(unit, need));
+    }
+
     /** The letters a mana ability makes when its whole cost is {T}, or null when it is not plain. */
     static String plainColors(String ability) {
         String effect = plainEffect(ability);

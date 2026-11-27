@@ -106,6 +106,25 @@ class BridgeManaSourcesTest {
     }
 
     @Test
+    void tellsTheManaAbilitiesThatCostManaToo() {
+        assertThat(BridgeManaSources.costsMana("{G}, {T}: Add X mana in any combination of colors.")).isTrue();
+        assertThat(BridgeManaSources.costsMana("{1}, {T}: Add {W}{B}.")).isTrue();
+        assertThat(BridgeManaSources.costsMana("2. {B/R}, {T}: Add {B}{B}, {B}{R}, or {R}{R}.")).isTrue();
+        assertThat(BridgeManaSources.costsMana("{T}: Add {C}{C}.")).isFalse();
+        assertThat(BridgeManaSources.costsMana("{T}, Pay 1 life: Add {B}.")).isFalse();
+        assertThat(BridgeManaSources.costsMana("{T}, Sacrifice this artifact: Add one mana of any color.")).isFalse();
+        assertThat(BridgeManaSources.costsMana(null)).isFalse();
+    }
+
+    @Test
+    void tellsWhetherManaPaysPartOfACost() {
+        assertThat(BridgeManaSources.paysPartOf(BridgeManaSources.parseCost("Pay {G}"), "R")).isFalse();
+        assertThat(BridgeManaSources.paysPartOf(BridgeManaSources.parseCost("Pay {G}"), "G")).isTrue();
+        assertThat(BridgeManaSources.paysPartOf(BridgeManaSources.parseCost("Pay {1}"), "R")).as("generic").isTrue();
+        assertThat(BridgeManaSources.paysPartOf(BridgeManaSources.parseCost("Pay {R/G}"), "G")).isTrue();
+    }
+
+    @Test
     void spendsManaOnAMatchingColorBeforeGeneric() {
         var left = BridgeManaSources.after(BridgeManaSources.parseCost("Pay {1}{W}{B}"), List.of("R", "W"));
         assertThat(left.colored()).containsExactly("B");

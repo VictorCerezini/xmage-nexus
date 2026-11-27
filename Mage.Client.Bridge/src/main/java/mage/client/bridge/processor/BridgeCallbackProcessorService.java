@@ -1,6 +1,7 @@
 package mage.client.bridge.processor;
 
 import mage.cards.decks.DeckCardLists;
+import mage.client.bridge.BridgePromptFormatting;
 import mage.client.bridge.PendingAction;
 import mage.client.bridge.listener.BridgeCallbackIngressErrorHandler;
 import mage.game.BridgeLogEntry;
@@ -326,6 +327,10 @@ public final class BridgeCallbackProcessorService
         if (gameView != null) {
             updateLastGameView(gameView, "handleGameOver");
         }
+        // Kept before the game is marked over, so the result that tells the model the game ended says how
+        if (processorState.gameState().isCurrentActiveGame(gameId)) {
+            processorState.gameState().setGameResult(gameResultForModel(message.getMessage(), username));
+        }
         cleanupGame(gameId);
         logger.info("[" + username + "] Game over: " + message.getMessage());
 
@@ -389,6 +394,39 @@ public final class BridgeCallbackProcessorService
         }
     }
 
+    /** The server's game over line ("Player X is the winner"), marked when this player is the winner. */
+    public static String gameResultForModel(String message, String username) {
+        String result = BridgePromptFormatting.stripHtml(message);
+        if (result == null || result.isBlank()) {
+            return null;
+        }
+        result = result.trim();
+        if (result.startsWith("Player " + username + " is the winner")) {
+            result += " (you)";
+        }
+        return result;
+    }
+
+    /**
+     * The note telling the model that a player took back moves, from the game log line the server writes when
+     * the game goes back ("Player request: Albin goes back 2 priorities (turn 5, ...)" or "Player request:
+     * Rolling back to start of turn 5"); null for any other line. A request alone changes nothing: another
+     * player can still deny it.
+     */
+    public static String takeBackNote(String message) {
+        String line = BridgePromptFormatting.stripHtml(message);
+        String prefix = "Player request: ";
+        if (line == null || !line.trim().startsWith(prefix)) {
+            return null;
+        }
+        String what = line.trim().substring(prefix.length());
+        if (!what.contains(" goes back ") && !what.startsWith("Rolling back to start of turn")) {
+            return null;
+        }
+        return "[System] Moves were taken back: " + what + ". The game is now as it was at that point, and"
+            + " what happened after it is undone. Look at the game again before you act.";
+    }
+
     /** Game log lines colour the name, and "Claude 1" must not match a line about "Claude 10". */
     static boolean logSays(String message, String username, String what) {
         return message != null && message.replaceAll("<[^>]*>", "").contains(username + " " + what);
@@ -407,6 +445,12 @@ public final class BridgeCallbackProcessorService
                         && logSays(message, username, "returns to the game")) {
                     processorState.gameState().clearPlayerDead();
                     logger.info("[" + username + "] Player returned to the game after a rollback");
+                }
+                String wentBack = takeBackNote(message);
+                if (wentBack != null) {
+                    // The bridge agrees to every take-back request by itself, so the model hears it from here
+                    processorState.gameLogState().addSystemMessage(wentBack);
+                    logger.info("[" + username + "] Told the model the game went back: " + wentBack);
                 }
             } else if (chatMessage.getMessageType() == ChatMessage.MessageType.TALK) {
                 String user = chatMessage.getUsername();

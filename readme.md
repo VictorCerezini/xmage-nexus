@@ -23,6 +23,10 @@
 
 - **Model seats answer you in chat** (Windows): with **Can talk in the game chat** ticked, a model seat now answers when you talk to it, ask it something or tease it, in one short message. Claude seats used to stay silent: the old wording made answering optional, and Claude went straight back to playing.
 - **A reminder when the model skips a chat**: if the model goes back to waiting without answering, it gets your message again with a reminder, once. Game notices, like an accepted rollback, need no answer.
+- **Model seats hear when you take back moves**: when the game goes back (Ctrl+Z or a turn rollback), the model seat gets a note saying so, and looks at the game again. Before, it agreed to the request without a word and played on as if nothing had changed.
+- **Model seats know who won**: when a game ends, the model is told who won, or that it was a draw. Before, it was only told that the game had ended.
+- **Trigger order names the triggers**: when several triggers happen at once and the model chooses their order, each choice now shows its card and the ability's text. They were all called "Ability" before.
+- **Mana sources that cost mana**: when a model plans its mana, a source that costs mana itself (Selvala, Heart of the Wilds, a Signet, Desolate Mire) is now tapped before the lands that pay for it. Its cost is paid first with mana left in the pool (Sol Ring's second {C}), and a land planned for another color makes the color that cost needs. Before, such spells were sometimes cancelled for mana that was there.
 - **New components**: the model-seat files changed, so the app downloads its components again the first time it starts after the update.
 
 ## What's new in 0.9.11

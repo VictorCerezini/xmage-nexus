@@ -118,8 +118,10 @@ def tool_response(request, result, *, is_error=False):
     }
 
 
-def finished_response(request, question=None):
+def finished_response(request, question=None, game_result=None):
     result = {"game_over": True, "message": "This game has ended. Report your result briefly and stop."}
+    if game_result:
+        result["game_result"] = game_result
     if question:
         result["bridge_check"] = question
     return tool_response(request, result)
@@ -176,6 +178,8 @@ class GameToolGateway:
         self.upstream_response_bytes = 0
         self.model_response_bytes = 0
         self.game_finished = False
+        # Who won, once seat.py has read it from the game end (finish_game); None before that or for a draw.
+        self.game_result = None
         self.reports = REPORT_TOOL in self.allowed
         # Messages the model sent to the game chat (offered only where the host turned it on), and this turn's.
         self.chat_messages = 0
@@ -250,7 +254,7 @@ class GameToolGateway:
                         response = gateway.report(payload)
                         record["outcome"] = "reported"
                     if response is None and is_call and gateway.game_finished:
-                        response = finished_response(payload, gateway.ask_end_question())
+                        response = finished_response(payload, gateway.ask_end_question(), gateway.game_result)
                         record["outcome"] = "game_finished"
                     if response is None and is_call and gateway.sent_before_chat_wake(params, arrived):
                         response = tool_response(payload, HELD_FOR_CHAT)
@@ -588,13 +592,16 @@ class GameToolGateway:
         if self.view:
             self.view.new_player()
 
-    def finish_game(self):
-        """Answer every later game call with game_over, so this player never acts in the match's next game."""
+    def finish_game(self, game_result=None):
+        """Answer every later game call with game_over, so this player never acts in the match's next game.
+        game_result says who won, for those answers."""
         self.game_finished = True
+        self.game_result = game_result
 
     def resume_game(self):
         """A rollback brought this player back into the game it had been eliminated from."""
         self.game_finished = False
+        self.game_result = None
 
     def close(self):
         self.server.shutdown()

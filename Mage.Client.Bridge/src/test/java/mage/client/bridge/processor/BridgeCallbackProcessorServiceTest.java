@@ -25,4 +25,17 @@ class BridgeCallbackProcessorServiceTest {
     void aMissingMessageSaysNothing() {
         assertThat(BridgeCallbackProcessorService.logSays(null, "Claude 1", "has lost the game")).isFalse();
     }
+
+    @Test
+    void onlyAGameThatWentBackMakesATakeBackNote() {
+        assertThat(BridgeCallbackProcessorService.takeBackNote(
+            "<font color='#FFFF00'>Player request: Rolling back to start of turn 4</font>"))
+            .startsWith("[System] Moves were taken back: Rolling back to start of turn 4. ");
+        // a request can still be denied, and other lines are not about going back
+        assertThat(BridgeCallbackProcessorService.takeBackNote("Undo request denied by Claude 1")).isNull();
+        assertThat(BridgeCallbackProcessorService.takeBackNote(
+            "Player request: It's not possible to rollback 2 turn(s)")).isNull();
+        assertThat(BridgeCallbackProcessorService.takeBackNote("Albin casts Lightning Bolt")).isNull();
+        assertThat(BridgeCallbackProcessorService.takeBackNote(null)).isNull();
+    }
 }
