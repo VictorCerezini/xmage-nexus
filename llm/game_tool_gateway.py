@@ -24,6 +24,32 @@ CHAT_DESCRIPTION = (
     f" Everyone at the table sees it. Plain text on one line, at most {CHAT_LENGTH} characters and "
     f"{CHAT_PER_TURN} messages each turn. It does not change the game."
 )
+# Chat that comes along with a decision sits at the end of a long result, where a model busy with its turn
+# skips it. At a seat with table chat it is moved to the front with this note.
+CHAT_NOTE = (
+    "Another player wrote in the table chat (recent_chat). If they talked to you, answer with send_chat_message "
+    "(one short message) before your next game action."
+)
+# A model may send a call that waits (pass_priority) together with another one. When the first ends early for
+# table chat, the second was sent before the model saw that chat; run as sent it would wait out the others'
+# whole turn and the chat would reach the model only then. So it is answered here, without waiting.
+WAITING_TOOLS = ("pass_priority", "get_action_choices")
+HELD_FOR_CHAT = {
+    "action_pending": False,
+    "stop_reason": "chat",
+    "note": (
+        "Not run: table chat came in while this call waited behind your previous one. The chat is in that "
+        "call's result (recent_chat). If they talked to you, answer now with send_chat_message (one short "
+        "message), then call pass_priority again to keep waiting."
+    ),
+}
+# Wording alone does not get every chat answered: a model busy with the game may go straight back to waiting.
+# So the first wait after chat it did not answer comes back at once with the chat and this reminder, and a
+# second call runs as usual. Chat it means to skip costs one call.
+CHAT_REMINDER = (
+    "Not run: you did not answer the table chat (recent_chat). If they talked to you, answer now with "
+    "send_chat_message (one short message). If it needs no answer, call this again to keep waiting."
+)
 # A tool the gateway answers itself: the model tells us when the game tools kept it from doing what it
 # wanted. Nothing reaches the bridge or the game; the note is saved in the seat's run folder.
 REPORT_TOOL = "report_problem"
@@ -70,6 +96,13 @@ def validate_loopback_url(url):
     parsed = urlsplit(url)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1":
         raise ValueError("The game bridge must be an HTTP endpoint on 127.0.0.1")
+
+
+def is_wait(params):
+    """True for a call that waits for the next decision: pass_priority, or get_action_choices with until."""
+    arguments = params.get("arguments") or {}
+    name = params.get("name")
+    return name in WAITING_TOOLS and (name != "get_action_choices" or bool(arguments.get("until")))
 
 
 def rpc_error(request, code, message):
@@ -159,6 +192,10 @@ class GameToolGateway:
         # request open is deciding its next move, while one waiting in pass_priority is waiting for the others.
         self.open_requests = 0
         self.idle_since = time.monotonic()
+        # When the last call that ended early for table chat was answered (see HELD_FOR_CHAT).
+        self.chat_wake_sent = None
+        # Chat from the last wake-up that the model has not answered yet, until it is reminded once (CHAT_REMINDER).
+        self.unanswered_chat = None
         gateway = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -175,14 +212,15 @@ class GameToolGateway:
 
             def do_POST(self):
                 gateway.request_opened()
+                arrived = time.monotonic()
                 try:
                     payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
                     with gateway.operation_lock:
-                        self.exchange(payload)
+                        self.exchange(payload, arrived)
                 finally:
                     gateway.request_closed()
 
-            def exchange(self, payload):
+            def exchange(self, payload, arrived):
                 method = payload.get("method")
                 is_call = method == "tools/call"
                 params = payload.get("params", {})
@@ -214,6 +252,13 @@ class GameToolGateway:
                     if response is None and is_call and gateway.game_finished:
                         response = finished_response(payload, gateway.ask_end_question())
                         record["outcome"] = "game_finished"
+                    if response is None and is_call and gateway.sent_before_chat_wake(params, arrived):
+                        response = tool_response(payload, HELD_FOR_CHAT)
+                        record["outcome"] = "held_for_chat"
+                        gateway.take_unanswered_chat(params, held=True)
+                    if response is None and is_call and (reminder := gateway.take_unanswered_chat(params)):
+                        response = tool_response(payload, reminder)
+                        record["outcome"] = "chat_reminder"
                     if response is None and is_call and params.get("name") == CHAT_TOOL:
                         message, refusal = gateway.chat_message(params.get("arguments"))
                         if refusal:
@@ -270,11 +315,14 @@ class GameToolGateway:
                         gateway.view.model_response(params["name"], answered)
                         if is_call
                         and gateway.view
-                        and record["outcome"] not in {"game_finished", "reported", "chat_refused"}
+                        and record["outcome"]
+                        not in {"game_finished", "reported", "chat_refused", "held_for_chat", "chat_reminder"}
                         else response
                     )
                     if is_call and record["outcome"] == "ok":
                         outgoing = gateway.with_end_question(outgoing)
+                        outgoing = gateway.with_chat_first(outgoing)
+                        gateway.note_chat(params, outgoing)
                 except (TimeoutError, urllib.error.URLError, ConnectionError, OSError, ValueError) as error:
                     if gateway.view:
                         gateway.view.invalidate_action()
@@ -477,6 +525,52 @@ class GameToolGateway:
             "upstream_response_bytes": self.upstream_response_bytes,
             "model_response_bytes": self.model_response_bytes,
         }
+
+    def sent_before_chat_wake(self, params, arrived):
+        """True for a waiting call the model sent before it could see the last chat wake-up (HELD_FOR_CHAT)."""
+        if not is_wait(params):
+            return False
+        with self.lock:
+            return self.chat_wake_sent is not None and arrived < self.chat_wake_sent
+
+    def with_chat_first(self, response):
+        """At a seat with table chat, chat that came with a decision leads the result, with CHAT_NOTE."""
+        payload = action_payload(response)
+        if (
+            CHAT_TOOL not in self.allowed
+            or not payload
+            or not payload.get("recent_chat")
+            or payload.get("stop_reason") == "chat"
+        ):
+            return response
+        rest = {key: value for key, value in payload.items() if key != "recent_chat"}
+        return replace_payload(response, {"chat_note": CHAT_NOTE, "recent_chat": payload["recent_chat"], **rest})
+
+    def note_chat(self, params, response):
+        """Remembers a call that ended early for table chat: when it was answered, and the chat until the model
+        answers it. Only other players' talk ends a call early, while recent_chat elsewhere may hold game notices.
+        """
+        payload = action_payload(response)
+        with self.lock:
+            if params.get("name") == CHAT_TOOL:
+                self.unanswered_chat = None
+            elif payload and payload.get("stop_reason") == "chat" and not payload.get("action_pending"):
+                self.chat_wake_sent = time.monotonic()
+                if CHAT_TOOL in self.allowed:
+                    self.unanswered_chat = payload.get("recent_chat")
+
+    def take_unanswered_chat(self, params, *, held=False):
+        """For the first wait after a chat wake-up the model did not answer: the reminder to send instead.
+
+        A call held for chat (HELD_FOR_CHAT) already says so, so it counts as the reminder.
+        """
+        if not is_wait(params):
+            return None
+        with self.lock:
+            chat, self.unanswered_chat = self.unanswered_chat, None
+        if held or not chat:
+            return None
+        return {"action_pending": False, "stop_reason": "chat", "recent_chat": chat, "note": CHAT_REMINDER}
 
     def request_opened(self):
         with self.lock:

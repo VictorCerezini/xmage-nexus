@@ -814,8 +814,8 @@ public final class BridgeDecisionFlowService {
     }
 
     static final String CHAT_WAKE_NOTE = "No decision for you yet: another player wrote in the table chat "
-        + "(recent_chat). Answer with send_chat_message if you like, then call pass_priority again (with the same "
-        + "until, if you gave one) to keep waiting.";
+        + "(recent_chat). If they talked to you, answer now with send_chat_message (one short message), then call "
+        + "pass_priority again (with the same until, if you gave one) to keep waiting.";
 
     /**
      * True when table chat is on, another player wrote something the model has not read, and the call has been
