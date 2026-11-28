@@ -81,13 +81,15 @@ public class PlayerView implements Serializable {
         this.bufferTimeLeft = player.getBufferTimeLeft();
         this.timerActive = (this.hasPriority && player.isGameUnderControl())
                 || (player.getPlayersUnderYourControl().contains(state.getPriorityPlayerId()))
-                || player.getId().equals(game.getState().getChoosingPlayerId());
+                || player.getId().equals(state.getChoosingPlayerId());
 
         this.hasLeft = player.hasLeft();
         for (Card card : player.getGraveyard().getCards(game)) {
             graveyard.put(card.getId(), new CardView(card, game, CardUtil.canShowAsControlled(card, createdForPlayerId)));
         }
-        for (ExileZone exileZone : game.getExile().getExileZones()) {
+        // zones from the given state, not the game's: looking back at an earlier priority, the state is
+        // the one saved there (Game.getUndoPriorityState), and the game is as it is now
+        for (ExileZone exileZone : state.getExile().getExileZones()) {
             for (Card card : exileZone.getCards(game)) {
                 if (player.getId().equals(card.getOwnerId())) {
                     exile.put(card.getId(), new CardView(card, game, CardUtil.canShowAsControlled(card, createdForPlayerId)));
@@ -116,7 +118,7 @@ public class PlayerView implements Serializable {
             this.userData = UserData.getDefaultUserDataView();
         }
 
-        for (CommandObject commandObject : game.getState().getCommand()) {
+        for (CommandObject commandObject : state.getCommand()) {
             if (commandObject instanceof Emblem) {
                 Emblem emblem = (Emblem) commandObject;
                 if (emblem.getControllerId().equals(this.playerId)) {
@@ -154,8 +156,8 @@ public class PlayerView implements Serializable {
         this.passedAllTurns = player.getPassedAllTurns();
         this.passedUntilStackResolved = player.getPassedUntilStackResolved();
         this.passedUntilEndStepBeforeMyTurn = player.getPassedUntilEndStepBeforeMyTurn();
-        this.monarch = player.getId().equals(game.getMonarchId());
-        this.initiative = player.getId().equals(game.getInitiativeId());
+        this.monarch = player.getId().equals(state.getMonarchId());
+        this.initiative = player.getId().equals(state.getInitiativeId());
         for (Designation designation : player.getDesignations()) {
             this.designationNames.add(designation.getName());
         }
