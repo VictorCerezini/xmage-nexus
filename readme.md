@@ -19,6 +19,13 @@
   </tr>
 </table>
 
+## What's new in 0.9.13
+
+- **The right board after a take-back**: after a Ctrl+Z or a turn rollback, the game sent the board from before going back first, and the right one a moment later. Now the first board you get is the game as it was at the point you went back to.
+- **Looking back shows the exile as it was**: while you look back before a take-back, each player's exile showed the game as it is now. It now shows the exile as it was at that point, and so do the command zone, the monarch and the initiative.
+- **Model seats see the game's turn number** (Windows): the model used to count rounds ("T6" while the game was on turn 11), and that count never went down after a take-back. It now sees the same turn number as the game and its messages, and it goes back when the game goes back.
+- **New components**: the game engine changed, so the app downloads its components again the first time it starts after the update.
+
 ## What's new in 0.9.12
 
 - **Model seats answer you in chat** (Windows): with **Can talk in the game chat** ticked, a model seat now answers when you talk to it, ask it something or tease it, in one short message. Claude seats used to stay silent: the old wording made answering optional, and Claude went straight back to playing.
