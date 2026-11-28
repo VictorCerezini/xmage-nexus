@@ -4320,7 +4320,8 @@ public abstract class GameImpl implements Game {
 
     private void rollbackTurnsExecution(int turnToGoToForRollback) {
         GameState restore = gameStatesRollBack.get(turnToGoToForRollback);
-        if (restore != null) {
+        boolean rolledBack = restore != null;
+        if (rolledBack) {
             informPlayers(GameLog.getPlayerRequestColoredText("Player request: Rolling back to start of turn " + restore.getTurnNum()));
             state.restoreForRollBack(restore);
             playerList.setCurrent(state.getPlayerByOrderId());
@@ -4342,6 +4343,10 @@ public abstract class GameImpl implements Game {
         }
         endUndoHold();
         executingRollback = false;
+        if (rolledBack) {
+            // the game as it was at that turn's start, sent from here (see undoExecution)
+            fireUpdatePlayersEvent();
+        }
     }
 
     /**
@@ -4505,7 +4510,8 @@ public abstract class GameImpl implements Game {
         if (requester != null && !requester.isHuman()) {
             requester.resetPlayerPassedActions(); // test players
         }
-        fireUpdatePlayersEvent();
+        // no game view from here: the game thread sends it once it went back (undoExecution). One built
+        // now is the game being left, and it can reach the players after the line saying the game went back
         return true;
     }
 
@@ -4558,6 +4564,9 @@ public abstract class GameImpl implements Game {
         }
         undoStopPlayerId = state.getPriorityPlayerId();
         executingRollback = false;
+        // everyone gets the game as it was there right after the line saying so, also when the next
+        // priority isn't a human's (nobody would be sent a game view until that player acts)
+        fireUpdatePlayersEvent();
         return true;
     }
 
@@ -4705,7 +4714,7 @@ public abstract class GameImpl implements Game {
                         playerObject.abort();
                     }
                 }
-                fireUpdatePlayersEvent();
+                // no game view from here, the game thread sends it after rolling back (rollbackTurnsExecution)
                 if (gameOptions.testMode && gameStopped) { // in test mode execute rollback directly
                     rollbackTurnsExecution(turnToGoToForRollback);
                 }
